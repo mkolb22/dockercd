@@ -1,0 +1,19 @@
+apiVersion: dockercd/v1
+kind: Application
+metadata:
+  name: registry
+spec:
+  source:
+    repoURL: https://github.com/mkolb22/dockercd.git
+    targetRevision: main
+    path: applications/registry/
+    composeFiles:
+      - docker-compose.yml
+  destination:
+    dockerHost: unix:///var/run/docker.sock
+    projectName: registry
+  syncPolicy:
+    automated: true
+    prune: true
+    selfHeal: true
+    pollInterval: 180s
