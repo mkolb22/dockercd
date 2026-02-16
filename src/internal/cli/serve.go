@@ -72,7 +72,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 
 	// Initialize components
-	gitSyncer, err := gitsync.New(cfg.DataDir, logger)
+	gitSyncer, err := gitsync.New(cfg.DataDir, logger, cfg.GitToken)
 	if err != nil {
 		return fmt.Errorf("initializing git syncer: %w", err)
 	}
