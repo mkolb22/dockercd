@@ -4,7 +4,7 @@ metadata:
   name: lrp-investments
 spec:
   source:
-    repoURL: https://github.com/mkolb22/LPR-Investments.git
+    repoURL: https://github.com/mkolb22/LRP-Investments.git
     targetRevision: main
     path: deploy/
     composeFiles:
