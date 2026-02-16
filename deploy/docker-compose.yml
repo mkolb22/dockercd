@@ -1,0 +1,25 @@
+services:
+  dockercd:
+    image: dockercd:latest
+    container_name: dockercd
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - dockercd-state:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./dockercd-app.yaml:/config/applications/dockercd-app.yaml:ro
+    environment:
+      DOCKERCD_DATA_DIR: /data
+      DOCKERCD_CONFIG_DIR: /config/applications
+      DOCKERCD_LOG_LEVEL: info
+      DOCKERCD_API_PORT: "8080"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  dockercd-state:
