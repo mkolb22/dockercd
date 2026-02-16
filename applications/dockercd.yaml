@@ -13,7 +13,7 @@ spec:
     dockerHost: unix:///var/run/docker.sock
     projectName: dockercd
   syncPolicy:
-    automated: true
-    prune: true
-    selfHeal: true
+    automated: false
+    prune: false
+    selfHeal: false
     pollInterval: 180s

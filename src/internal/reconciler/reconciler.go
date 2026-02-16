@@ -50,7 +50,6 @@ type Deps struct {
 	Logger        *slog.Logger
 
 	WorkerCount int
-	SelfProject string // Compose project name of this container (for self-deploy protection)
 }
 
 // ReconcilerImpl implements Reconciler with a worker pool and scheduler.
@@ -288,15 +287,6 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 	if !application.Spec.SyncPolicy.Automated && !forced {
 		logger.Info("manual sync required")
 		return r.finishResult(ctx, result, app.SyncResultSkipped, "out of sync, manual sync required", logger)
-	}
-
-	// Self-deployment guard: skip deploying our own container to avoid killing ourselves
-	if r.deps.SelfProject != "" && application.Spec.Destination.ProjectName == r.deps.SelfProject {
-		logger.Warn("self-deployment detected, skipping deploy (restart manually to apply changes)",
-			"project", application.Spec.Destination.ProjectName,
-			"summary", diffResult.Summary,
-		)
-		return r.finishResult(ctx, result, app.SyncResultSkipped, "self-deployment skipped", logger)
 	}
 
 	// STEP 7: Deploy

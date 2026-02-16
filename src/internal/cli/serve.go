@@ -83,9 +83,6 @@ func runServe(_ *cobra.Command, _ []string) error {
 	dep := deployer.New(logger)
 	healthMon := health.New(insp, st, logger, health.DefaultConfig())
 
-	// Detect self-deployment protection (auto-detects own compose project)
-	selfProject := reconciler.DetectSelfProject(context.Background(), cfg.DockerHost, logger)
-
 	// Initialize reconciler
 	rec := reconciler.New(reconciler.Deps{
 		GitSyncer:     gitSyncer,
@@ -97,7 +94,6 @@ func runServe(_ *cobra.Command, _ []string) error {
 		Store:         st,
 		Logger:        logger,
 		WorkerCount:   cfg.WorkerCount,
-		SelfProject:   selfProject,
 	})
 
 	// Set up context with signal handling
