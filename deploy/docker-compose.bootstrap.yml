@@ -1,0 +1,4 @@
+services:
+  dockercd:
+    volumes:
+      - ./dockercd-app.yaml:/config/applications/dockercd-app.yaml:ro

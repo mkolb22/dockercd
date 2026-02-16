@@ -9,18 +9,29 @@ dockercd can deploy and manage itself via GitOps. This directory contains the de
 ```bash
 cd src
 make docker
+docker tag dockercd:dev dockercd:latest
 ```
 
-This builds `dockercd:latest` locally.
+### 2. Set your GitHub token
 
-### 2. Start dockercd
+For private repositories, create a fine-grained personal access token with **Contents: Read-only** permission.
+
+```bash
+export DOCKERCD_GIT_TOKEN=ghp_your_token_here
+```
+
+### 3. Bootstrap dockercd
+
+The first deploy uses a bootstrap overlay to mount the application manifest:
 
 ```bash
 cd deploy
-docker compose up -d
+docker compose -p dockercd -f docker-compose.yml -f docker-compose.bootstrap.yml up -d
 ```
 
-### 3. Verify
+This registers the `dockercd` application in the SQLite database. The `-p dockercd` flag sets the project name to match the reconciler's expected project name.
+
+### 4. Verify
 
 ```bash
 # Check health
@@ -34,15 +45,16 @@ open http://localhost:8080/ui/
 
 dockercd uses a two-phase bootstrap:
 
-**Phase 1 (manual):** You run `docker compose up -d` to start dockercd for the first time. This is necessary because dockercd must exist before it can manage itself.
+**Phase 1 (manual):** You run the bootstrap command above to start dockercd with the application manifest mounted. On startup, it reads `dockercd-app.yaml`, registers itself as a managed application, and stores the registration in SQLite.
 
-**Phase 2 (automatic):** Once running, dockercd reads `dockercd-app.yaml` (mounted into the container), registers itself as a managed application, and begins monitoring its own git repository. From this point forward, changes pushed to the `main` branch are automatically detected and deployed within the 3-minute poll interval.
+**Phase 2 (automatic):** The reconciler clones the git repository, detects drift between the compose file and the live container, and runs `docker compose up -d` to reconcile. Since the app registration is persisted in the named volume, subsequent container restarts no longer need the bind-mounted manifest. From this point forward, changes pushed to the `main` branch are automatically detected and deployed within the 3-minute poll interval.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.yml` | Production deployment descriptor |
+| `docker-compose.yml` | Production deployment descriptor (used by reconciler) |
+| `docker-compose.bootstrap.yml` | Bootstrap overlay that mounts the app manifest |
 | `dockercd-app.yaml` | Application manifest for self-monitoring |
 
 ## Configuration
@@ -55,6 +67,7 @@ All configuration is via environment variables with the `DOCKERCD_` prefix:
 | `DOCKERCD_CONFIG_DIR` | `/config/applications` | Application manifest directory |
 | `DOCKERCD_API_PORT` | `8080` | HTTP listen port |
 | `DOCKERCD_LOG_LEVEL` | `info` | Log verbosity (debug/info/warn/error) |
+| `DOCKERCD_GIT_TOKEN` | *(empty)* | GitHub PAT for private repo access |
 
 ## Persistent State
 
@@ -72,6 +85,6 @@ docker run --rm -v dockercd-state:/data -v $(pwd):/backup alpine \
 Once self-deployment is active, push changes to the `main` branch and dockercd will automatically update itself. For manual updates:
 
 ```bash
-cd src && make docker
-cd ../deploy && docker compose up -d
+cd src && make docker && docker tag dockercd:dev dockercd:latest
+cd ../deploy && docker compose -p dockercd up -d
 ```
