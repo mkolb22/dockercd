@@ -17,11 +17,13 @@ import (
 func DetectSelfProject(ctx context.Context, dockerHost string, logger *slog.Logger) string {
 	hostname, err := os.Hostname()
 	if err != nil {
+		logger.Debug("self-detect: cannot read hostname", "error", err)
 		return ""
 	}
 
-	// Container IDs are 64-char hex strings; short hostnames are not container IDs
+	// Container IDs are 12-char (short) or 64-char (full) hex strings
 	if len(hostname) < 12 {
+		logger.Debug("self-detect: hostname too short, not in container", "hostname", hostname)
 		return ""
 	}
 
@@ -34,18 +36,22 @@ func DetectSelfProject(ctx context.Context, dockerHost string, logger *slog.Logg
 
 	cli, err := client.NewClientWithOpts(opts...)
 	if err != nil {
+		logger.Warn("self-detect: cannot create Docker client", "error", err)
 		return ""
 	}
 	defer cli.Close()
 
 	info, err := cli.ContainerInspect(ctx, hostname)
 	if err != nil {
+		logger.Warn("self-detect: cannot inspect own container", "hostname", hostname, "error", err)
 		return ""
 	}
 
 	project := info.Config.Labels["com.docker.compose.project"]
 	if project != "" {
 		logger.Info("self-deployment protection enabled", "project", project, "containerID", hostname[:12])
+	} else {
+		logger.Debug("self-detect: container has no compose project label", "hostname", hostname)
 	}
 
 	return project
