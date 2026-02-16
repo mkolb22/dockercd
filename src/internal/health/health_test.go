@@ -39,6 +39,14 @@ func (m *mockInspector) InspectService(_ context.Context, _ app.DestinationSpec,
 	return nil, nil
 }
 
+func (m *mockInspector) InspectWithMetrics(_ context.Context, _ app.DestinationSpec) ([]app.ServiceStatus, error) {
+	return nil, nil
+}
+
+func (m *mockInspector) SystemInfo(_ context.Context, _ string) (*app.DockerHostInfo, error) {
+	return nil, nil
+}
+
 func (m *mockInspector) getCalls() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()

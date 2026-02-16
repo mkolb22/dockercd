@@ -16,7 +16,13 @@
     <nav class="header-nav" id="breadcrumb"></nav>
     <div class="header-status">
       <span id="refresh-dot" class="refresh-dot paused"></span>
-      auto-refresh
+      <select id="refresh-interval" class="refresh-select" title="Auto-refresh interval">
+        <option value="300000">5 min</option>
+        <option value="600000" selected>10 min</option>
+        <option value="900000">15 min</option>
+        <option value="1800000">30 min</option>
+        <option value="3600000">60 min</option>
+      </select>
     </div>
   </header>
   <main class="main" id="app">

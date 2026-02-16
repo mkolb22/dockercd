@@ -105,6 +105,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	apiServer := api.NewServer(addr, api.ServerDeps{
 		Store:      st,
 		Reconciler: rec,
+		Inspector:  insp,
 		Logger:     logger,
 	})
 	if err := apiServer.Start(); err != nil {

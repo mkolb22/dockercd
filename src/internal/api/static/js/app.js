@@ -6,13 +6,35 @@
   // --- State ---
   var state = {
     apps: [],
+    systemInfo: null,
     currentApp: null,
     currentTab: 'overview',
     refreshTimer: null,
     syncing: {}
   };
 
-  var REFRESH_INTERVAL = 10000;
+  var DEFAULT_REFRESH_INTERVAL = 600000; // 10 minutes
+
+  function getRefreshInterval() {
+    var saved = localStorage.getItem('dockercd_refresh_interval');
+    return saved ? parseInt(saved, 10) : DEFAULT_REFRESH_INTERVAL;
+  }
+
+  function initRefreshSelector() {
+    var sel = document.getElementById('refresh-interval');
+    if (!sel) return;
+    var val = getRefreshInterval();
+    sel.value = String(val);
+    sel.addEventListener('change', function() {
+      var ms = parseInt(this.value, 10);
+      localStorage.setItem('dockercd_refresh_interval', ms);
+      // Restart refresh with new interval if currently running
+      if (state.refreshTimer) {
+        var fn = state.refreshFn;
+        if (fn) startRefresh(fn);
+      }
+    });
+  }
 
   // --- Router ---
 
@@ -39,8 +61,12 @@
     updateBreadcrumb([{ label: 'Applications' }]);
     setContent('<div class="loading"><div class="spinner"></div>Loading...</div>');
 
-    API.listApps().then(function(data) {
-      state.apps = data.items || [];
+    Promise.all([
+      API.listApps(),
+      API.getSystemInfo().catch(function() { return null; })
+    ]).then(function(results) {
+      state.apps = results[0].items || [];
+      state.systemInfo = results[1];
       renderDashboard();
       startRefresh(refreshDashboard);
     }).catch(function(err) {
@@ -49,14 +75,22 @@
   }
 
   function renderDashboard() {
-    setContent(Components.appGrid(state.apps));
+    var html = '';
+    if (state.systemInfo) {
+      html += Components.systemInfoPanel(state.systemInfo);
+    }
+    html += Components.appGrid(state.apps);
+    setContent(html);
   }
 
   function refreshDashboard() {
     if (document.hidden) return;
-    API.listApps().then(function(data) {
-      state.apps = data.items || [];
-      // Only re-render if we're still on dashboard
+    Promise.all([
+      API.listApps(),
+      API.getSystemInfo().catch(function() { return null; })
+    ]).then(function(results) {
+      state.apps = results[0].items || [];
+      state.systemInfo = results[1];
       if (getRoute().page === 'dashboard') {
         renderDashboard();
       }
@@ -80,13 +114,15 @@
       API.getApp(name),
       API.getDiff(name),
       API.getHistory(name),
-      API.getEvents(name)
+      API.getEvents(name),
+      API.getAppMetrics(name).catch(function() { return null; })
     ]).then(function(results) {
       state.currentApp = {
         app: results[0],
         diff: results[1],
         history: (results[2].items || []),
-        events: (results[3].items || [])
+        events: (results[3].items || []),
+        metrics: results[4] ? (results[4].items || []) : []
       };
       renderDetail(name);
       startRefresh(function() { refreshDetail(name); });
@@ -103,6 +139,9 @@
     var syncBtnText = state.syncing[name] ? '<div class="spinner"></div>Syncing...' : 'Sync';
     var syncBtnDisabled = state.syncing[name] ? ' disabled' : '';
 
+    // Merge metrics into services for the deployment tree
+    var services = mergeMetrics(app.status.services, d.metrics);
+
     var html =
       '<div class="detail-header">' +
         '<span class="detail-name">' + Components.esc(name) + '</span>' +
@@ -114,12 +153,17 @@
       '</div>' +
       '<div class="tabs">' +
         tabBtn('overview', 'Overview') +
+        tabBtn('resources', 'Resources') +
         tabBtn('diff', 'Diff') +
         tabBtn('history', 'History') +
         tabBtn('events', 'Events') +
       '</div>' +
       '<div id="tab-overview" class="tab-content' + (state.currentTab === 'overview' ? ' active' : '') + '">' +
+        Components.deploymentTree(app, services) +
         Components.overviewTab(app) +
+      '</div>' +
+      '<div id="tab-resources" class="tab-content' + (state.currentTab === 'resources' ? ' active' : '') + '">' +
+        resourcesTab(services) +
       '</div>' +
       '<div id="tab-diff" class="tab-content' + (state.currentTab === 'diff' ? ' active' : '') + '">' +
         Components.diffTab(d.diff) +
@@ -148,6 +192,43 @@
     });
   }
 
+  function mergeMetrics(services, metricsItems) {
+    if (!metricsItems || metricsItems.length === 0) return services || [];
+    if (!services || services.length === 0) return metricsItems;
+
+    // Build lookup by service name
+    var metricsMap = {};
+    metricsItems.forEach(function(m) {
+      metricsMap[m.name] = m;
+    });
+
+    return services.map(function(svc) {
+      var m = metricsMap[svc.name];
+      if (m && m.metrics) {
+        return { name: svc.name, image: svc.image, health: svc.health, state: svc.state, metrics: m.metrics };
+      }
+      return svc;
+    });
+  }
+
+  function resourcesTab(services) {
+    if (!services || services.length === 0) {
+      return '<div class="empty-state"><p>No service metrics available</p></div>';
+    }
+
+    var hasMetrics = services.some(function(s) { return s.metrics; });
+    if (!hasMetrics) {
+      return '<div class="empty-state"><p>Metrics not available — containers may not be running</p></div>';
+    }
+
+    var html = '<div class="service-cards">';
+    services.forEach(function(svc) {
+      html += Components.serviceCard(svc);
+    });
+    html += '</div>';
+    return html;
+  }
+
   function tabBtn(id, label) {
     var cls = state.currentTab === id ? 'tab active' : 'tab';
     return '<button class="' + cls + '" data-tab="' + id + '">' + Components.esc(label) + '</button>';
@@ -169,13 +250,15 @@
       API.getApp(name),
       API.getDiff(name),
       API.getHistory(name),
-      API.getEvents(name)
+      API.getEvents(name),
+      API.getAppMetrics(name).catch(function() { return null; })
     ]).then(function(results) {
       state.currentApp = {
         app: results[0],
         diff: results[1],
         history: (results[2].items || []),
-        events: (results[3].items || [])
+        events: (results[3].items || []),
+        metrics: results[4] ? (results[4].items || []) : []
       };
       if (getRoute().page === 'detail' && getRoute().name === name) {
         renderDetail(name);
@@ -213,7 +296,8 @@
 
   function startRefresh(fn) {
     stopRefresh();
-    state.refreshTimer = setInterval(fn, REFRESH_INTERVAL);
+    state.refreshFn = fn;
+    state.refreshTimer = setInterval(fn, getRefreshInterval());
     updateRefreshDot(true);
   }
 
@@ -256,6 +340,7 @@
   window.addEventListener('hashchange', navigate);
 
   document.addEventListener('DOMContentLoaded', function() {
+    initRefreshSelector();
     if (!location.hash) location.hash = '#/apps';
     navigate();
   });

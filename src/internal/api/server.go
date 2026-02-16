@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/mkolb22/dockercd/internal/inspector"
 	"github.com/mkolb22/dockercd/internal/reconciler"
 	"github.com/mkolb22/dockercd/internal/store"
 )
@@ -23,6 +24,7 @@ var staticFS embed.FS
 type ServerDeps struct {
 	Store      *store.SQLiteStore
 	Reconciler reconciler.Reconciler
+	Inspector  inspector.StateInspector
 	Logger     *slog.Logger
 }
 
@@ -38,6 +40,7 @@ func NewServer(addr string, deps ServerDeps) *Server {
 	h := &Handler{
 		store:      deps.Store,
 		reconciler: deps.Reconciler,
+		inspector:  deps.Inspector,
 		logger:     deps.Logger,
 	}
 
@@ -57,6 +60,7 @@ func NewServer(addr string, deps ServerDeps) *Server {
 	// API routes
 	router.Route("/api/v1", func(r chi.Router) {
 		r.Use(contentTypeJSON)
+		r.Get("/system", h.GetSystemInfo)
 		r.Route("/applications", func(r chi.Router) {
 			r.Get("/", h.ListApplications)
 			r.Post("/", h.CreateApplication)
@@ -66,6 +70,7 @@ func NewServer(addr string, deps ServerDeps) *Server {
 				r.Get("/diff", h.DiffApplication)
 				r.Get("/events", h.GetEvents)
 				r.Get("/history", h.GetHistory)
+				r.Get("/metrics", h.GetAppMetrics)
 			})
 		})
 	})

@@ -50,6 +50,12 @@ func (m *mockInspector) Inspect(_ context.Context, _ app.DestinationSpec) ([]app
 func (m *mockInspector) InspectService(_ context.Context, _ app.DestinationSpec, _ string) (*app.ServiceState, error) {
 	return nil, nil
 }
+func (m *mockInspector) InspectWithMetrics(_ context.Context, _ app.DestinationSpec) ([]app.ServiceStatus, error) {
+	return nil, nil
+}
+func (m *mockInspector) SystemInfo(_ context.Context, _ string) (*app.DockerHostInfo, error) {
+	return nil, nil
+}
 
 type mockDiffer struct {
 	result *app.DiffResult

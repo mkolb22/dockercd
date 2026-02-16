@@ -49,6 +49,14 @@ var API = (function() {
 
     getEvents: function(name) {
       return request('GET', '/applications/' + encodeURIComponent(name) + '/events');
+    },
+
+    getSystemInfo: function() {
+      return request('GET', '/system');
+    },
+
+    getAppMetrics: function(name) {
+      return request('GET', '/applications/' + encodeURIComponent(name) + '/metrics');
     }
   };
 })();

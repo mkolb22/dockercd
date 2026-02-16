@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mkolb22/dockercd/internal/app"
+	"github.com/mkolb22/dockercd/internal/inspector"
 	"github.com/mkolb22/dockercd/internal/reconciler"
 	"github.com/mkolb22/dockercd/internal/store"
 )
@@ -18,6 +19,7 @@ import (
 type Handler struct {
 	store      *store.SQLiteStore
 	reconciler reconciler.Reconciler
+	inspector  inspector.StateInspector
 	logger     *slog.Logger
 }
 
@@ -254,6 +256,59 @@ func (h *Handler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ListResponse[store.SyncRecord]{
 		Items: records,
 		Total: len(records),
+	})
+}
+
+// GetSystemInfo returns Docker daemon system information.
+func (h *Handler) GetSystemInfo(w http.ResponseWriter, r *http.Request) {
+	if h.inspector == nil {
+		writeError(w, http.StatusServiceUnavailable, "inspector not available", CodeUnavailable)
+		return
+	}
+
+	info, err := h.inspector.SystemInfo(r.Context(), "")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "getting system info: "+err.Error(), CodeInternalError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, SystemInfoResponse{Host: info})
+}
+
+// GetAppMetrics returns per-service resource metrics for an application.
+func (h *Handler) GetAppMetrics(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+
+	if h.inspector == nil {
+		writeError(w, http.StatusServiceUnavailable, "inspector not available", CodeUnavailable)
+		return
+	}
+
+	appRec, err := h.store.GetApplication(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "getting application: "+err.Error(), CodeInternalError)
+		return
+	}
+	if appRec == nil {
+		writeError(w, http.StatusNotFound, "application not found: "+name, CodeNotFound)
+		return
+	}
+
+	var application app.Application
+	if err := json.Unmarshal([]byte(appRec.Manifest), &application); err != nil {
+		writeError(w, http.StatusInternalServerError, "parsing manifest: "+err.Error(), CodeInternalError)
+		return
+	}
+
+	services, err := h.inspector.InspectWithMetrics(r.Context(), application.Spec.Destination)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "inspecting metrics: "+err.Error(), CodeInternalError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, ListResponse[app.ServiceStatus]{
+		Items: services,
+		Total: len(services),
 	})
 }
 

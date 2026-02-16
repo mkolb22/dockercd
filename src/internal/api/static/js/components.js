@@ -308,6 +308,115 @@ var Components = (function() {
       '<tbody>' + rows + '</tbody></table></div>';
   }
 
+  // --- Resource Bars (htop-style) ---
+
+  function resourceBar(label, value, max, unit) {
+    var pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+    var cls = pct < 50 ? 'low' : (pct < 80 ? 'medium' : 'high');
+    var valText = value.toFixed(1) + (unit ? ' ' + unit : '');
+    if (max > 0 && unit) valText += ' / ' + max.toFixed(0) + ' ' + unit;
+    return '<div class="resource-bar">' +
+      '<div class="resource-bar-fill ' + cls + '" style="width:' + pct.toFixed(1) + '%"></div>' +
+      '<span class="resource-bar-label">' + esc(label) + '</span>' +
+      '<span class="resource-bar-value">' + esc(valText) + ' (' + pct.toFixed(0) + '%)</span>' +
+    '</div>';
+  }
+
+  // --- Service Card ---
+
+  function serviceCard(svc) {
+    var healthCls = 'health-' + (svc.health || 'unknown').toLowerCase();
+    var html = '<div class="service-card ' + healthCls + '">';
+    html += '<div class="svc-header">' +
+      '<span class="svc-name">' + esc(svc.name) + '</span>' +
+      healthBadge(svc.health) +
+    '</div>';
+    html += '<div class="svc-image">' + esc(svc.image) + '</div>';
+
+    if (svc.metrics) {
+      var m = svc.metrics;
+      html += '<div class="svc-metrics">';
+      html += resourceBar('CPU', m.cpuPercent, 100, '%');
+      html += resourceBar('MEM', m.memoryUsageMB, m.memoryLimitMB, 'MB');
+      html += '</div>';
+      html += '<div class="svc-stats">';
+      if (m.uptime) html += '<span class="mini-stat">Up <span class="mini-stat-value">' + esc(m.uptime) + '</span></span>';
+      html += '<span class="mini-stat">Net \u2193<span class="mini-stat-value">' + m.networkRxMB.toFixed(1) + 'MB</span> \u2191<span class="mini-stat-value">' + m.networkTxMB.toFixed(1) + 'MB</span></span>';
+      if (m.pids > 0) html += '<span class="mini-stat">PIDs <span class="mini-stat-value">' + m.pids + '</span></span>';
+      html += '</div>';
+    } else {
+      html += '<div class="svc-stats"><span class="mini-stat">' + esc(svc.state || '-') + '</span></div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // --- Deployment Tree (ArgoCD-style) ---
+
+  function deploymentTree(app, services) {
+    var statusCls = cardStatusClass(app);
+    var st = app.status;
+
+    var html = '<div class="deploy-tree">';
+
+    // App node
+    html += '<div class="deploy-node app-node ' + statusCls + '">';
+    html += '<div class="app-node-name">' + esc(app.metadata.name) + '</div>';
+    html += '<div class="app-node-meta">' + esc(repoShort(app.spec.source.repoURL)) + '</div>';
+    if (st.lastSyncedSHA) {
+      html += '<div class="app-node-meta" style="font-family:var(--font-mono)">' + esc(shortSHA(st.lastSyncedSHA)) + '</div>';
+    }
+    html += '<div class="app-node-badges">' + syncBadge(st.syncStatus) + healthBadge(st.healthStatus) + '</div>';
+    html += '</div>';
+
+    // Connector
+    html += '<div class="deploy-connector"></div>';
+
+    // Service cards
+    html += '<div class="service-cards">';
+    if (services && services.length > 0) {
+      services.forEach(function(svc) { html += serviceCard(svc); });
+    } else if (st.services && st.services.length > 0) {
+      st.services.forEach(function(svc) { html += serviceCard(svc); });
+    } else {
+      html += '<div class="empty-state"><p>No services</p></div>';
+    }
+    html += '</div>';
+    html += '</div>';
+    return html;
+  }
+
+  // --- System Info Panel ---
+
+  function systemInfoPanel(info) {
+    if (!info || !info.host) return '';
+    var h = info.host;
+    return '<div class="system-panel">' +
+      '<div class="system-panel-title">Docker Host</div>' +
+      stat(h.serverVersion, 'Engine') +
+      stat(h.os, 'OS') +
+      stat(h.architecture, 'Arch') +
+      stat(h.cpus, 'CPUs') +
+      stat(formatMem(h.totalMemoryMB), 'Memory') +
+      stat(h.storageDriver, 'Storage') +
+      stat(h.containersRunning + ' / ' + h.containers, 'Containers') +
+      stat(h.images, 'Images') +
+    '</div>';
+  }
+
+  function stat(value, label) {
+    return '<div class="system-stat">' +
+      '<div class="system-stat-value">' + esc(String(value || '-')) + '</div>' +
+      '<div class="system-stat-label">' + esc(label) + '</div>' +
+    '</div>';
+  }
+
+  function formatMem(mb) {
+    if (!mb) return '-';
+    if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
+    return mb + ' MB';
+  }
+
   // --- Toast ---
 
   function toast(message, type) {
@@ -333,6 +442,10 @@ var Components = (function() {
     eventsTab: eventsTab,
     syncBadge: syncBadge,
     healthBadge: healthBadge,
+    resourceBar: resourceBar,
+    serviceCard: serviceCard,
+    deploymentTree: deploymentTree,
+    systemInfoPanel: systemInfoPanel,
     toast: toast,
     timeAgo: timeAgo,
     esc: esc

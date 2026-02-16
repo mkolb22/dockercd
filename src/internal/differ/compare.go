@@ -117,40 +117,28 @@ func normalizeImage(image string) string {
 }
 
 // compareEnvironment compares desired and live environment variables key-by-key.
-// Variables injected by Docker (PATH, HOME, HOSTNAME, etc.) are excluded from
-// comparison when they appear only in live state.
+// Only keys defined in the desired state are compared. Variables that exist
+// only in live state (inherited from the base image or injected by Docker)
+// are not considered drift.
 func compareEnvironment(desired, live map[string]string) []app.FieldDiff {
-	if len(desired) == 0 && len(live) == 0 {
+	if len(desired) == 0 {
 		return nil
 	}
 
 	var diffs []app.FieldDiff
 
-	// All keys from both maps
-	allKeys := make(map[string]bool)
+	// Only compare keys that are in the desired state
+	keys := make([]string, 0, len(desired))
 	for k := range desired {
-		allKeys[k] = true
-	}
-	for k := range live {
-		if !isDockerInjectedVar(k) {
-			allKeys[k] = true
-		}
-	}
-
-	// Compare each key, sorted for deterministic output
-	keys := make([]string, 0, len(allKeys))
-	for k := range allKeys {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
 	for _, key := range keys {
 		dv := desired[key]
-		lv := live[key]
-		_, inDesired := desired[key]
-		_, inLive := live[key]
+		lv, inLive := live[key]
 
-		if inDesired && inLive {
+		if inLive {
 			if dv != lv {
 				diffs = append(diffs, app.FieldDiff{
 					Field:   "environment." + key,
@@ -158,17 +146,11 @@ func compareEnvironment(desired, live map[string]string) []app.FieldDiff {
 					Live:    lv,
 				})
 			}
-		} else if inDesired && !inLive {
+		} else {
 			diffs = append(diffs, app.FieldDiff{
 				Field:   "environment." + key,
 				Desired: dv,
 				Live:    "",
-			})
-		} else if !inDesired && inLive && !isDockerInjectedVar(key) {
-			diffs = append(diffs, app.FieldDiff{
-				Field:   "environment." + key,
-				Desired: "",
-				Live:    lv,
 			})
 		}
 	}
@@ -252,24 +234,21 @@ func compareLabels(desired, live map[string]string) []app.FieldDiff {
 	return diffs
 }
 
-// portsEqual compares two port lists order-independently.
+// portsEqual checks that all desired ports exist in the live port list.
+// Extra live ports (e.g. from EXPOSE directives in the image) are ignored.
 // Duplicate entries (e.g. Docker Desktop IPv4+IPv6 bindings) are deduplicated.
-func portsEqual(a, b []app.PortMapping) bool {
-	sa := dedupStrings(normalizedPorts(a))
-	sb := dedupStrings(normalizedPorts(b))
-
-	if len(sa) != len(sb) {
-		return false
-	}
-	if len(sa) == 0 {
+func portsEqual(desired, live []app.PortMapping) bool {
+	if len(desired) == 0 {
 		return true
 	}
 
-	sort.Strings(sa)
-	sort.Strings(sb)
+	liveSet := make(map[string]bool)
+	for _, p := range dedupStrings(normalizedPorts(live)) {
+		liveSet[p] = true
+	}
 
-	for i := range sa {
-		if sa[i] != sb[i] {
+	for _, p := range dedupStrings(normalizedPorts(desired)) {
+		if !liveSet[p] {
 			return false
 		}
 	}
@@ -337,8 +316,10 @@ func volumesEqual(desired, live []app.VolumeMount) bool {
 		if dv.ReadOnly != lv.ReadOnly {
 			return false
 		}
-		// For bind mounts (absolute or relative path), compare source too
-		if !isNamedVolume(dv.Source) && dv.Source != lv.Source {
+		// For bind mounts (absolute or relative path), compare source too.
+		// Skip source comparison for Docker socket mounts — Docker Desktop
+		// rewrites /var/run/docker.sock to /run/host-services/docker.proxy.sock.
+		if !isNamedVolume(dv.Source) && !isDockerSocket(dv.Target) && dv.Source != lv.Source {
 			return false
 		}
 	}
@@ -348,6 +329,13 @@ func volumesEqual(desired, live []app.VolumeMount) bool {
 // isNamedVolume returns true if the source looks like a named volume (no "/" or "." prefix).
 func isNamedVolume(source string) bool {
 	return source != "" && !strings.HasPrefix(source, "/") && !strings.HasPrefix(source, ".")
+}
+
+// isDockerSocket returns true if the target path is the Docker socket.
+// Docker Desktop rewrites the source path at runtime, so we skip source
+// comparison for socket mounts to avoid false drift.
+func isDockerSocket(target string) bool {
+	return target == "/var/run/docker.sock" || target == "/run/docker.sock"
 }
 
 func normalizedVolumes(vols []app.VolumeMount) []string {
