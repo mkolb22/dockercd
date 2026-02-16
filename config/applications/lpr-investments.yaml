@@ -1,0 +1,19 @@
+apiVersion: dockercd/v1
+kind: Application
+metadata:
+  name: lpr-investments
+spec:
+  source:
+    repoURL: https://github.com/mkolb22/LPR-Investments.git
+    targetRevision: main
+    path: deploy/
+    composeFiles:
+      - docker-compose.yml
+  destination:
+    dockerHost: unix:///var/run/docker.sock
+    projectName: lpr-investments
+  syncPolicy:
+    automated: true
+    prune: true
+    selfHeal: true
+    pollInterval: 180s

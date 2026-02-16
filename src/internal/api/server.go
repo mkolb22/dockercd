@@ -59,6 +59,7 @@ func NewServer(addr string, deps ServerDeps) *Server {
 		r.Use(contentTypeJSON)
 		r.Route("/applications", func(r chi.Router) {
 			r.Get("/", h.ListApplications)
+			r.Post("/", h.CreateApplication)
 			r.Route("/{name}", func(r chi.Router) {
 				r.Get("/", h.GetApplication)
 				r.Post("/sync", h.SyncApplication)
