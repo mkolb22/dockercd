@@ -85,14 +85,15 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	// Initialize reconciler
 	rec := reconciler.New(reconciler.Deps{
-		GitSyncer:   gitSyncer,
-		Parser:      p,
-		Inspector:   insp,
-		Differ:      d,
-		Deployer:    dep,
-		Store:       st,
-		Logger:      logger,
-		WorkerCount: cfg.WorkerCount,
+		GitSyncer:     gitSyncer,
+		Parser:        p,
+		Inspector:     insp,
+		Differ:        d,
+		Deployer:      dep,
+		HealthMonitor: healthMon,
+		Store:         st,
+		Logger:        logger,
+		WorkerCount:   cfg.WorkerCount,
 	})
 
 	// Set up context with signal handling

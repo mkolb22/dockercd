@@ -316,10 +316,9 @@ func formatPorts(ports []app.PortMapping) string {
 // For each desired volume, finds a matching live volume by target path.
 // Named volumes (no "/" in source) are compared by target+readOnly only,
 // since Docker resolves the source to the full host path at runtime.
+// Extra live volumes (e.g. from overlay compose files) are ignored — only
+// desired volumes must be present and correct.
 func volumesEqual(desired, live []app.VolumeMount) bool {
-	if len(desired) != len(live) {
-		return false
-	}
 	if len(desired) == 0 {
 		return true
 	}
