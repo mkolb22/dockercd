@@ -14,11 +14,13 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/docker/docker/client"
 	"github.com/mkolb22/dockercd/internal/api"
 	"github.com/mkolb22/dockercd/internal/app"
 	"github.com/mkolb22/dockercd/internal/config"
 	"github.com/mkolb22/dockercd/internal/deployer"
 	"github.com/mkolb22/dockercd/internal/differ"
+	"github.com/mkolb22/dockercd/internal/events"
 	"github.com/mkolb22/dockercd/internal/gitsync"
 	"github.com/mkolb22/dockercd/internal/health"
 	"github.com/mkolb22/dockercd/internal/inspector"
@@ -96,6 +98,16 @@ func runServe(_ *cobra.Command, _ []string) error {
 		WorkerCount:   cfg.WorkerCount,
 	})
 
+	// Initialize event watcher for self-healing
+	eventClientFactory := func(host string) (events.EventClient, error) {
+		opts := []client.Opt{client.WithAPIVersionNegotiation()}
+		if host != "" {
+			opts = append(opts, client.WithHost(host))
+		}
+		return client.NewClientWithOpts(opts...)
+	}
+	eventWatcher := events.NewWatcher(eventClientFactory, rec, st, logger, events.DefaultWatcherConfig())
+
 	// Set up context with signal handling
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -119,6 +131,13 @@ func runServe(_ *cobra.Command, _ []string) error {
 		}
 	}()
 
+	// Start event watcher in background (Docker event stream for self-healing)
+	go func() {
+		if err := eventWatcher.Start(ctx); err != nil {
+			logger.Error("event watcher error", "error", err)
+		}
+	}()
+
 	// Start reconciler (blocks until ctx is canceled)
 	logger.Info("dockercd ready", "api_addr", addr)
 	err = rec.Start(ctx)
@@ -127,6 +146,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()
 
+	eventWatcher.Stop()
 	healthMon.Stop()
 	apiServer.Stop(shutdownCtx)
 	gitSyncer.Close()

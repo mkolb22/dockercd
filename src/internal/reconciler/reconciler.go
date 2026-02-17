@@ -380,6 +380,26 @@ func (r *ReconcilerImpl) finishResult(ctx context.Context, result *app.SyncResul
 		logger.Error("failed to record sync", "error", err)
 	}
 
+	// Record event for non-skipped results
+	if status != app.SyncResultSkipped {
+		severity := "info"
+		eventType := "SyncSuccess"
+		message := fmt.Sprintf("Sync %s (%s)", status, result.Operation)
+		if status == app.SyncResultFailure {
+			severity = "error"
+			eventType = "SyncError"
+			message = fmt.Sprintf("Sync failed (%s): %s", result.Operation, errMsg)
+		} else if result.CommitSHA != "" {
+			message = fmt.Sprintf("Deployed %s via %s", result.CommitSHA[:min(7, len(result.CommitSHA))], result.Operation)
+		}
+		r.deps.Store.RecordEvent(ctx, &store.EventRecord{
+			AppName:  result.AppName,
+			Type:     eventType,
+			Message:  message,
+			Severity: severity,
+		})
+	}
+
 	if errMsg != "" {
 		return result, fmt.Errorf("%s", errMsg)
 	}
