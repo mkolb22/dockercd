@@ -149,8 +149,8 @@ var Components = (function() {
           healthBadge(app.status.healthStatus) +
         '</div>' +
       '</div>' +
-      '<div class="card-repo">' + esc(repo) + '</div>' +
       portsLine +
+      '<div class="card-repo">' + esc(repo) + '</div>' +
       errorLine +
       '<div class="card-footer">' +
         '<span>' + esc(syncTime) + '</span>' +
