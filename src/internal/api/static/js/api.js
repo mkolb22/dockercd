@@ -12,11 +12,16 @@ var API = (function() {
   APIError.prototype = Object.create(Error.prototype);
   APIError.prototype.constructor = APIError;
 
-  function request(method, path) {
-    return fetch(BASE + path, {
+  function request(method, path, body) {
+    var opts = {
       method: method,
       headers: { 'Accept': 'application/json' }
-    }).then(function(res) {
+    };
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    return fetch(BASE + path, opts).then(function(res) {
       return res.json().then(function(data) {
         if (!res.ok) throw new APIError(res.status, data);
         return data;
@@ -57,6 +62,14 @@ var API = (function() {
 
     getAppMetrics: function(name) {
       return request('GET', '/applications/' + encodeURIComponent(name) + '/metrics');
+    },
+
+    getPollInterval: function() {
+      return request('GET', '/settings/poll-interval');
+    },
+
+    setPollInterval: function(intervalMs) {
+      return request('PUT', '/settings/poll-interval', { intervalMs: intervalMs });
     }
   };
 })();

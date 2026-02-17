@@ -335,6 +335,32 @@ func (h *Handler) GetAppMetrics(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetPollInterval returns the current global poll interval override.
+func (h *Handler) GetPollInterval(w http.ResponseWriter, r *http.Request) {
+	interval := h.reconciler.GetPollOverride()
+	writeJSON(w, http.StatusOK, PollIntervalResponse{IntervalMs: int64(interval / time.Millisecond)})
+}
+
+// SetPollInterval sets the global poll interval override.
+func (h *Handler) SetPollInterval(w http.ResponseWriter, r *http.Request) {
+	var req PollIntervalRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body", CodeBadRequest)
+		return
+	}
+	if req.IntervalMs < 0 {
+		writeError(w, http.StatusBadRequest, "intervalMs must be >= 0", CodeBadRequest)
+		return
+	}
+	d := time.Duration(req.IntervalMs) * time.Millisecond
+	if d > 0 && d < 30*time.Second {
+		writeError(w, http.StatusBadRequest, "intervalMs must be >= 30000 (30s) or 0 to clear", CodeBadRequest)
+		return
+	}
+	h.reconciler.SetPollOverride(d)
+	writeJSON(w, http.StatusOK, PollIntervalResponse{IntervalMs: req.IntervalMs})
+}
+
 // --- Helpers ---
 
 func buildAppResponse(rec store.ApplicationRecord) (ApplicationResponse, error) {

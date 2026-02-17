@@ -36,6 +36,14 @@ type Reconciler interface {
 
 	// ReconcileNow performs a synchronous reconciliation for the named app.
 	ReconcileNow(ctx context.Context, appName string) (*app.SyncResult, error)
+
+	// SetPollOverride sets a global poll interval override for all apps.
+	// Pass 0 to clear the override and revert to per-app intervals.
+	SetPollOverride(d time.Duration)
+
+	// GetPollOverride returns the current global poll interval override.
+	// Returns 0 if no override is set.
+	GetPollOverride() time.Duration
 }
 
 // Deps holds all dependencies needed by the reconciler.
@@ -64,6 +72,10 @@ type ReconcilerImpl struct {
 	schedule   map[string]time.Time
 	scheduleMu sync.RWMutex
 	trigger    chan string
+
+	// Global poll interval override (0 = use per-app intervals)
+	pollOverride   time.Duration
+	pollOverrideMu sync.RWMutex
 
 	// Per-app locking
 	appLocks sync.Map // map[string]*sync.Mutex
@@ -168,6 +180,25 @@ func (r *ReconcilerImpl) ReconcileNow(ctx context.Context, appName string) (*app
 	defer lock.Unlock()
 
 	return r.reconcileApp(ctx, appName, true)
+}
+
+// SetPollOverride sets a global poll interval override for all apps.
+func (r *ReconcilerImpl) SetPollOverride(d time.Duration) {
+	r.pollOverrideMu.Lock()
+	r.pollOverride = d
+	r.pollOverrideMu.Unlock()
+	if d > 0 {
+		r.logger.Info("poll interval override set", "interval", d)
+	} else {
+		r.logger.Info("poll interval override cleared")
+	}
+}
+
+// GetPollOverride returns the current global poll interval override.
+func (r *ReconcilerImpl) GetPollOverride() time.Duration {
+	r.pollOverrideMu.RLock()
+	defer r.pollOverrideMu.RUnlock()
+	return r.pollOverride
 }
 
 // reconcileApp runs the full reconciliation algorithm for a single application.

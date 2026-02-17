@@ -49,6 +49,16 @@ type SystemInfoResponse struct {
 	Host *app.DockerHostInfo `json:"host"`
 }
 
+// PollIntervalRequest is the request for PUT /settings/poll-interval.
+type PollIntervalRequest struct {
+	IntervalMs int64 `json:"intervalMs"`
+}
+
+// PollIntervalResponse is the response for GET/PUT /settings/poll-interval.
+type PollIntervalResponse struct {
+	IntervalMs int64 `json:"intervalMs"`
+}
+
 // Error codes.
 const (
 	CodeNotFound      = "NOT_FOUND"

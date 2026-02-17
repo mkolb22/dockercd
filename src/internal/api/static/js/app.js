@@ -28,12 +28,16 @@
     sel.addEventListener('change', function() {
       var ms = parseInt(this.value, 10);
       localStorage.setItem('dockercd_refresh_interval', ms);
+      // Push poll interval to backend reconciler
+      API.setPollInterval(ms).catch(function() {});
       // Restart refresh with new interval if currently running
       if (state.refreshTimer) {
         var fn = state.refreshFn;
         if (fn) startRefresh(fn);
       }
     });
+    // Sync current UI value to backend on load
+    API.setPollInterval(val).catch(function() {});
   }
 
   // --- Router ---

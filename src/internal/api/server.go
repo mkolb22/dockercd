@@ -61,6 +61,8 @@ func NewServer(addr string, deps ServerDeps) *Server {
 	router.Route("/api/v1", func(r chi.Router) {
 		r.Use(contentTypeJSON)
 		r.Get("/system", h.GetSystemInfo)
+		r.Get("/settings/poll-interval", h.GetPollInterval)
+		r.Put("/settings/poll-interval", h.SetPollInterval)
 		r.Route("/applications", func(r chi.Router) {
 			r.Get("/", h.ListApplications)
 			r.Post("/", h.CreateApplication)

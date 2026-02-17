@@ -99,9 +99,18 @@ func (r *ReconcilerImpl) reschedule(appName string) {
 }
 
 // getAppPollInterval loads the poll interval for an app from its manifest.
+// A global override (if set) takes precedence over per-app intervals.
 // Returns a default of 3 minutes if the app or interval can't be read.
 func (r *ReconcilerImpl) getAppPollInterval(appName string) time.Duration {
 	const defaultInterval = 3 * time.Minute
+
+	// Check global override first
+	r.pollOverrideMu.RLock()
+	override := r.pollOverride
+	r.pollOverrideMu.RUnlock()
+	if override > 0 {
+		return override
+	}
 
 	appRec, err := r.deps.Store.GetApplication(context.Background(), appName)
 	if err != nil || appRec == nil {
