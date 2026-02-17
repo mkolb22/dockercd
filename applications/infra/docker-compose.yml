@@ -19,26 +19,8 @@ services:
     networks:
       - dockercd-net
 
-  redis:
-    image: redis:7-alpine
-    container_name: redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - dockercd-net
-
 volumes:
   postgres-data:
-  redis-data:
 
 networks:
   dockercd-net:
