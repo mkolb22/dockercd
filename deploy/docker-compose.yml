@@ -21,6 +21,12 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    networks:
+      - dockercd-net
 
 volumes:
   dockercd-state:
+
+networks:
+  dockercd-net:
+    external: true

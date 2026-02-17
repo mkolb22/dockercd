@@ -1,0 +1,19 @@
+apiVersion: dockercd/v1
+kind: Application
+metadata:
+  name: monitoring
+spec:
+  source:
+    repoURL: https://github.com/mkolb22/dockercd.git
+    targetRevision: main
+    path: applications/monitoring/
+    composeFiles:
+      - docker-compose.yml
+  destination:
+    dockerHost: unix:///var/run/docker.sock
+    projectName: monitoring
+  syncPolicy:
+    automated: true
+    prune: true
+    selfHeal: true
+    pollInterval: 180s

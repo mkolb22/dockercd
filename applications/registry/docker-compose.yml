@@ -9,6 +9,12 @@ services:
       - registry-data:/var/lib/registry
     environment:
       REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    networks:
+      - dockercd-net
 
 volumes:
   registry-data:
+
+networks:
+  dockercd-net:
+    external: true

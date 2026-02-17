@@ -351,37 +351,87 @@ var Components = (function() {
     return html;
   }
 
-  // --- Deployment Tree (ArgoCD-style) ---
+  // --- Resource Tree (ArgoCD-style 3-column graph) ---
+
+  function healthDot(status) {
+    var s = (status || 'unknown').toLowerCase();
+    return '<span class="health-dot health-dot-' + s + '"></span>';
+  }
+
+  function resourceNodeHealth(status) {
+    var s = (status || 'unknown').toLowerCase();
+    return '<div class="resource-node-health">' + healthDot(s) +
+      '<span>' + esc(status || 'Unknown') + '</span></div>';
+  }
 
   function deploymentTree(app, services) {
-    var statusCls = cardStatusClass(app);
     var st = app.status;
+    var appHealth = (st.healthStatus || 'unknown').toLowerCase();
+    var appSync = (st.syncStatus || 'unknown').toLowerCase();
+    var svcs = (services && services.length > 0) ? services :
+               (st.services && st.services.length > 0) ? st.services : [];
 
-    var html = '<div class="deploy-tree">';
+    var html = '<div class="resource-tree" id="resource-tree">';
+    html += '<svg class="resource-lines" id="resource-lines"></svg>';
 
-    // App node
-    html += '<div class="deploy-node app-node ' + statusCls + '">';
-    html += '<div class="app-node-name">' + esc(app.metadata.name) + '</div>';
-    html += '<div class="app-node-meta">' + esc(repoShort(app.spec.source.repoURL)) + '</div>';
+    // Column 1: Application
+    html += '<div class="resource-column">';
+    html += '<div class="resource-column-header">Application</div>';
+    html += '<div class="resource-node node-app status-' + appHealth + '" data-node-id="app">';
+    html += '<div class="resource-node-icon">\u2388</div>';
+    html += '<div class="resource-node-body">';
+    html += '<div class="resource-node-name">' + esc(app.metadata.name) + '</div>';
+    html += '<div class="resource-node-detail">' + esc(repoShort(app.spec.source.repoURL)) + '</div>';
     if (st.lastSyncedSHA) {
-      html += '<div class="app-node-meta" style="font-family:var(--font-mono)">' + esc(shortSHA(st.lastSyncedSHA)) + '</div>';
+      html += '<div class="resource-node-detail mono">' + esc(shortSHA(st.lastSyncedSHA)) + '</div>';
     }
-    html += '<div class="app-node-badges">' + syncBadge(st.syncStatus) + healthBadge(st.healthStatus) + '</div>';
+    html += '<div class="resource-node-badges">' + syncBadge(st.syncStatus) + healthBadge(st.healthStatus) + '</div>';
+    html += '</div></div>';
     html += '</div>';
 
-    // Connector
-    html += '<div class="deploy-connector"></div>';
-
-    // Service cards
-    html += '<div class="service-cards">';
-    if (services && services.length > 0) {
-      services.forEach(function(svc) { html += serviceCard(svc); });
-    } else if (st.services && st.services.length > 0) {
-      st.services.forEach(function(svc) { html += serviceCard(svc); });
+    // Column 2: Services
+    html += '<div class="resource-column">';
+    html += '<div class="resource-column-header">Services</div>';
+    if (svcs.length > 0) {
+      svcs.forEach(function(svc) {
+        var h = (svc.health || 'unknown').toLowerCase();
+        html += '<div class="resource-node node-svc health-' + h + '" data-node-id="svc-' + esc(svc.name) + '" data-connect-from="app">';
+        html += '<div class="resource-node-icon">\u2699</div>';
+        html += '<div class="resource-node-body">';
+        html += '<div class="resource-node-name">' + esc(svc.name) + '</div>';
+        html += '<div class="resource-node-detail mono">' + esc(svc.image || '') + '</div>';
+        html += resourceNodeHealth(svc.health);
+        html += '</div></div>';
+      });
     } else {
-      html += '<div class="empty-state"><p>No services</p></div>';
+      html += '<div class="resource-node node-svc health-unknown" data-node-id="svc-none" data-connect-from="app">';
+      html += '<div class="resource-node-icon">\u2699</div>';
+      html += '<div class="resource-node-body"><div class="resource-node-name">No services</div></div></div>';
     }
     html += '</div>';
+
+    // Column 3: Containers
+    html += '<div class="resource-column">';
+    html += '<div class="resource-column-header">Containers</div>';
+    if (svcs.length > 0) {
+      svcs.forEach(function(svc) {
+        var h = (svc.health || 'unknown').toLowerCase();
+        var stateText = svc.state || (h === 'healthy' ? 'running' : '-');
+        html += '<div class="resource-node node-ctr health-' + h + '" data-node-id="ctr-' + esc(svc.name) + '" data-connect-from="svc-' + esc(svc.name) + '">';
+        html += '<div class="resource-node-icon">\u25A3</div>';
+        html += '<div class="resource-node-body">';
+        html += '<div class="resource-node-name">' + esc(svc.name) + '-1</div>';
+        html += '<div class="resource-node-detail">' + esc(stateText) + '</div>';
+        html += resourceNodeHealth(svc.health);
+        html += '</div></div>';
+      });
+    } else {
+      html += '<div class="resource-node node-ctr health-unknown" data-node-id="ctr-none" data-connect-from="svc-none">';
+      html += '<div class="resource-node-icon">\u25A3</div>';
+      html += '<div class="resource-node-body"><div class="resource-node-name">-</div></div></div>';
+    }
+    html += '</div>';
+
     html += '</div>';
     return html;
   }

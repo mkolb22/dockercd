@@ -177,6 +177,9 @@
 
     setContent(html);
 
+    // Draw SVG connectors between resource tree nodes
+    requestAnimationFrame(drawTreeLines);
+
     // Bind sync button
     var btn = document.getElementById('sync-btn');
     if (btn) {
@@ -313,6 +316,67 @@
     var dot = document.getElementById('refresh-dot');
     if (dot) {
       dot.className = active ? 'refresh-dot' : 'refresh-dot paused';
+    }
+  }
+
+  // --- SVG tree line drawing ---
+
+  function drawTreeLines() {
+    var tree = document.getElementById('resource-tree');
+    var svg = document.getElementById('resource-lines');
+    if (!tree || !svg) return;
+
+    var treeRect = tree.getBoundingClientRect();
+    svg.setAttribute('width', tree.scrollWidth);
+    svg.setAttribute('height', tree.scrollHeight);
+    svg.setAttribute('viewBox', '0 0 ' + tree.scrollWidth + ' ' + tree.scrollHeight);
+    svg.innerHTML = '';
+
+    // Arrow marker definition
+    var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    var marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+    marker.setAttribute('id', 'arrowhead');
+    marker.setAttribute('markerWidth', '8');
+    marker.setAttribute('markerHeight', '6');
+    marker.setAttribute('refX', '8');
+    marker.setAttribute('refY', '3');
+    marker.setAttribute('orient', 'auto');
+    var polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    polygon.setAttribute('points', '0 0, 8 3, 0 6');
+    polygon.setAttribute('fill', '#4a4f57');
+    marker.appendChild(polygon);
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+
+    var targets = tree.querySelectorAll('[data-connect-from]');
+    for (var i = 0; i < targets.length; i++) {
+      var target = targets[i];
+      var sourceId = target.getAttribute('data-connect-from');
+      var source = tree.querySelector('[data-node-id="' + sourceId + '"]');
+      if (!source) continue;
+
+      var srcRect = source.getBoundingClientRect();
+      var tgtRect = target.getBoundingClientRect();
+
+      // Coordinates relative to the tree container
+      var x1 = srcRect.right - treeRect.left;
+      var y1 = srcRect.top + srcRect.height / 2 - treeRect.top;
+      var x2 = tgtRect.left - treeRect.left;
+      var y2 = tgtRect.top + tgtRect.height / 2 - treeRect.top;
+
+      var dx = (x2 - x1) * 0.5;
+      var d = 'M' + x1 + ',' + y1 +
+              ' C' + (x1 + dx) + ',' + y1 +
+              ' ' + (x2 - dx) + ',' + y2 +
+              ' ' + x2 + ',' + y2;
+
+      var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', '#4a4f57');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('marker-end', 'url(#arrowhead)');
+      svg.appendChild(path);
     }
   }
 
