@@ -33,10 +33,10 @@ func checkPortConflicts(ctx context.Context, st *store.SQLiteStore, appName stri
 		return nil
 	}
 
-	// Check against reserved ports
+	// Check against reserved ports (skip if this app owns the reserved port)
 	var conflicts []string
 	for port, svcName := range desired {
-		if owner, ok := reservedPorts[port]; ok {
+		if owner, ok := reservedPorts[port]; ok && owner != appName {
 			conflicts = append(conflicts, fmt.Sprintf("port %s (service %s) is reserved for %s", port, svcName, owner))
 		}
 	}
