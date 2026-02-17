@@ -84,13 +84,25 @@ var Components = (function() {
     }).join(' ');
   }
 
-  function allPortLinks(services) {
+  // Returns unique host ports across all services as span elements (safe inside <a> cards)
+  function cardPortSpans(services) {
     if (!services || services.length === 0) return '';
-    var html = '';
+    var seen = {};
+    var unique = [];
     services.forEach(function(svc) {
-      html += portLinks(svc.ports);
+      if (!svc.ports) return;
+      svc.ports.forEach(function(p) {
+        if (p.hostPort && !seen[p.hostPort]) {
+          seen[p.hostPort] = true;
+          unique.push(p.hostPort);
+        }
+      });
     });
-    return html;
+    if (unique.length === 0) return '';
+    return unique.map(function(port) {
+      return '<span class="port-link" onclick="event.preventDefault();event.stopPropagation();' +
+        'window.open(\'http://localhost:' + esc(port) + '\',\'_blank\')">:' + esc(port) + '</span>';
+    }).join(' ');
   }
 
   function badge(text, cls) {
@@ -138,7 +150,7 @@ var Components = (function() {
       errorLine = '<div class="card-error" title="' + esc(app.status.lastError) + '">' + esc(app.status.lastError) + '</div>';
     }
 
-    var portsHtml = allPortLinks(app.status.services);
+    var portsHtml = cardPortSpans(app.status.services);
     var portsLine = portsHtml ? '<div class="card-ports">' + portsHtml + '</div>' : '';
 
     return '<a href="#/apps/' + encodeURIComponent(name) + '" class="app-card ' + statusCls + '">' +

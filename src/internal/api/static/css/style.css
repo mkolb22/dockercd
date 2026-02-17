@@ -221,6 +221,7 @@ a:hover { text-decoration: underline; }
   border-radius: 3px;
   text-decoration: none;
   margin-right: 0.25rem;
+  cursor: pointer;
 }
 
 .port-link:hover {
