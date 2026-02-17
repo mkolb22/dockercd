@@ -7,7 +7,9 @@ services:
       - "9090:9090"
     volumes:
       - prometheus-data:/prometheus
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    configs:
+      - source: prometheus-config
+        target: /etc/prometheus/prometheus.yml
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -24,7 +26,9 @@ services:
       - "3001:3000"
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    configs:
+      - source: grafana-datasource
+        target: /etc/grafana/provisioning/datasources/datasource.yml
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
@@ -48,6 +52,36 @@ services:
     privileged: true
     networks:
       - dockercd-net
+
+configs:
+  prometheus-config:
+    content: |
+      global:
+        scrape_interval: 15s
+        evaluation_interval: 15s
+      scrape_configs:
+        - job_name: prometheus
+          static_configs:
+            - targets: ['localhost:9090']
+        - job_name: cadvisor
+          static_configs:
+            - targets: ['cadvisor:8080']
+        - job_name: gitea
+          static_configs:
+            - targets: ['gitea:3000']
+          metrics_path: /metrics
+          scrape_interval: 30s
+
+  grafana-datasource:
+    content: |
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus:9090
+          isDefault: true
+          editable: true
 
 volumes:
   prometheus-data:
