@@ -173,6 +173,7 @@ func (m *Monitor) CheckApp(ctx context.Context, appName string) (app.HealthStatu
 			Image:  s.Image,
 			Health: s.Health,
 			State:  s.Status,
+			Ports:  s.Ports,
 		})
 	}
 

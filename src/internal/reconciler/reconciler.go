@@ -254,6 +254,16 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 		return r.finishResult(ctx, result, app.SyncResultFailure, "parser returned nil spec", logger)
 	}
 
+	// STEP 3b: Check port conflicts
+	if err := checkPortConflicts(ctx, r.deps.Store, appName, composeSpec.Services); err != nil {
+		r.updateStatus(ctx, appName, store.StatusUpdate{
+			HealthStatus: string(app.HealthStatusDegraded),
+			LastError:    fmt.Sprintf("port conflict: %v", err),
+		})
+		return r.finishResult(ctx, result, app.SyncResultFailure,
+			fmt.Sprintf("port conflict: %v", err), logger)
+	}
+
 	// STEP 4: Inspect live state
 	liveServices, err := r.deps.Inspector.Inspect(ctx, application.Spec.Destination)
 	if err != nil {

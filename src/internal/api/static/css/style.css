@@ -195,6 +195,13 @@ a:hover { text-decoration: underline; }
   color: var(--text-muted);
 }
 
+.card-ports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: -0.25rem;
+}
+
 .card-error {
   font-size: 0.8rem;
   color: var(--color-degraded);
@@ -202,6 +209,23 @@ a:hover { text-decoration: underline; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.port-link {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--color-accent);
+  background: rgba(96, 165, 250, 0.1);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  text-decoration: none;
+  margin-right: 0.25rem;
+}
+
+.port-link:hover {
+  background: rgba(96, 165, 250, 0.25);
+  text-decoration: underline;
 }
 
 /* Badges */

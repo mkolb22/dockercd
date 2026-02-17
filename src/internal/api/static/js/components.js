@@ -67,6 +67,32 @@ var Components = (function() {
     return url.replace(/^https?:\/\//, '').replace(/\.git$/, '');
   }
 
+  function portLinks(ports) {
+    if (!ports || ports.length === 0) return '';
+    var seen = {};
+    var unique = [];
+    ports.forEach(function(p) {
+      if (p.hostPort && !seen[p.hostPort]) {
+        seen[p.hostPort] = true;
+        unique.push(p);
+      }
+    });
+    if (unique.length === 0) return '';
+    return unique.map(function(p) {
+      return '<a href="http://localhost:' + esc(p.hostPort) + '" target="_blank" ' +
+        'class="port-link" onclick="event.stopPropagation()">:' + esc(p.hostPort) + '</a>';
+    }).join(' ');
+  }
+
+  function allPortLinks(services) {
+    if (!services || services.length === 0) return '';
+    var html = '';
+    services.forEach(function(svc) {
+      html += portLinks(svc.ports);
+    });
+    return html;
+  }
+
   function badge(text, cls) {
     return '<span class="badge ' + cls + '">' + esc(text) + '</span>';
   }
@@ -112,6 +138,9 @@ var Components = (function() {
       errorLine = '<div class="card-error" title="' + esc(app.status.lastError) + '">' + esc(app.status.lastError) + '</div>';
     }
 
+    var portsHtml = allPortLinks(app.status.services);
+    var portsLine = portsHtml ? '<div class="card-ports">' + portsHtml + '</div>' : '';
+
     return '<a href="#/apps/' + encodeURIComponent(name) + '" class="app-card ' + statusCls + '">' +
       '<div class="card-header">' +
         '<span class="card-name">' + esc(name) + '</span>' +
@@ -121,6 +150,7 @@ var Components = (function() {
         '</div>' +
       '</div>' +
       '<div class="card-repo">' + esc(repo) + '</div>' +
+      portsLine +
       errorLine +
       '<div class="card-footer">' +
         '<span>' + esc(syncTime) + '</span>' +
@@ -165,6 +195,7 @@ var Components = (function() {
         return '<tr>' +
           '<td>' + esc(svc.name) + '</td>' +
           '<td class="mono">' + esc(svc.image) + '</td>' +
+          '<td>' + (portLinks(svc.ports) || '-') + '</td>' +
           '<td>' + healthBadge(svc.health) + '</td>' +
           '<td>' + esc(svc.state || '-') + '</td>' +
         '</tr>';
@@ -172,7 +203,7 @@ var Components = (function() {
 
       servicesTable = '<h3 style="font-size:0.85rem;margin-bottom:0.5rem;color:var(--text-secondary)">Services</h3>' +
         '<div class="table-wrap"><table>' +
-        '<thead><tr><th>Name</th><th>Image</th><th>Health</th><th>State</th></tr></thead>' +
+        '<thead><tr><th>Name</th><th>Image</th><th>Ports</th><th>Health</th><th>State</th></tr></thead>' +
         '<tbody>' + rows + '</tbody></table></div>';
     }
 
@@ -400,6 +431,8 @@ var Components = (function() {
         html += '<div class="resource-node-body">';
         html += '<div class="resource-node-name">' + esc(svc.name) + '</div>';
         html += '<div class="resource-node-detail mono">' + esc(svc.image || '') + '</div>';
+        var svcPorts = portLinks(svc.ports);
+        if (svcPorts) html += '<div class="resource-node-detail">' + svcPorts + '</div>';
         html += resourceNodeHealth(svc.health);
         html += '</div></div>';
       });
@@ -484,6 +517,7 @@ var Components = (function() {
   }
 
   return {
+    portLinks: portLinks,
     appGrid: appGrid,
     appCard: appCard,
     overviewTab: overviewTab,
