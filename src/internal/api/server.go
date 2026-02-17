@@ -66,6 +66,7 @@ func NewServer(addr string, deps ServerDeps) *Server {
 			r.Post("/", h.CreateApplication)
 			r.Route("/{name}", func(r chi.Router) {
 				r.Get("/", h.GetApplication)
+				r.Delete("/", h.DeleteApplication)
 				r.Post("/sync", h.SyncApplication)
 				r.Get("/diff", h.DiffApplication)
 				r.Get("/events", h.GetEvents)

@@ -112,6 +112,29 @@ func (h *Handler) CreateApplication(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
+// DeleteApplication removes an application.
+func (h *Handler) DeleteApplication(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+
+	appRec, err := h.store.GetApplication(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "getting application: "+err.Error(), CodeInternalError)
+		return
+	}
+	if appRec == nil {
+		writeError(w, http.StatusNotFound, "application not found: "+name, CodeNotFound)
+		return
+	}
+
+	if err := h.store.DeleteApplication(r.Context(), name); err != nil {
+		writeError(w, http.StatusInternalServerError, "deleting application: "+err.Error(), CodeInternalError)
+		return
+	}
+
+	h.logger.Info("application deleted via API", "name", name)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted", "name": name})
+}
+
 // ListApplications returns all applications.
 func (h *Handler) ListApplications(w http.ResponseWriter, r *http.Request) {
 	apps, err := h.store.ListApplications(r.Context())
