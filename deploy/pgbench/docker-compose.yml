@@ -1,0 +1,21 @@
+services:
+  postgres-bench:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bench
+      POSTGRES_PASSWORD: bench123
+      POSTGRES_DB: benchdb
+    ports:
+      - "5433:5432"
+    networks:
+      - dockercd-net
+    shm_size: 256mb
+    command: >
+      postgres
+        -c shared_buffers=128MB
+        -c max_connections=200
+        -c work_mem=4MB
+
+networks:
+  dockercd-net:
+    external: true
