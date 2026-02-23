@@ -12,6 +12,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/mkolb22/dockercd/internal/eventbus"
+	"github.com/mkolb22/dockercd/internal/events"
 	"github.com/mkolb22/dockercd/internal/inspector"
 	"github.com/mkolb22/dockercd/internal/reconciler"
 	"github.com/mkolb22/dockercd/internal/store"
@@ -22,10 +24,13 @@ var staticFS embed.FS
 
 // ServerDeps holds all dependencies for the API server.
 type ServerDeps struct {
-	Store      *store.SQLiteStore
-	Reconciler reconciler.Reconciler
-	Inspector  inspector.StateInspector
-	Logger     *slog.Logger
+	Store         *store.SQLiteStore
+	Reconciler    reconciler.Reconciler
+	Inspector     inspector.StateInspector
+	Logger        *slog.Logger
+	SSEHub        eventbus.Broadcaster
+	EventWatcher  *events.Watcher
+	WebhookSecret string
 }
 
 // Server is the HTTP API server.
@@ -38,10 +43,13 @@ type Server struct {
 // NewServer creates a new API server.
 func NewServer(addr string, deps ServerDeps) *Server {
 	h := &Handler{
-		store:      deps.Store,
-		reconciler: deps.Reconciler,
-		inspector:  deps.Inspector,
-		logger:     deps.Logger,
+		store:         deps.Store,
+		reconciler:    deps.Reconciler,
+		inspector:     deps.Inspector,
+		logger:        deps.Logger,
+		sseHub:        deps.SSEHub,
+		eventWatcher:  deps.EventWatcher,
+		webhookSecret: deps.WebhookSecret,
 	}
 
 	router := chi.NewRouter()
@@ -61,8 +69,19 @@ func NewServer(addr string, deps ServerDeps) *Server {
 	router.Route("/api/v1", func(r chi.Router) {
 		r.Use(contentTypeJSON)
 		r.Get("/system", h.GetSystemInfo)
+		r.Get("/system/stats", h.GetHostStats)
 		r.Get("/settings/poll-interval", h.GetPollInterval)
 		r.Put("/settings/poll-interval", h.SetPollInterval)
+		r.Route("/hosts", func(r chi.Router) {
+			r.Get("/", h.ListHosts)
+			r.Post("/", h.CreateHost)
+			r.Route("/{name}", func(r chi.Router) {
+				r.Get("/", h.GetHost)
+				r.Delete("/", h.DeleteHost)
+				r.Post("/check", h.CheckHost)
+				r.Get("/stats", h.GetHostLiveStats)
+			})
+		})
 		r.Route("/applications", func(r chi.Router) {
 			r.Get("/", h.ListApplications)
 			r.Post("/", h.CreateApplication)
@@ -70,6 +89,8 @@ func NewServer(addr string, deps ServerDeps) *Server {
 				r.Get("/", h.GetApplication)
 				r.Delete("/", h.DeleteApplication)
 				r.Post("/sync", h.SyncApplication)
+				r.Post("/rollback", h.RollbackApplication)
+				r.Post("/adopt", h.AdoptApplication)
 				r.Get("/diff", h.DiffApplication)
 				r.Get("/events", h.GetEvents)
 				r.Get("/history", h.GetHistory)
@@ -77,6 +98,12 @@ func NewServer(addr string, deps ServerDeps) *Server {
 			})
 		})
 	})
+
+	// SSE event stream (outside JSON middleware — uses text/event-stream)
+	router.Get("/api/v1/events/stream", h.StreamEvents)
+
+	// Git webhook (outside JSON middleware — accepts arbitrary push payloads)
+	router.Post("/api/v1/webhooks/git", h.HandleGitWebhook)
 
 	// Web UI — embedded SPA
 	staticContent, _ := fs.Sub(staticFS, "static")

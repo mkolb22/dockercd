@@ -27,6 +27,12 @@ type GitSyncer interface {
 	// for the given repo URL. Returns empty string if not yet cloned.
 	RepoPath(repoURL string) string
 
+	// Commit stages the given files and creates a commit in the local clone.
+	Commit(ctx context.Context, repoURL string, message string, files []string) error
+
+	// Push pushes the current branch to origin.
+	Push(ctx context.Context, repoURL string) error
+
 	// Close releases resources.
 	Close() error
 }
@@ -177,6 +183,62 @@ func (g *GoGitSyncer) pull(ctx context.Context, path string, ref plumbing.Refere
 	}
 
 	return repo, nil
+}
+
+// Commit stages the given files and creates a commit in the local repository for repoURL.
+func (g *GoGitSyncer) Commit(ctx context.Context, repoURL string, message string, files []string) error {
+	mu := g.repoMutex(repoURL)
+	mu.Lock()
+	defer mu.Unlock()
+
+	repoPath := g.cache.PathFor(repoURL)
+	repo, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return fmt.Errorf("opening repo: %w", err)
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("getting worktree: %w", err)
+	}
+
+	for _, f := range files {
+		if _, err := wt.Add(f); err != nil {
+			return fmt.Errorf("staging %s: %w", f, err)
+		}
+	}
+
+	_, err = wt.Commit(message, &git.CommitOptions{})
+	if err != nil {
+		return fmt.Errorf("creating commit: %w", err)
+	}
+
+	g.logger.Info("created commit", "repo", repoURL, "message", message)
+	return nil
+}
+
+// Push pushes the current branch to origin for the repository at repoURL.
+func (g *GoGitSyncer) Push(ctx context.Context, repoURL string) error {
+	mu := g.repoMutex(repoURL)
+	mu.Lock()
+	defer mu.Unlock()
+
+	repoPath := g.cache.PathFor(repoURL)
+	repo, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return fmt.Errorf("opening repo: %w", err)
+	}
+
+	err = repo.PushContext(ctx, &git.PushOptions{
+		RemoteName: "origin",
+		Auth:       g.auth,
+	})
+	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
+		return fmt.Errorf("pushing to origin: %w", err)
+	}
+
+	g.logger.Info("pushed to origin", "repo", repoURL)
+	return nil
 }
 
 // repoMutex returns a per-URL mutex to serialize git operations on the same repo.

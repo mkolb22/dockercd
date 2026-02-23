@@ -185,11 +185,11 @@ func (s *SQLiteStore) RecordSync(ctx context.Context, record *SyncRecord) error 
 	record.CreatedAt = time.Now().UTC()
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO sync_history (id, app_name, started_at, finished_at, commit_sha, operation, result, diff_json, error, duration_ms, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO sync_history (id, app_name, started_at, finished_at, commit_sha, operation, result, diff_json, compose_spec_json, error, duration_ms, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		record.ID, record.AppName, record.StartedAt, record.FinishedAt,
 		record.CommitSHA, record.Operation, record.Result,
-		record.DiffJSON, record.Error, record.DurationMs, record.CreatedAt,
+		record.DiffJSON, record.ComposeSpecJSON, record.Error, record.DurationMs, record.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("recording sync for %q: %w", record.AppName, err)
@@ -203,7 +203,7 @@ func (s *SQLiteStore) ListSyncHistory(ctx context.Context, appName string, limit
 		limit = 20
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, app_name, started_at, finished_at, commit_sha, operation, result, diff_json, error, duration_ms, created_at
+		`SELECT id, app_name, started_at, finished_at, commit_sha, operation, result, diff_json, compose_spec_json, error, duration_ms, created_at
 		 FROM sync_history WHERE app_name = ? ORDER BY started_at DESC LIMIT ?`,
 		appName, limit,
 	)
@@ -216,13 +216,13 @@ func (s *SQLiteStore) ListSyncHistory(ctx context.Context, appName string, limit
 	for rows.Next() {
 		var r SyncRecord
 		var finishedAt sql.NullTime
-		var commitSHA, diffJSON, errMsg sql.NullString
+		var commitSHA, diffJSON, composeSpecJSON, errMsg sql.NullString
 		var durationMs sql.NullInt64
 
 		if err := rows.Scan(
 			&r.ID, &r.AppName, &r.StartedAt, &finishedAt,
 			&commitSHA, &r.Operation, &r.Result, &diffJSON,
-			&errMsg, &durationMs, &r.CreatedAt,
+			&composeSpecJSON, &errMsg, &durationMs, &r.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning sync record: %w", err)
 		}
@@ -232,12 +232,51 @@ func (s *SQLiteStore) ListSyncHistory(ctx context.Context, appName string, limit
 		}
 		r.CommitSHA = commitSHA.String
 		r.DiffJSON = diffJSON.String
+		r.ComposeSpecJSON = composeSpecJSON.String
 		r.Error = errMsg.String
 		r.DurationMs = durationMs.Int64
 
 		records = append(records, r)
 	}
 	return records, rows.Err()
+}
+
+// GetSyncBySHA returns the most recent sync record for the given app and commit SHA.
+// Returns nil, nil if no matching record is found.
+func (s *SQLiteStore) GetSyncBySHA(ctx context.Context, appName, sha string) (*SyncRecord, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, app_name, started_at, finished_at, commit_sha, operation, result, diff_json, compose_spec_json, error, duration_ms, created_at
+		 FROM sync_history WHERE app_name = ? AND commit_sha = ? ORDER BY started_at DESC LIMIT 1`,
+		appName, sha,
+	)
+
+	var r SyncRecord
+	var finishedAt sql.NullTime
+	var commitSHA, diffJSON, composeSpecJSON, errMsg sql.NullString
+	var durationMs sql.NullInt64
+
+	err := row.Scan(
+		&r.ID, &r.AppName, &r.StartedAt, &finishedAt,
+		&commitSHA, &r.Operation, &r.Result, &diffJSON,
+		&composeSpecJSON, &errMsg, &durationMs, &r.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting sync record for %q sha %q: %w", appName, sha, err)
+	}
+
+	if finishedAt.Valid {
+		r.FinishedAt = &finishedAt.Time
+	}
+	r.CommitSHA = commitSHA.String
+	r.DiffJSON = diffJSON.String
+	r.ComposeSpecJSON = composeSpecJSON.String
+	r.Error = errMsg.String
+	r.DurationMs = durationMs.Int64
+
+	return &r, nil
 }
 
 // RecordEvent inserts an event record.
@@ -289,6 +328,182 @@ func (s *SQLiteStore) ListEvents(ctx context.Context, appName string, limit int)
 		events = append(events, e)
 	}
 	return events, rows.Err()
+}
+
+// --- Docker Host CRUD ---
+
+// CreateDockerHost inserts a new Docker host record.
+func (s *SQLiteStore) CreateDockerHost(ctx context.Context, host *DockerHostRecord) error {
+	if host.ID == "" {
+		host.ID = uuid.New().String()
+	}
+	now := time.Now().UTC()
+	host.CreatedAt = now
+	host.UpdatedAt = now
+	if host.HealthStatus == "" {
+		host.HealthStatus = "Unknown"
+	}
+
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO docker_hosts (id, name, url, tls_cert_path, tls_verify, health_status, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		host.ID, host.Name, host.URL, host.TLSCertPath, host.TLSVerify,
+		host.HealthStatus, host.CreatedAt, host.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("creating docker host %q: %w", host.Name, err)
+	}
+	return nil
+}
+
+// GetDockerHost retrieves a Docker host by name.
+func (s *SQLiteStore) GetDockerHost(ctx context.Context, name string) (*DockerHostRecord, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, name, url, tls_cert_path, tls_verify, health_status, last_check,
+		        last_error, info_json, stats_json, created_at, updated_at
+		 FROM docker_hosts WHERE name = ?`, name,
+	)
+	return scanDockerHost(row)
+}
+
+// GetDockerHostByURL retrieves a Docker host by URL.
+func (s *SQLiteStore) GetDockerHostByURL(ctx context.Context, url string) (*DockerHostRecord, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, name, url, tls_cert_path, tls_verify, health_status, last_check,
+		        last_error, info_json, stats_json, created_at, updated_at
+		 FROM docker_hosts WHERE url = ?`, url,
+	)
+	return scanDockerHost(row)
+}
+
+// ListDockerHosts returns all Docker host records ordered by name.
+func (s *SQLiteStore) ListDockerHosts(ctx context.Context) ([]DockerHostRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, url, tls_cert_path, tls_verify, health_status, last_check,
+		        last_error, info_json, stats_json, created_at, updated_at
+		 FROM docker_hosts ORDER BY name`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("listing docker hosts: %w", err)
+	}
+	defer rows.Close()
+
+	var hosts []DockerHostRecord
+	for rows.Next() {
+		var h DockerHostRecord
+		var tlsCertPath, lastError, infoJSON, statsJSON sql.NullString
+		var lastCheck sql.NullTime
+		var tlsVerify int
+
+		if err := rows.Scan(
+			&h.ID, &h.Name, &h.URL, &tlsCertPath, &tlsVerify, &h.HealthStatus,
+			&lastCheck, &lastError, &infoJSON, &statsJSON, &h.CreatedAt, &h.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning docker host row: %w", err)
+		}
+
+		h.TLSCertPath = tlsCertPath.String
+		h.TLSVerify = tlsVerify != 0
+		h.LastError = lastError.String
+		h.InfoJSON = infoJSON.String
+		h.StatsJSON = statsJSON.String
+		if lastCheck.Valid {
+			h.LastCheck = &lastCheck.Time
+		}
+
+		hosts = append(hosts, h)
+	}
+	return hosts, rows.Err()
+}
+
+// UpdateDockerHostStatus updates the runtime status fields of a Docker host.
+func (s *SQLiteStore) UpdateDockerHostStatus(ctx context.Context, name string, update HostStatusUpdate) error {
+	var sets []string
+	var args []interface{}
+
+	if update.HealthStatus != "" {
+		sets = append(sets, "health_status = ?")
+		args = append(args, update.HealthStatus)
+	}
+	if update.LastCheck != nil {
+		sets = append(sets, "last_check = ?")
+		args = append(args, *update.LastCheck)
+	}
+	if update.LastError != "" {
+		sets = append(sets, "last_error = ?")
+		args = append(args, update.LastError)
+	}
+	if update.InfoJSON != "" {
+		sets = append(sets, "info_json = ?")
+		args = append(args, update.InfoJSON)
+	}
+	if update.StatsJSON != "" {
+		sets = append(sets, "stats_json = ?")
+		args = append(args, update.StatsJSON)
+	}
+
+	if len(sets) == 0 {
+		return nil
+	}
+
+	sets = append(sets, "updated_at = ?")
+	args = append(args, time.Now().UTC())
+	args = append(args, name)
+
+	query := fmt.Sprintf("UPDATE docker_hosts SET %s WHERE name = ?", joinStrings(sets, ", "))
+	result, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("updating docker host %q: %w", name, err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("docker host %q not found", name)
+	}
+	return nil
+}
+
+// DeleteDockerHost removes a Docker host by name.
+func (s *SQLiteStore) DeleteDockerHost(ctx context.Context, name string) error {
+	result, err := s.db.ExecContext(ctx, "DELETE FROM docker_hosts WHERE name = ?", name)
+	if err != nil {
+		return fmt.Errorf("deleting docker host %q: %w", name, err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("docker host %q not found", name)
+	}
+	return nil
+}
+
+// scanDockerHost scans a single row into a DockerHostRecord.
+func scanDockerHost(row *sql.Row) (*DockerHostRecord, error) {
+	var h DockerHostRecord
+	var tlsCertPath, lastError, infoJSON, statsJSON sql.NullString
+	var lastCheck sql.NullTime
+	var tlsVerify int
+
+	err := row.Scan(
+		&h.ID, &h.Name, &h.URL, &tlsCertPath, &tlsVerify, &h.HealthStatus,
+		&lastCheck, &lastError, &infoJSON, &statsJSON, &h.CreatedAt, &h.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("scanning docker host: %w", err)
+	}
+
+	h.TLSCertPath = tlsCertPath.String
+	h.TLSVerify = tlsVerify != 0
+	h.LastError = lastError.String
+	h.InfoJSON = infoJSON.String
+	h.StatsJSON = statsJSON.String
+	if lastCheck.Valid {
+		h.LastCheck = &lastCheck.Time
+	}
+
+	return &h, nil
 }
 
 func joinStrings(strs []string, sep string) string {

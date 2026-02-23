@@ -138,8 +138,9 @@ var Components = (function() {
 
   // --- Cards ---
 
-  function appCard(app) {
+  function appCard(app, appStatsMap) {
     var name = app.metadata.name;
+    var projectName = app.spec.destination.projectName || name;
     var repo = repoShort(app.spec.source.repoURL);
     var sha = shortSHA(app.status.lastSyncedSHA);
     var syncTime = timeAgo(app.status.lastSyncTime);
@@ -153,6 +154,20 @@ var Components = (function() {
     var portsHtml = cardPortSpans(app.status.services);
     var portsLine = portsHtml ? '<div class="card-ports">' + portsHtml + '</div>' : '';
 
+    // Mini metrics strip from per-app stats
+    var metricsLine = '';
+    var as = appStatsMap && (appStatsMap[projectName] || appStatsMap[name]);
+    if (as) {
+      var cpuPct = Math.min(100, as.cpuPercent || 0);
+      var memPct = as.memoryLimitMB > 0 ? Math.min(100, (as.memoryUsageMB / as.memoryLimitMB) * 100) : 0;
+      metricsLine = '<div class="card-metrics" data-app-stats="' + esc(projectName) + '">' +
+        stubBar('CPU', cpuPct) +
+        stubBar('MEM', memPct) +
+        statPill('NET', '\u2193' + formatSize(as.networkRxMB) + ' \u2191' + formatSize(as.networkTxMB)) +
+        statPill('PIDs', as.pids || 0) +
+      '</div>';
+    }
+
     return '<a href="#/apps/' + encodeURIComponent(name) + '" class="app-card ' + statusCls + '">' +
       '<div class="card-header">' +
         '<span class="card-name">' + esc(name) + '</span>' +
@@ -162,6 +177,7 @@ var Components = (function() {
         '</div>' +
       '</div>' +
       portsLine +
+      metricsLine +
       '<div class="card-repo">' + esc(repo) + '</div>' +
       errorLine +
       '<div class="card-footer">' +
@@ -171,14 +187,22 @@ var Components = (function() {
     '</a>';
   }
 
-  function appGrid(apps) {
+  function appGrid(apps, appStatsMap) {
     if (!apps || apps.length === 0) {
       return '<div class="empty-state">' +
         '<h2>No Applications</h2>' +
         '<p>No applications are configured yet.</p>' +
       '</div>';
     }
-    return '<div class="app-grid">' + apps.map(appCard).join('') + '</div>';
+    var sorted = apps.slice().sort(function(a, b) {
+      var aName = a.metadata.name;
+      var bName = b.metadata.name;
+      if (aName === 'dockercd') return -1;
+      if (bName === 'dockercd') return 1;
+      return aName.localeCompare(bName);
+    });
+    var statsMap = appStatsMap || {};
+    return '<div class="app-grid">' + sorted.map(function(a) { return appCard(a, statsMap); }).join('') + '</div>';
   }
 
   // --- Detail: Overview ---
@@ -483,33 +507,300 @@ var Components = (function() {
 
   // --- System Info Panel ---
 
-  function systemInfoPanel(info) {
-    if (!info || !info.host) return '';
-    var h = info.host;
-    return '<div class="system-panel">' +
-      '<div class="system-panel-title">Docker Host</div>' +
-      stat(h.serverVersion, 'Engine') +
-      stat(h.os, 'OS') +
-      stat(h.architecture, 'Arch') +
-      stat(h.cpus, 'CPUs') +
-      stat(formatMem(h.totalMemoryMB), 'Memory') +
-      stat(h.storageDriver, 'Storage') +
-      stat(h.containersRunning + ' / ' + h.containers, 'Containers') +
-      stat(h.images, 'Images') +
+  // --- System Info Panel ---
+
+  function systemInfoPanel(info, hostStats) {
+    var html = '<div class="system-panel-wrap">';
+    // Compact stats strip
+    html += '<div id="host-stats-panel">';
+    if (hostStats) {
+      html += renderHostStats(hostStats, info);
+    }
+    html += '</div>';
+    // Static Docker Host — compact inline strip
+    if (info && info.host) {
+      var h = info.host;
+      html += '<div class="host-info-strip">';
+      html += '<span class="host-info-title">HOST</span>';
+      html += hostInfoItem('Engine', h.serverVersion);
+      html += hostInfoItem('OS', h.os);
+      html += hostInfoItem('Arch', h.architecture);
+      html += hostInfoItem('Storage', h.storageDriver);
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function hostInfoItem(label, value) {
+    return '<span class="host-info-item"><span class="host-info-label">' + esc(label) + '</span> ' +
+      '<span class="host-info-value">' + esc(String(value || '-')) + '</span></span>';
+  }
+
+  // Compact stub bar: label on left, short bar, percentage on right
+  function stubBar(label, pct) {
+    pct = Math.min(100, Math.max(0, pct || 0));
+    var cls = pct < 50 ? 'low' : (pct < 80 ? 'medium' : 'high');
+    return '<div class="stub-bar">' +
+      '<span class="stub-bar-label">' + esc(label) + '</span>' +
+      '<div class="stub-bar-track">' +
+        '<div class="stub-bar-fill ' + cls + '" style="width:' + pct.toFixed(1) + '%"></div>' +
+      '</div>' +
+      '<span class="stub-bar-pct">' + pct.toFixed(0) + '%</span>' +
     '</div>';
   }
 
-  function stat(value, label) {
-    return '<div class="system-stat">' +
-      '<div class="system-stat-value">' + esc(String(value || '-')) + '</div>' +
-      '<div class="system-stat-label">' + esc(label) + '</div>' +
-    '</div>';
+  // Tiny vertical bar for per-CPU cores
+  function cpuCoreBars(perCpu) {
+    if (!perCpu || perCpu.length === 0) return '';
+    var allZero = perCpu.every(function(v) { return v === 0; });
+    if (allZero) return '';
+    var html = '<div class="cpu-cores">';
+    for (var i = 0; i < perCpu.length; i++) {
+      var pct = Math.min(100, Math.max(0, perCpu[i] || 0));
+      var cls = pct < 50 ? 'low' : (pct < 80 ? 'medium' : 'high');
+      html += '<div class="cpu-core-col" title="Core ' + i + ': ' + pct.toFixed(0) + '%">' +
+        '<div class="cpu-core-fill ' + cls + '" style="height:' + pct.toFixed(1) + '%"></div>' +
+      '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function statPill(label, value) {
+    return '<span class="stat-pill"><span class="stat-pill-label">' + esc(label) + '</span> <span class="stat-pill-value">' + esc(String(value)) + '</span></span>';
+  }
+
+  function renderHostStats(data, hostInfo) {
+    var s = data && data.stats ? data.stats : data;
+    if (!s) return '';
+    var cpuCores = s.cpuCores || (hostInfo && hostInfo.host ? hostInfo.host.cpus : 0);
+    var cpuPct = cpuCores > 0 ? (s.cpuPercent || 0) / cpuCores : 0;
+    var memPct = s.memoryLimitMB > 0 ? ((s.memoryUsageMB || 0) / s.memoryLimitMB * 100) : 0;
+
+    var html = '<div class="host-strip">';
+
+    // CPU section: core bars + stub bar
+    html += '<div class="host-strip-section">';
+    html += cpuCoreBars(s.perCpuPercent);
+    html += stubBar('CPU', cpuPct);
+    html += '</div>';
+
+    html += '<div class="host-strip-div"></div>';
+
+    // MEM section: stub bar + usage text
+    html += '<div class="host-strip-section">';
+    html += stubBar('MEM', memPct);
+    html += '<span class="host-strip-detail">' + formatSize(s.memoryUsageMB) + ' / ' + formatSize(s.memoryLimitMB) + '</span>';
+    html += '</div>';
+
+    html += '<div class="host-strip-div"></div>';
+
+    // NET + DISK I/O
+    html += '<div class="host-strip-section host-strip-io">';
+    html += '<span class="host-strip-io-item"><span class="io-label">NET</span> <span class="io-down">\u2193</span>' + formatSize(s.networkRxMB) + ' <span class="io-up">\u2191</span>' + formatSize(s.networkTxMB) + '</span>';
+    html += '<span class="host-strip-io-item"><span class="io-label">DISK</span> R:' + formatSize(s.blockReadMB) + ' W:' + formatSize(s.blockWriteMB) + '</span>';
+    html += '</div>';
+
+    html += '<div class="host-strip-div"></div>';
+
+    // Pills: PIDs, Containers, disk usage
+    html += '<div class="host-strip-section host-strip-pills">';
+    html += statPill('PIDs', s.pids || 0);
+    html += statPill('CTN', (s.containersRunning || 0) + '/' + (s.containersTotal || 0));
+    if (s.diskUsage) {
+      var du = s.diskUsage;
+      html += statPill('IMG', du.imagesCount + ' \u00b7 ' + formatSize(du.imagesSizeMB));
+      html += statPill('VOL', du.volumesCount + ' \u00b7 ' + formatSize(du.volumesSizeMB));
+      html += statPill('CACHE', formatSize(du.buildCacheSizeMB));
+    }
+    html += '</div>';
+
+    html += '</div>';
+    return html;
   }
 
   function formatMem(mb) {
     if (!mb) return '-';
     if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
     return mb + ' MB';
+  }
+
+  function formatSize(mb) {
+    if (mb === undefined || mb === null) return '0';
+    if (mb >= 1024) return (mb / 1024).toFixed(1) + 'G';
+    if (mb >= 1) return mb.toFixed(0) + 'M';
+    return (mb * 1024).toFixed(0) + 'K';
+  }
+
+  // Render inner content of a card-metrics div (for targeted updates)
+  function cardMetricsInner(as) {
+    var cpuPct = Math.min(100, as.cpuPercent || 0);
+    var memPct = as.memoryLimitMB > 0 ? Math.min(100, (as.memoryUsageMB / as.memoryLimitMB) * 100) : 0;
+    return stubBar('CPU', cpuPct) +
+      stubBar('MEM', memPct) +
+      statPill('NET', '\u2193' + formatSize(as.networkRxMB) + ' \u2191' + formatSize(as.networkTxMB)) +
+      statPill('PIDs', as.pids || 0);
+  }
+
+  // --- Docker Hosts ---
+
+  function hostHealthBadgeClass(status) {
+    switch ((status || '').toLowerCase()) {
+      case 'healthy': return 'badge-healthy';
+      case 'degraded': return 'badge-progressing';
+      case 'unreachable': return 'badge-degraded';
+      default: return 'badge-unknown';
+    }
+  }
+
+  function hostHealthBadge(status) {
+    return badge(status || 'Unknown', hostHealthBadgeClass(status));
+  }
+
+  function hostStatusClass(host) {
+    var h = (host.healthStatus || '').toLowerCase();
+    if (h === 'unreachable') return 'status-degraded';
+    if (h === 'degraded') return 'status-progressing';
+    if (h === 'healthy') return 'status-healthy';
+    return 'status-unknown';
+  }
+
+  function hostCard(host) {
+    var statusCls = hostStatusClass(host);
+    var tlsIcon = host.tlsCertPath ? '<span class="tls-badge">TLS</span> ' : '';
+    var lastCheck = host.lastCheck ? timeAgo(host.lastCheck) : 'never checked';
+
+    var infoLine = '';
+    if (host.info && host.info.host) {
+      var h = host.info.host;
+      var parts = [];
+      if (h.os) parts.push(h.os);
+      if (h.architecture) parts.push(h.architecture);
+      if (h.serverVersion) parts.push('Docker ' + h.serverVersion);
+      if (parts.length > 0) {
+        infoLine = '<div class="card-repo">' + esc(parts.join(' \u00b7 ')) + '</div>';
+      }
+    }
+
+    var statsLine = '';
+    if (host.stats) {
+      var s = host.stats;
+      var cpuPct = Math.min(100, s.cpuPercent || 0);
+      var memPct = s.memoryLimitMB > 0 ? Math.min(100, (s.memoryUsageMB / s.memoryLimitMB) * 100) : 0;
+      statsLine = '<div class="card-metrics">' +
+        stubBar('CPU', cpuPct) +
+        stubBar('MEM', memPct) +
+        statPill('CTN', (s.containersRunning || 0) + '/' + (s.containersTotal || 0)) +
+      '</div>';
+    }
+
+    var errorLine = '';
+    if (host.lastError) {
+      errorLine = '<div class="card-error" title="' + esc(host.lastError) + '">' + esc(host.lastError) + '</div>';
+    }
+
+    return '<a href="#/hosts/' + encodeURIComponent(host.name) + '" class="app-card ' + statusCls + '">' +
+      '<div class="card-header">' +
+        '<span class="card-name">' + tlsIcon + esc(host.name) + '</span>' +
+        '<div class="card-badges">' + hostHealthBadge(host.healthStatus) + '</div>' +
+      '</div>' +
+      '<div class="card-repo mono">' + esc(host.url) + '</div>' +
+      infoLine +
+      statsLine +
+      errorLine +
+      '<div class="card-footer">' +
+        '<span>Checked ' + esc(lastCheck) + '</span>' +
+      '</div>' +
+    '</a>';
+  }
+
+  function hostGrid(hosts) {
+    if (!hosts || hosts.length === 0) {
+      return '<div class="empty-state">' +
+        '<h2>No Docker Hosts</h2>' +
+        '<p>Register a remote Docker host to manage multi-host deployments.</p>' +
+      '</div>';
+    }
+    return '<div class="app-grid">' + hosts.map(function(h) { return hostCard(h); }).join('') + '</div>';
+  }
+
+  function addHostForm() {
+    return '<div class="add-host-form">' +
+      '<form id="add-host-form">' +
+        '<div class="add-host-fields">' +
+          '<input type="text" id="host-name" placeholder="Name (e.g. my-server)" class="form-input" required>' +
+          '<input type="text" id="host-url" placeholder="URL (e.g. tcp://192.168.1.100:2376)" class="form-input form-input-wide" required>' +
+          '<input type="text" id="host-tls-cert" placeholder="TLS Cert Path (optional)" class="form-input">' +
+          '<label class="form-checkbox"><input type="checkbox" id="host-tls-verify" checked> Verify TLS</label>' +
+          '<button type="submit" class="btn btn-primary">Add Host</button>' +
+        '</div>' +
+      '</form>' +
+    '</div>';
+  }
+
+  function hostInfoSection(host) {
+    var html = '';
+
+    // Stats bar
+    if (host.stats) {
+      html += '<div style="margin-bottom:0.75rem">';
+      html += renderHostStats(host.stats, host.info ? { host: host.info.host } : null);
+      html += '</div>';
+    }
+
+    // Host info strip
+    if (host.info && host.info.host) {
+      var h = host.info.host;
+      html += '<div class="host-info-strip" style="margin-bottom:1.5rem">';
+      html += '<span class="host-info-title">HOST</span>';
+      html += hostInfoItem('Engine', h.serverVersion);
+      html += hostInfoItem('OS', h.os);
+      html += hostInfoItem('Arch', h.architecture);
+      html += hostInfoItem('CPUs', h.cpus);
+      html += hostInfoItem('Memory', formatMem(h.memoryMB));
+      html += hostInfoItem('Storage', h.storageDriver);
+      html += '</div>';
+    }
+
+    // Meta cards
+    html += '<div class="meta-grid" style="margin-bottom:1.5rem">';
+    html += '<div class="meta-card">';
+    html += '<h3>Status</h3>';
+    html += metaItem('Health', host.healthStatus || 'Unknown');
+    html += metaItem('Last Check', host.lastCheck ? formatTime(host.lastCheck) : 'never');
+    if (host.lastError) html += metaItem('Last Error', host.lastError);
+    html += metaItem('Created', host.createdAt ? formatTime(host.createdAt) : '-');
+    html += '</div>';
+    html += '<div class="meta-card">';
+    html += '<h3>Connection</h3>';
+    html += metaItem('URL', host.url);
+    html += metaItem('TLS', host.tlsCertPath || 'None');
+    html += metaItem('Verify', host.tlsVerify ? 'Yes' : 'No');
+    html += '</div>';
+    html += '</div>';
+
+    return html;
+  }
+
+  function hostAppsTable(apps) {
+    if (!apps || apps.length === 0) {
+      return '<div class="empty-state"><p>No applications targeting this host</p></div>';
+    }
+
+    var rows = apps.map(function(a) {
+      return '<tr onclick="location.hash=\'#/apps/' + esc(a.metadata.name) + '\'" style="cursor:pointer">' +
+        '<td>' + esc(a.metadata.name) + '</td>' +
+        '<td>' + syncBadge(a.status.syncStatus) + '</td>' +
+        '<td>' + healthBadge(a.status.healthStatus) + '</td>' +
+        '<td class="muted">' + timeAgo(a.status.lastSyncTime) + '</td>' +
+      '</tr>';
+    }).join('');
+
+    return '<h3 style="font-size:0.85rem;margin-bottom:0.5rem;color:var(--text-secondary)">Applications on this host</h3>' +
+      '<div class="table-wrap"><table>' +
+      '<thead><tr><th>Name</th><th>Sync</th><th>Health</th><th>Last Sync</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
   }
 
   // --- Toast ---
@@ -542,8 +833,16 @@ var Components = (function() {
     serviceCard: serviceCard,
     deploymentTree: deploymentTree,
     systemInfoPanel: systemInfoPanel,
+    renderHostStats: renderHostStats,
+    cardMetricsInner: cardMetricsInner,
     toast: toast,
     timeAgo: timeAgo,
-    esc: esc
+    esc: esc,
+    hostHealthBadge: hostHealthBadge,
+    hostCard: hostCard,
+    hostGrid: hostGrid,
+    addHostForm: addHostForm,
+    hostInfoSection: hostInfoSection,
+    hostAppsTable: hostAppsTable
   };
 })();

@@ -5,12 +5,15 @@ package health
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/mkolb22/dockercd/internal/app"
+	"github.com/mkolb22/dockercd/internal/eventbus"
 	"github.com/mkolb22/dockercd/internal/inspector"
+	"github.com/mkolb22/dockercd/internal/notifier"
 	"github.com/mkolb22/dockercd/internal/store"
 )
 
@@ -32,6 +35,10 @@ type HealthChecker interface {
 
 	// UnwatchApp removes an application from active health monitoring.
 	UnwatchApp(appName string)
+
+	// WaitForServicesHealthy blocks until the named services are all healthy or
+	// the context/timeout expires. Returns nil if all healthy, error otherwise.
+	WaitForServicesHealthy(ctx context.Context, appName string, serviceNames []string, timeout time.Duration) error
 }
 
 // Config holds health monitor configuration.
@@ -65,10 +72,12 @@ type watchEntry struct {
 
 // Monitor implements HealthChecker with periodic polling.
 type Monitor struct {
-	inspector inspector.StateInspector
-	store     *store.SQLiteStore
-	logger    *slog.Logger
-	config    Config
+	inspector      inspector.StateInspector
+	store          *store.SQLiteStore
+	logger         *slog.Logger
+	config         Config
+	Broadcaster    eventbus.Broadcaster
+	eventNotifier  notifier.Notifier
 
 	// Watched apps (those recently deployed, monitored more aggressively)
 	watched   map[string]*watchEntry
@@ -76,6 +85,16 @@ type Monitor struct {
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+}
+
+// SetBroadcaster sets the event broadcaster for health status change notifications.
+func (m *Monitor) SetBroadcaster(b eventbus.Broadcaster) {
+	m.Broadcaster = b
+}
+
+// SetNotifier sets the notifier for health degradation events.
+func (m *Monitor) SetNotifier(n notifier.Notifier) {
+	m.eventNotifier = n
 }
 
 // New creates a new health Monitor.
@@ -142,6 +161,49 @@ func (m *Monitor) UnwatchApp(appName string) {
 	m.watchedMu.Unlock()
 }
 
+// WaitForServicesHealthy blocks until the named services are all healthy or
+// the context/timeout expires. Returns nil when all named services are healthy.
+func (m *Monitor) WaitForServicesHealthy(ctx context.Context, appName string, serviceNames []string, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = m.config.DefaultTimeout
+	}
+
+	deadline := time.After(timeout)
+	ticker := time.NewTicker(m.config.PollInterval)
+	defer ticker.Stop()
+
+	nameSet := make(map[string]bool, len(serviceNames))
+	for _, n := range serviceNames {
+		nameSet[n] = true
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline:
+			return fmt.Errorf("timeout waiting for services to become healthy: %v", serviceNames)
+		case <-ticker.C:
+			_, services, err := m.CheckApp(ctx, appName)
+			if err != nil {
+				m.logger.Debug("health check error during wave wait", "app", appName, "error", err)
+				continue
+			}
+
+			allHealthy := true
+			for _, svc := range services {
+				if nameSet[svc.Name] && svc.Health != app.HealthStatusHealthy {
+					allHealthy = false
+					break
+				}
+			}
+			if allHealthy {
+				return nil
+			}
+		}
+	}
+}
+
 // CheckApp performs a single health check for the named application.
 func (m *Monitor) CheckApp(ctx context.Context, appName string) (app.HealthStatus, []app.ServiceStatus, error) {
 	// Look up the application
@@ -181,7 +243,7 @@ func (m *Monitor) CheckApp(ctx context.Context, appName string) (app.HealthStatu
 
 	// Persist to store
 	servicesJSON, _ := json.Marshal(serviceStatuses)
-	m.store.UpdateApplicationStatus(ctx, appName, store.StatusUpdate{
+	_ = m.store.UpdateApplicationStatus(ctx, appName, store.StatusUpdate{
 		HealthStatus: string(aggregated),
 		ServicesJSON: string(servicesJSON),
 	})
@@ -228,6 +290,13 @@ func (m *Monitor) checkWatchedApps(ctx context.Context) {
 
 		if health == app.HealthStatusHealthy {
 			m.logger.Info("app healthy", "app", entry.appName, "elapsed", elapsed)
+			if m.Broadcaster != nil {
+				m.Broadcaster.Broadcast(eventbus.Event{
+					Type:    "health",
+					AppName: entry.appName,
+					Data:    map[string]interface{}{"health": string(health)},
+				})
+			}
 			expired = append(expired, entry.appName)
 			continue
 		}
@@ -239,10 +308,27 @@ func (m *Monitor) checkWatchedApps(ctx context.Context) {
 				"timeout", entry.timeout,
 			)
 			// Update status to reflect timeout
-			m.store.UpdateApplicationStatus(ctx, entry.appName, store.StatusUpdate{
+			_ = m.store.UpdateApplicationStatus(ctx, entry.appName, store.StatusUpdate{
 				HealthStatus: string(health),
 				LastError:    "health check timeout: not all services healthy",
 			})
+			if m.Broadcaster != nil {
+				m.Broadcaster.Broadcast(eventbus.Event{
+					Type:    "health",
+					AppName: entry.appName,
+					Data:    map[string]interface{}{"health": string(health)},
+				})
+			}
+			if m.eventNotifier != nil {
+				if notifyErr := m.eventNotifier.Notify(ctx, notifier.NotificationEvent{
+					Type:    "health.degraded",
+					AppName: entry.appName,
+					Message: fmt.Sprintf("Health check timeout: %s is %s after %s", entry.appName, health, entry.timeout),
+					Time:    time.Now(),
+				}); notifyErr != nil {
+					m.logger.Error("health degraded notification failed", "app", entry.appName, "error", notifyErr)
+				}
+			}
 			expired = append(expired, entry.appName)
 			continue
 		}

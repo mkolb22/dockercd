@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	gohttp "net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -20,12 +21,17 @@ import (
 	"github.com/mkolb22/dockercd/internal/config"
 	"github.com/mkolb22/dockercd/internal/deployer"
 	"github.com/mkolb22/dockercd/internal/differ"
+	"github.com/mkolb22/dockercd/internal/eventbus"
 	"github.com/mkolb22/dockercd/internal/events"
 	"github.com/mkolb22/dockercd/internal/gitsync"
 	"github.com/mkolb22/dockercd/internal/health"
+	"github.com/mkolb22/dockercd/internal/hostmon"
 	"github.com/mkolb22/dockercd/internal/inspector"
+	"github.com/mkolb22/dockercd/internal/notifier"
 	"github.com/mkolb22/dockercd/internal/parser"
 	"github.com/mkolb22/dockercd/internal/reconciler"
+	"github.com/mkolb22/dockercd/internal/registry"
+	"github.com/mkolb22/dockercd/internal/secrets"
 	"github.com/mkolb22/dockercd/internal/store"
 )
 
@@ -79,11 +85,122 @@ func runServe(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("initializing git syncer: %w", err)
 	}
 
-	insp := inspector.New()
+	// Build TLS configs for remote Docker hosts
+	var insp inspector.StateInspector
+	if len(cfg.TLS) > 0 {
+		tlsMap := make(map[string]inspector.TLSConfig, len(cfg.TLS))
+		for _, tc := range cfg.TLS {
+			tlsMap[tc.Host] = inspector.TLSConfig{
+				CertPath: tc.CertPath,
+				Verify:   tc.Verify,
+			}
+		}
+		insp = inspector.NewWithTLS(tlsMap)
+		logger.Info("TLS enabled for remote Docker hosts", "hosts", len(cfg.TLS))
+	} else {
+		insp = inspector.New()
+	}
+
+	// Load TLS configs from DB-registered Docker hosts into the inspector
+	dbHosts, err := st.ListDockerHosts(context.Background())
+	if err != nil {
+		logger.Warn("loading docker hosts from DB", "error", err)
+	} else {
+		for _, h := range dbHosts {
+			if h.TLSCertPath != "" {
+				insp.RegisterTLS(h.URL, inspector.TLSConfig{
+					CertPath: h.TLSCertPath,
+					Verify:   h.TLSVerify,
+				})
+			}
+		}
+		if len(dbHosts) > 0 {
+			logger.Info("loaded Docker hosts from database", "count", len(dbHosts))
+		}
+	}
+
+	// Initialize secrets providers (optional — any combination may be active)
+	var secretProviders []secrets.Provider
+	if cfg.AgeKeyFile != "" {
+		sp, err := secrets.NewAge(cfg.AgeKeyFile)
+		if err != nil {
+			return fmt.Errorf("initializing age secrets provider: %w", err)
+		}
+		secretProviders = append(secretProviders, sp)
+		logger.Info("age secrets provider enabled", "keyFile", cfg.AgeKeyFile)
+	}
+	if cfg.VaultAddr != "" && cfg.VaultToken != "" {
+		secretProviders = append(secretProviders, secrets.NewVault(cfg.VaultAddr, cfg.VaultToken))
+		logger.Info("vault secrets provider enabled", "addr", cfg.VaultAddr)
+	}
+	if cfg.AWSRegion != "" {
+		secretProviders = append(secretProviders, secrets.NewAWSSecretsManager(cfg.AWSRegion, cfg.AWSEndpoint))
+		logger.Info("aws secrets manager provider enabled", "region", cfg.AWSRegion)
+	}
+
 	p := parser.New()
+	if len(secretProviders) > 0 {
+		var sp secrets.Provider
+		if len(secretProviders) == 1 {
+			sp = secretProviders[0]
+		} else {
+			sp = secrets.NewMulti(secretProviders...)
+		}
+		p = parser.NewWithSecrets(sp)
+	}
+
 	d := differ.New()
 	dep := deployer.New(logger)
 	healthMon := health.New(insp, st, logger, health.DefaultConfig())
+
+	// Create SSE event hub for real-time browser updates
+	sseHub := eventbus.NewHub()
+
+	// Wire broadcaster to health monitor
+	healthMon.SetBroadcaster(sseHub)
+
+	// Initialize host health monitor for remote Docker hosts
+	hostMon := hostmon.New(insp, st, logger, hostmon.DefaultConfig())
+	hostMon.SetBroadcaster(sseHub)
+
+	// Build notifiers from config
+	var notifiers []notifier.Notifier
+	if cfg.SlackWebhookURL != "" {
+		notifiers = append(notifiers, notifier.NewSlack(cfg.SlackWebhookURL))
+		logger.Info("slack notifications enabled")
+	}
+	if cfg.NotificationWebhookURL != "" {
+		notifiers = append(notifiers, notifier.NewWebhook(cfg.NotificationWebhookURL, cfg.NotificationWebhookHeaders))
+		logger.Info("webhook notifications enabled")
+	}
+
+	var appNotifier notifier.Notifier
+	if len(notifiers) > 0 {
+		appNotifier = notifier.NewMulti(logger, notifiers...)
+	}
+
+	// Wire notifier to health monitor
+	if appNotifier != nil {
+		healthMon.SetNotifier(appNotifier)
+	}
+
+	// TLS lookup: resolves Docker host URL to TLS cert path.
+	// Checks static config first, then DB-registered hosts.
+	tlsLookup := func(host string) string {
+		if host == "" {
+			return ""
+		}
+		for _, tc := range cfg.TLS {
+			if tc.Host == host {
+				return tc.CertPath
+			}
+		}
+		h, _ := st.GetDockerHostByURL(context.Background(), host)
+		if h != nil {
+			return h.TLSCertPath
+		}
+		return ""
+	}
 
 	// Initialize reconciler
 	rec := reconciler.New(reconciler.Deps{
@@ -96,6 +213,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 		Store:         st,
 		Logger:        logger,
 		WorkerCount:   cfg.WorkerCount,
+		Broadcaster:   sseHub,
+		Notifier:      appNotifier,
+		TLSLookup:     tlsLookup,
 	})
 
 	// Initialize event watcher for self-healing
@@ -104,9 +224,43 @@ func runServe(_ *cobra.Command, _ []string) error {
 		if host != "" {
 			opts = append(opts, client.WithHost(host))
 		}
+		// Add TLS if configured for this host
+		for _, tc := range cfg.TLS {
+			if tc.Host == host {
+				tlsCfg := inspector.TLSConfig{CertPath: tc.CertPath, Verify: tc.Verify}
+				tlsConfig, err := tlsCfg.LoadTLSConfig()
+				if err != nil {
+					return nil, fmt.Errorf("loading TLS for event client: %w", err)
+				}
+				httpClient := &gohttp.Client{
+					Transport: &gohttp.Transport{TLSClientConfig: tlsConfig},
+				}
+				opts = append(opts, client.WithHTTPClient(httpClient))
+				break
+			}
+		}
 		return client.NewClientWithOpts(opts...)
 	}
 	eventWatcher := events.NewWatcher(eventClientFactory, rec, st, logger, events.DefaultWatcherConfig())
+
+	// Wire broadcaster to event watcher
+	eventWatcher.SetBroadcaster(sseHub)
+
+	// Initialize image update poller (optional)
+	var imagePoller *registry.Poller
+	if cfg.ImagePollInterval > 0 {
+		var checker registry.TagChecker
+		if cfg.DefaultRegistryURL != "" {
+			checker = registry.NewGenericRegistryChecker(cfg.DefaultRegistryURL)
+		} else {
+			checker = registry.NewDockerHubChecker()
+		}
+		imagePoller = registry.NewPoller(checker, gitSyncer, st, rec, logger, registry.PollerConfig{
+			PollInterval:    cfg.ImagePollInterval,
+			DefaultRegistry: cfg.DefaultRegistryURL,
+		})
+		logger.Info("image update poller enabled", "interval", cfg.ImagePollInterval)
+	}
 
 	// Set up context with signal handling
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -115,10 +269,13 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// Start API server
 	addr := fmt.Sprintf(":%d", cfg.APIPort)
 	apiServer := api.NewServer(addr, api.ServerDeps{
-		Store:      st,
-		Reconciler: rec,
-		Inspector:  insp,
-		Logger:     logger,
+		Store:         st,
+		Reconciler:    rec,
+		Inspector:     insp,
+		Logger:        logger,
+		WebhookSecret: cfg.WebhookSecret,
+		SSEHub:        sseHub,
+		EventWatcher:  eventWatcher,
 	})
 	if err := apiServer.Start(); err != nil {
 		return fmt.Errorf("starting API server: %w", err)
@@ -131,12 +288,33 @@ func runServe(_ *cobra.Command, _ []string) error {
 		}
 	}()
 
+	// Start host health monitor in background
+	go func() {
+		if err := hostMon.Start(ctx); err != nil {
+			logger.Error("host health monitor error", "error", err)
+		}
+	}()
+
 	// Start event watcher in background (Docker event stream for self-healing)
 	go func() {
 		if err := eventWatcher.Start(ctx); err != nil {
 			logger.Error("event watcher error", "error", err)
 		}
 	}()
+
+	// Start watching events on all registered remote Docker hosts
+	for _, h := range dbHosts {
+		eventWatcher.WatchHost(h.URL)
+	}
+
+	// Start image update poller in background (optional)
+	if imagePoller != nil {
+		go func() {
+			if err := imagePoller.Start(ctx); err != nil {
+				logger.Error("image poller error", "error", err)
+			}
+		}()
+	}
 
 	// Start reconciler (blocks until ctx is canceled)
 	logger.Info("dockercd ready", "api_addr", addr)
@@ -146,9 +324,13 @@ func runServe(_ *cobra.Command, _ []string) error {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()
 
+	if imagePoller != nil {
+		imagePoller.Stop()
+	}
 	eventWatcher.Stop()
+	hostMon.Stop()
 	healthMon.Stop()
-	apiServer.Stop(shutdownCtx)
+	_ = apiServer.Stop(shutdownCtx)
 	gitSyncer.Close()
 
 	if err != nil && ctx.Err() == nil {

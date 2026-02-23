@@ -10,16 +10,44 @@ import (
 	"github.com/spf13/viper"
 )
 
+// TLSHostConfig holds TLS client certificate paths for a remote Docker host.
+type TLSHostConfig struct {
+	Host     string `mapstructure:"host"`      // Docker host URL (e.g., "tcp://remote:2376")
+	CertPath string `mapstructure:"cert_path"` // Path to directory containing cert.pem, key.pem, ca.pem
+	Verify   bool   `mapstructure:"verify"`    // Whether to verify the server certificate
+}
+
 // Config holds all configuration for the dockercd daemon.
 type Config struct {
-	DataDir             string        `mapstructure:"data_dir"`
-	ConfigDir           string        `mapstructure:"config_dir"`
-	LogLevel            string        `mapstructure:"log_level"`
-	APIPort             int           `mapstructure:"api_port"`
-	DockerHost          string        `mapstructure:"docker_host"`
-	WorkerCount         int           `mapstructure:"worker_count"`
-	DefaultPollInterval time.Duration `mapstructure:"default_poll_interval"`
-	GitToken            string        `mapstructure:"git_token"`
+	DataDir             string            `mapstructure:"data_dir"`
+	ConfigDir           string            `mapstructure:"config_dir"`
+	LogLevel            string            `mapstructure:"log_level"`
+	APIPort             int               `mapstructure:"api_port"`
+	DockerHost          string            `mapstructure:"docker_host"`
+	WorkerCount         int               `mapstructure:"worker_count"`
+	DefaultPollInterval time.Duration     `mapstructure:"default_poll_interval"`
+	GitToken            string            `mapstructure:"git_token"`
+	WebhookSecret       string            `mapstructure:"webhook_secret"`
+	SlackWebhookURL     string            `mapstructure:"slack_webhook_url"`
+	NotificationWebhookURL     string            `mapstructure:"notification_webhook_url"`
+	NotificationWebhookHeaders map[string]string `mapstructure:"notification_webhook_headers"`
+	AgeKeyFile                 string            `mapstructure:"age_key_file"`
+	// TLS holds per-host TLS client certificate configuration for remote Docker daemons.
+	TLS []TLSHostConfig `mapstructure:"tls"`
+	// VaultAddr is the Vault server address (e.g., "http://vault:8200").
+	VaultAddr string `mapstructure:"vault_addr"`
+	// VaultToken is the Vault authentication token.
+	VaultToken string `mapstructure:"vault_token"`
+	// AWSRegion is the AWS region for Secrets Manager.
+	AWSRegion string `mapstructure:"aws_region"`
+	// AWSEndpoint is an optional custom AWS endpoint (e.g., for LocalStack).
+	AWSEndpoint string `mapstructure:"aws_endpoint"`
+	// ImagePollInterval is how often to check registries for new image tags.
+	// Set to 0 to disable image update automation.
+	ImagePollInterval time.Duration `mapstructure:"image_poll_interval"`
+	// DefaultRegistryURL is the Docker registry URL for private registries.
+	// Leave empty to use Docker Hub.
+	DefaultRegistryURL string `mapstructure:"default_registry_url"`
 }
 
 // Validate checks the configuration for correctness.

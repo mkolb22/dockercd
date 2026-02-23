@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mkolb22/dockercd/internal/app"
+	"github.com/mkolb22/dockercd/internal/inspector"
 	"github.com/mkolb22/dockercd/internal/store"
 )
 
@@ -46,6 +47,13 @@ func (m *mockInspector) InspectWithMetrics(_ context.Context, _ app.DestinationS
 func (m *mockInspector) SystemInfo(_ context.Context, _ string) (*app.DockerHostInfo, error) {
 	return nil, nil
 }
+
+func (m *mockInspector) HostStats(_ context.Context, _ string) (*app.HostStats, error) {
+	return nil, nil
+}
+func (m *mockInspector) RegisterTLS(_ string, _ inspector.TLSConfig)   {}
+func (m *mockInspector) UnregisterTLS(_ string)                        {}
+func (m *mockInspector) GetTLSCertPath(_ string) string                { return "" }
 
 func (m *mockInspector) getCalls() int {
 	m.mu.Lock()
@@ -212,7 +220,7 @@ func TestCheckApp_PersistsStatus(t *testing.T) {
 	}
 
 	m := New(insp, s, testLogger(), DefaultConfig())
-	m.CheckApp(context.Background(), "myapp")
+	_, _, _ = m.CheckApp(context.Background(), "myapp")
 
 	// Verify status was persisted
 	appRec, _ := s.GetApplication(context.Background(), "myapp")
@@ -351,8 +359,8 @@ func TestPollLoop_CalledMultipleTimes(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	m.wg.Add(1)
 	go func() {
-		m.wg.Add(1)
 		m.pollLoop(ctx)
 	}()
 

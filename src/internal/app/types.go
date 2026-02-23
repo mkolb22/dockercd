@@ -104,16 +104,17 @@ type AppStatus struct {
 
 // SyncResult records the outcome of a sync operation.
 type SyncResult struct {
-	ID         string           `json:"id"`
-	AppName    string           `json:"appName"`
-	StartedAt  time.Time        `json:"startedAt"`
-	FinishedAt time.Time        `json:"finishedAt"`
-	CommitSHA  string           `json:"commitSHA"`
-	Operation  SyncOperation    `json:"operation"`
-	Result     SyncResultStatus `json:"result"`
-	Diff       *DiffResult      `json:"diff,omitempty"`
-	Error      string           `json:"error,omitempty"`
-	DurationMs int64            `json:"durationMs"`
+	ID              string           `json:"id"`
+	AppName         string           `json:"appName"`
+	StartedAt       time.Time        `json:"startedAt"`
+	FinishedAt      time.Time        `json:"finishedAt"`
+	CommitSHA       string           `json:"commitSHA"`
+	Operation       SyncOperation    `json:"operation"`
+	Result          SyncResultStatus `json:"result"`
+	Diff            *DiffResult      `json:"diff,omitempty"`
+	Error           string           `json:"error,omitempty"`
+	DurationMs      int64            `json:"durationMs"`
+	ComposeSpecJSON string           `json:"-"` // internal use only — not serialized to API responses
 }
 
 type SyncOperation string
@@ -122,6 +123,8 @@ const (
 	SyncOperationPoll     SyncOperation = "poll"
 	SyncOperationManual   SyncOperation = "manual"
 	SyncOperationSelfHeal SyncOperation = "self-heal"
+	SyncOperationRollback SyncOperation = "rollback"
+	SyncOperationAdopt    SyncOperation = "adopt"
 )
 
 type SyncResultStatus string
@@ -222,6 +225,49 @@ type DockerHostInfo struct {
 	DockerRootDir  string `json:"dockerRootDir"`
 }
 
+// HostStats holds aggregated resource usage across all running containers on the host.
+type HostStats struct {
+	CPUPercent        float64                      `json:"cpuPercent"`
+	CPUCores          int                          `json:"cpuCores"`
+	PerCPUPercent     []float64                    `json:"perCpuPercent,omitempty"`
+	MemoryUsageMB     float64                      `json:"memoryUsageMB"`
+	MemoryLimitMB     float64                      `json:"memoryLimitMB"`
+	MemoryPercent     float64                      `json:"memoryPercent"`
+	NetworkRxMB       float64                      `json:"networkRxMB"`
+	NetworkTxMB       float64                      `json:"networkTxMB"`
+	BlockReadMB       float64                      `json:"blockReadMB"`
+	BlockWriteMB      float64                      `json:"blockWriteMB"`
+	PIDs              int                          `json:"pids"`
+	ContainersRunning int                          `json:"containersRunning"`
+	ContainersTotal   int                          `json:"containersTotal"`
+	DiskUsage         *DiskUsage                   `json:"diskUsage,omitempty"`
+	Apps              map[string]*AppResourceStats `json:"apps,omitempty"`
+	CollectedAt       string                       `json:"collectedAt"`
+}
+
+// AppResourceStats holds per-app aggregated resource usage.
+type AppResourceStats struct {
+	CPUPercent    float64 `json:"cpuPercent"`
+	MemoryUsageMB float64 `json:"memoryUsageMB"`
+	MemoryLimitMB float64 `json:"memoryLimitMB"`
+	MemoryPercent float64 `json:"memoryPercent"`
+	NetworkRxMB   float64 `json:"networkRxMB"`
+	NetworkTxMB   float64 `json:"networkTxMB"`
+	PIDs          int     `json:"pids"`
+	Containers    int     `json:"containers"`
+}
+
+// DiskUsage holds Docker daemon disk usage info.
+type DiskUsage struct {
+	ImagesSizeMB     float64 `json:"imagesSizeMB"`
+	ContainersSizeMB float64 `json:"containersSizeMB"`
+	VolumesSizeMB    float64 `json:"volumesSizeMB"`
+	BuildCacheSizeMB float64 `json:"buildCacheSizeMB"`
+	TotalSizeMB      float64 `json:"totalSizeMB"`
+	ImagesCount      int     `json:"imagesCount"`
+	VolumesCount     int     `json:"volumesCount"`
+}
+
 // ComposeSpec is the parsed and normalized representation of Docker Compose files.
 type ComposeSpec struct {
 	Services []ServiceSpec          `json:"services"`
@@ -261,6 +307,18 @@ type VolumeSpec struct {
 	Driver   string `json:"driver,omitempty"`
 	External bool   `json:"external,omitempty"`
 }
+
+// DeployStrategy defines the deployment strategy for a service.
+type DeployStrategy string
+
+const (
+	// DeployStrategyDefault uses in-place deployment (standard docker compose up -d).
+	DeployStrategyDefault DeployStrategy = ""
+
+	// DeployStrategyBlueGreen deploys the new version as a separate project with the
+	// opposite color suffix, waits for health, then stops the old color project.
+	DeployStrategyBlueGreen DeployStrategy = "blue-green"
+)
 
 // DiffResult represents the computed difference between desired and live state.
 type DiffResult struct {

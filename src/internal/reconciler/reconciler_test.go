@@ -11,6 +11,7 @@ import (
 
 	"github.com/mkolb22/dockercd/internal/app"
 	"github.com/mkolb22/dockercd/internal/deployer"
+	"github.com/mkolb22/dockercd/internal/inspector"
 	"github.com/mkolb22/dockercd/internal/store"
 )
 
@@ -28,7 +29,11 @@ func (m *mockGitSyncer) Sync(_ context.Context, _ app.SourceSpec) (string, error
 	return m.sha, m.err
 }
 func (m *mockGitSyncer) RepoPath(_ string) string { return m.path }
-func (m *mockGitSyncer) Close() error             { return nil }
+func (m *mockGitSyncer) Commit(_ context.Context, _ string, _ string, _ []string) error {
+	return nil
+}
+func (m *mockGitSyncer) Push(_ context.Context, _ string) error { return nil }
+func (m *mockGitSyncer) Close() error                           { return nil }
 
 type mockParser struct {
 	spec *app.ComposeSpec
@@ -57,6 +62,13 @@ func (m *mockInspector) SystemInfo(_ context.Context, _ string) (*app.DockerHost
 	return nil, nil
 }
 
+func (m *mockInspector) HostStats(_ context.Context, _ string) (*app.HostStats, error) {
+	return nil, nil
+}
+func (m *mockInspector) RegisterTLS(_ string, _ inspector.TLSConfig)   {}
+func (m *mockInspector) UnregisterTLS(_ string)                        {}
+func (m *mockInspector) GetTLSCertPath(_ string) string                { return "" }
+
 type mockDiffer struct {
 	result *app.DiffResult
 }
@@ -71,6 +83,8 @@ type mockDeployer struct {
 	lastReq   deployer.DeployRequest
 	downed    bool
 	downErr   error
+	hookRun   bool
+	hookErr   error
 }
 
 func (m *mockDeployer) Deploy(_ context.Context, req deployer.DeployRequest) error {
@@ -78,9 +92,43 @@ func (m *mockDeployer) Deploy(_ context.Context, req deployer.DeployRequest) err
 	m.lastReq = req
 	return m.err
 }
+func (m *mockDeployer) DeployServices(_ context.Context, req deployer.DeployRequest, _ []string) error {
+	m.deployed = true
+	m.lastReq = req
+	return m.err
+}
 func (m *mockDeployer) Down(_ context.Context, req deployer.DeployRequest) error {
 	m.downed = true
 	return m.downErr
+}
+func (m *mockDeployer) RunHook(_ context.Context, _ deployer.DeployRequest, _ string) error {
+	m.hookRun = true
+	return m.hookErr
+}
+
+type mockHealthMonitor struct {
+	watchCalled   bool
+	unwatchCalled bool
+	waitCalled    bool
+	waitErr       error
+	waitServices  []string
+}
+
+func (m *mockHealthMonitor) Start(_ context.Context) error { return nil }
+func (m *mockHealthMonitor) Stop()                         {}
+func (m *mockHealthMonitor) CheckApp(_ context.Context, _ string) (app.HealthStatus, []app.ServiceStatus, error) {
+	return app.HealthStatusHealthy, nil, nil
+}
+func (m *mockHealthMonitor) WatchApp(_ string, _ time.Duration) {
+	m.watchCalled = true
+}
+func (m *mockHealthMonitor) UnwatchApp(_ string) {
+	m.unwatchCalled = true
+}
+func (m *mockHealthMonitor) WaitForServicesHealthy(_ context.Context, _ string, serviceNames []string, _ time.Duration) error {
+	m.waitCalled = true
+	m.waitServices = serviceNames
+	return m.waitErr
 }
 
 func testLogger() *slog.Logger {
@@ -468,7 +516,7 @@ func TestReconcile_SyncRecordCreated(t *testing.T) {
 	gs := &mockGitSyncer{sha: "abc123", path: "/tmp/repo"}
 	r := newTestReconciler(s, gs, &mockParser{}, &mockInspector{}, &mockDiffer{}, &mockDeployer{})
 
-	r.ReconcileNow(context.Background(), "myapp")
+	_, _ = r.ReconcileNow(context.Background(), "myapp")
 
 	// Verify sync record was created
 	records, err := s.ListSyncHistory(context.Background(), "myapp", 10)
@@ -504,7 +552,7 @@ func TestReconcile_PruneOnlyWhenRemovalsExist(t *testing.T) {
 	dep := &mockDeployer{}
 
 	r := newTestReconciler(s, gs, p, insp, d, dep)
-	r.ReconcileNow(context.Background(), "myapp")
+	_, _ = r.ReconcileNow(context.Background(), "myapp")
 
 	if dep.lastReq.Prune {
 		t.Error("should not prune when no services to remove")
@@ -531,7 +579,7 @@ func TestReconcile_PruneWhenRemovalsExist(t *testing.T) {
 	dep := &mockDeployer{}
 
 	r := newTestReconciler(s, gs, p, insp, d, dep)
-	r.ReconcileNow(context.Background(), "myapp")
+	_, _ = r.ReconcileNow(context.Background(), "myapp")
 
 	if !dep.lastReq.Prune {
 		t.Error("should prune when services to remove exist")
@@ -647,7 +695,7 @@ func TestReconcile_CircuitBreakerOpens(t *testing.T) {
 
 	// Fail 3 times to open the circuit
 	for i := 0; i < 3; i++ {
-		r.ReconcileNow(context.Background(), "myapp")
+		_, _ = r.ReconcileNow(context.Background(), "myapp")
 	}
 
 	// Fourth attempt should be skipped by circuit breaker
@@ -658,7 +706,7 @@ func TestReconcile_CircuitBreakerOpens(t *testing.T) {
 
 	// Verify git sync was NOT called on the 4th attempt
 	gs.synced = false
-	r.ReconcileNow(context.Background(), "myapp")
+	_, _ = r.ReconcileNow(context.Background(), "myapp")
 	if gs.synced {
 		t.Error("should not have called git sync when circuit breaker is open")
 	}
@@ -708,5 +756,221 @@ func TestHasImageChanges(t *testing.T) {
 				t.Errorf("hasImageChanges() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDryRun_ReturnsDiffWithoutDeploying(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp", true, "old-sha")
+
+	gs := &mockGitSyncer{sha: "new-sha", path: "/tmp/repo"}
+	p := &mockParser{spec: &app.ComposeSpec{
+		Services: []app.ServiceSpec{
+			{Name: "web", Image: "nginx:1.26"},
+		},
+	}}
+	insp := &mockInspector{states: []app.ServiceState{
+		{Name: "web", Image: "nginx:1.25"},
+	}}
+	d := &mockDiffer{result: &app.DiffResult{
+		InSync: false,
+		ToUpdate: []app.ServiceDiff{
+			{
+				ServiceName: "web",
+				ChangeType:  app.ChangeTypeUpdate,
+				Fields: []app.FieldDiff{
+					{Field: "image", Desired: "nginx:1.26", Live: "nginx:1.25"},
+				},
+			},
+		},
+		Summary: "1 to update",
+	}}
+	dep := &mockDeployer{}
+
+	r := newTestReconciler(s, gs, p, insp, d, dep)
+	diff, headSHA, err := r.DryRun(context.Background(), "myapp")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if headSHA != "new-sha" {
+		t.Errorf("expected headSHA=new-sha, got %q", headSHA)
+	}
+	if diff == nil {
+		t.Fatal("expected diff result")
+	}
+	if diff.InSync {
+		t.Error("expected diff.InSync=false (changes exist)")
+	}
+	if dep.deployed {
+		t.Error("dry-run should not deploy")
+	}
+}
+
+func TestReconcile_SyncWaves_DeploysInOrder(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp", true, "old-sha")
+
+	gs := &mockGitSyncer{sha: "new-sha", path: "/tmp/repo"}
+	p := &mockParser{spec: &app.ComposeSpec{
+		Services: []app.ServiceSpec{
+			{Name: "web", Image: "nginx:1.26", Labels: map[string]string{"com.dockercd.sync-wave": "1"}},
+			{Name: "db", Image: "postgres:16", Labels: map[string]string{"com.dockercd.sync-wave": "0"}},
+			{Name: "cache", Image: "redis:7"}, // no label = wave 0
+		},
+	}}
+	insp := &mockInspector{}
+	d := &mockDiffer{result: &app.DiffResult{
+		InSync: false,
+		ToUpdate: []app.ServiceDiff{
+			{ServiceName: "web", ChangeType: app.ChangeTypeUpdate, Fields: []app.FieldDiff{{Field: "image"}}},
+		},
+		Summary: "changes",
+	}}
+	dep := &mockDeployer{}
+	hm := &mockHealthMonitor{}
+
+	r := New(Deps{
+		GitSyncer:     gs,
+		Parser:        p,
+		Inspector:     insp,
+		Differ:        d,
+		Deployer:      dep,
+		HealthMonitor: hm,
+		Store:         s,
+		Logger:        testLogger(),
+		WorkerCount:   1,
+	})
+
+	result, err := r.ReconcileNow(context.Background(), "myapp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Result != app.SyncResultSuccess {
+		t.Errorf("expected success, got %s (err: %s)", result.Result, result.Error)
+	}
+	if !dep.deployed {
+		t.Error("should have deployed")
+	}
+	// With multiple waves (wave 0: db+cache, wave 1: web), WaitForServicesHealthy
+	// should have been called between wave 0 and wave 1.
+	if !hm.waitCalled {
+		t.Error("expected WaitForServicesHealthy to be called between waves")
+	}
+}
+
+func TestReconcile_TLSLookupPopulatesCertPath(t *testing.T) {
+	s := setupTestStore(t)
+
+	// Create an app targeting a remote Docker host
+	application := app.Application{
+		APIVersion: "dockercd/v1",
+		Kind:       "Application",
+		Metadata:   app.AppMetadata{Name: "remote-app"},
+		Spec: app.AppSpec{
+			Source: app.SourceSpec{
+				RepoURL:        "https://github.com/test/repo.git",
+				TargetRevision: "main",
+				Path:           ".",
+				ComposeFiles:   []string{"docker-compose.yml"},
+			},
+			Destination: app.DestinationSpec{
+				DockerHost:  "tcp://192.168.1.100:2376",
+				ProjectName: "remote-app",
+			},
+			SyncPolicy: app.SyncPolicy{Automated: true},
+		},
+	}
+	manifest, _ := json.Marshal(application)
+	_ = s.CreateApplication(context.Background(), &store.ApplicationRecord{
+		Name:         "remote-app",
+		Manifest:     string(manifest),
+		SyncStatus:   string(app.SyncStatusUnknown),
+		HealthStatus: string(app.HealthStatusUnknown),
+	})
+
+	gs := &mockGitSyncer{sha: "new-sha", path: "/tmp/repo"}
+	p := &mockParser{spec: &app.ComposeSpec{
+		Services: []app.ServiceSpec{{Name: "web", Image: "nginx:1.26"}},
+	}}
+	insp := &mockInspector{}
+	d := &mockDiffer{result: &app.DiffResult{
+		InSync:  false,
+		Summary: "1 to update",
+		ToUpdate: []app.ServiceDiff{
+			{ServiceName: "web", ChangeType: app.ChangeTypeUpdate, Fields: []app.FieldDiff{{Field: "image"}}},
+		},
+	}}
+	dep := &mockDeployer{}
+
+	r := New(Deps{
+		GitSyncer:   gs,
+		Parser:      p,
+		Inspector:   insp,
+		Differ:      d,
+		Deployer:    dep,
+		Store:       s,
+		Logger:      testLogger(),
+		WorkerCount: 1,
+		TLSLookup: func(host string) string {
+			if host == "tcp://192.168.1.100:2376" {
+				return "/certs/remote-server"
+			}
+			return ""
+		},
+	})
+
+	result, err := r.ReconcileNow(context.Background(), "remote-app")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Result != app.SyncResultSuccess {
+		t.Errorf("expected success, got %s (err: %s)", result.Result, result.Error)
+	}
+	if dep.lastReq.TLSCertPath != "/certs/remote-server" {
+		t.Errorf("expected TLSCertPath=/certs/remote-server, got %q", dep.lastReq.TLSCertPath)
+	}
+}
+
+func TestReconcile_HookServicesPassedToDeployer(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp", true, "old-sha")
+
+	gs := &mockGitSyncer{sha: "new-sha", path: "/tmp/repo"}
+	p := &mockParser{spec: &app.ComposeSpec{
+		Services: []app.ServiceSpec{
+			{Name: "web", Image: "nginx:1.26"},
+			{Name: "migrate", Image: "myapp:latest", Labels: map[string]string{"com.dockercd.hook": "pre-sync"}},
+			{Name: "notify", Image: "myapp:latest", Labels: map[string]string{"com.dockercd.hook": "post-sync"}},
+		},
+	}}
+	insp := &mockInspector{}
+	d := &mockDiffer{result: &app.DiffResult{
+		InSync: false,
+		ToUpdate: []app.ServiceDiff{
+			{ServiceName: "web", ChangeType: app.ChangeTypeUpdate, Fields: []app.FieldDiff{{Field: "image"}}},
+		},
+		Summary: "1 to update",
+	}}
+	dep := &mockDeployer{}
+
+	r := newTestReconciler(s, gs, p, insp, d, dep)
+	result, err := r.ReconcileNow(context.Background(), "myapp")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Result != app.SyncResultSuccess {
+		t.Errorf("expected success, got %s (err: %s)", result.Result, result.Error)
+	}
+	if !dep.deployed {
+		t.Error("should have deployed")
+	}
+	// Verify pre-sync and post-sync services were passed to the deployer
+	if len(dep.lastReq.PreSyncServices) != 1 || dep.lastReq.PreSyncServices[0] != "migrate" {
+		t.Errorf("expected PreSyncServices=[migrate], got %v", dep.lastReq.PreSyncServices)
+	}
+	if len(dep.lastReq.PostSyncServices) != 1 || dep.lastReq.PostSyncServices[0] != "notify" {
+		t.Errorf("expected PostSyncServices=[notify], got %v", dep.lastReq.PostSyncServices)
 	}
 }

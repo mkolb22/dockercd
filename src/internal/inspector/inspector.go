@@ -4,10 +4,16 @@ package inspector
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"math"
+	gohttp "net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -17,6 +23,43 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/mkolb22/dockercd/internal/app"
 )
+
+// TLSConfig holds paths for TLS client certificates used to connect to a remote Docker daemon.
+type TLSConfig struct {
+	// CertPath is the directory containing cert.pem, key.pem, and ca.pem.
+	CertPath string
+	// Verify controls whether the server certificate is verified against the CA.
+	Verify bool
+}
+
+// LoadTLSConfig loads TLS certificates from CertPath and returns a *tls.Config.
+func (c TLSConfig) LoadTLSConfig() (*tls.Config, error) {
+	certFile := filepath.Join(c.CertPath, "cert.pem")
+	keyFile := filepath.Join(c.CertPath, "key.pem")
+	caFile := filepath.Join(c.CertPath, "ca.pem")
+
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("loading client certificate: %w", err)
+	}
+
+	tlsCfg := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
+
+	// Load CA certificate if present
+	if caCert, err := os.ReadFile(caFile); err == nil {
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM(caCert)
+		tlsCfg.RootCAs = caCertPool
+	}
+
+	if !c.Verify {
+		tlsCfg.InsecureSkipVerify = true //nolint:gosec // intentionally configurable
+	}
+
+	return tlsCfg, nil
+}
 
 // StateInspector queries the Docker daemon for current container state.
 type StateInspector interface {
@@ -32,6 +75,18 @@ type StateInspector interface {
 
 	// SystemInfo returns Docker daemon system information.
 	SystemInfo(ctx context.Context, dockerHost string) (*app.DockerHostInfo, error)
+
+	// HostStats returns aggregated resource usage across all running containers.
+	HostStats(ctx context.Context, dockerHost string) (*app.HostStats, error)
+
+	// RegisterTLS adds or updates TLS configuration for a remote Docker host.
+	RegisterTLS(host string, cfg TLSConfig)
+
+	// UnregisterTLS removes TLS configuration for a remote Docker host.
+	UnregisterTLS(host string)
+
+	// GetTLSCertPath returns the TLS cert path for a host, or empty string if not configured.
+	GetTLSCertPath(host string) string
 }
 
 // DockerInspector implements StateInspector using the Docker SDK.
@@ -39,6 +94,10 @@ type DockerInspector struct {
 	// clientFactory creates Docker clients for the given host.
 	// This allows injecting mock clients for testing.
 	clientFactory ClientFactory
+
+	// Dynamic TLS config registry for runtime host management.
+	tlsConfigs map[string]TLSConfig
+	tlsMu      sync.RWMutex
 }
 
 // ClientFactory creates Docker API clients.
@@ -47,35 +106,92 @@ type ClientFactory func(host string) (DockerClient, error)
 // DockerClient is the subset of the Docker client API we use.
 // This interface enables mocking in tests.
 type DockerClient interface {
-	ContainerList(ctx context.Context, options container.ListOptions) ([]types.Container, error)
-	ContainerInspect(ctx context.Context, containerID string) (types.ContainerJSON, error)
+	ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
+	ContainerInspect(ctx context.Context, containerID string) (container.InspectResponse, error)
 	ContainerStatsOneShot(ctx context.Context, containerID string) (container.StatsResponseReader, error)
 	Info(ctx context.Context) (system.Info, error)
+	DiskUsage(ctx context.Context, options types.DiskUsageOptions) (types.DiskUsage, error)
 	Close() error
 }
 
 // New creates a DockerInspector with the default Docker client factory.
 func New() *DockerInspector {
-	return &DockerInspector{
-		clientFactory: defaultClientFactory,
+	d := &DockerInspector{
+		tlsConfigs: make(map[string]TLSConfig),
 	}
+	d.clientFactory = d.tlsAwareClientFactory
+	return d
 }
 
 // NewWithFactory creates a DockerInspector with a custom client factory (for testing).
 func NewWithFactory(factory ClientFactory) *DockerInspector {
 	return &DockerInspector{
 		clientFactory: factory,
+		tlsConfigs:    make(map[string]TLSConfig),
 	}
 }
 
-func defaultClientFactory(host string) (DockerClient, error) {
-	opts := []client.Opt{
-		client.WithAPIVersionNegotiation(),
+// NewWithTLS creates a DockerInspector with TLS support for remote Docker hosts.
+// The tlsConfigs map is keyed by Docker host URL (e.g., "tcp://remote:2376").
+// Hosts not present in the map use the default (unauthenticated) client.
+func NewWithTLS(tlsConfigs map[string]TLSConfig) *DockerInspector {
+	d := &DockerInspector{
+		tlsConfigs: make(map[string]TLSConfig, len(tlsConfigs)),
 	}
+	for k, v := range tlsConfigs {
+		d.tlsConfigs[k] = v
+	}
+	d.clientFactory = d.tlsAwareClientFactory
+	return d
+}
+
+// tlsAwareClientFactory creates Docker clients with TLS if configured for the host.
+func (d *DockerInspector) tlsAwareClientFactory(host string) (DockerClient, error) {
+	opts := []client.Opt{client.WithAPIVersionNegotiation()}
 	if host != "" {
 		opts = append(opts, client.WithHost(host))
 	}
+
+	d.tlsMu.RLock()
+	cfg, hasTLS := d.tlsConfigs[host]
+	d.tlsMu.RUnlock()
+
+	if hasTLS {
+		tlsConfig, err := cfg.LoadTLSConfig()
+		if err != nil {
+			return nil, fmt.Errorf("loading TLS config for %q: %w", host, err)
+		}
+		httpClient := &gohttp.Client{
+			Transport: &gohttp.Transport{TLSClientConfig: tlsConfig},
+		}
+		opts = append(opts, client.WithHTTPClient(httpClient))
+	}
 	return client.NewClientWithOpts(opts...)
+}
+
+// RegisterTLS adds or updates TLS configuration for a remote Docker host.
+func (d *DockerInspector) RegisterTLS(host string, cfg TLSConfig) {
+	d.tlsMu.Lock()
+	d.tlsConfigs[host] = cfg
+	d.tlsMu.Unlock()
+}
+
+// UnregisterTLS removes TLS configuration for a remote Docker host.
+func (d *DockerInspector) UnregisterTLS(host string) {
+	d.tlsMu.Lock()
+	delete(d.tlsConfigs, host)
+	d.tlsMu.Unlock()
+}
+
+// GetTLSCertPath returns the TLS cert path for a host, or empty string if not configured.
+func (d *DockerInspector) GetTLSCertPath(host string) string {
+	d.tlsMu.RLock()
+	cfg, ok := d.tlsConfigs[host]
+	d.tlsMu.RUnlock()
+	if ok {
+		return cfg.CertPath
+	}
+	return ""
 }
 
 // Inspect returns the live state of all containers in the given compose project.
@@ -148,7 +264,7 @@ func (d *DockerInspector) InspectService(ctx context.Context, dest app.Destinati
 }
 
 // mapContainerToState converts Docker container data into our domain ServiceState.
-func mapContainerToState(c types.Container, detail types.ContainerJSON) app.ServiceState {
+func mapContainerToState(c container.Summary, detail container.InspectResponse) app.ServiceState {
 	state := app.ServiceState{
 		Name:          c.Labels["com.docker.compose.service"],
 		ContainerName: strings.TrimPrefix(c.Names[0], "/"),
@@ -249,7 +365,7 @@ func filterComposeLabels(labels map[string]string) map[string]string {
 }
 
 // extractPorts extracts port mappings from a container's network settings.
-func extractPorts(detail types.ContainerJSON) []app.PortMapping {
+func extractPorts(detail container.InspectResponse) []app.PortMapping {
 	if detail.NetworkSettings == nil {
 		return nil
 	}
@@ -328,7 +444,7 @@ func (d *DockerInspector) InspectWithMetrics(ctx context.Context, dest app.Desti
 }
 
 // collectMetrics gathers resource usage stats for a single container.
-func collectMetrics(ctx context.Context, cli DockerClient, containerID string, detail types.ContainerJSON) *app.ContainerMetrics {
+func collectMetrics(ctx context.Context, cli DockerClient, containerID string, detail container.InspectResponse) *app.ContainerMetrics {
 	resp, err := cli.ContainerStatsOneShot(ctx, containerID)
 	if err != nil {
 		return nil
@@ -437,4 +553,227 @@ func (d *DockerInspector) SystemInfo(ctx context.Context, dockerHost string) (*a
 		Images:        info.Images,
 		DockerRootDir: info.DockerRootDir,
 	}, nil
+}
+
+// HostStats aggregates resource usage across all running containers on the host.
+func (d *DockerInspector) HostStats(ctx context.Context, dockerHost string) (*app.HostStats, error) {
+	cli, err := d.clientFactory(dockerHost)
+	if err != nil {
+		return nil, fmt.Errorf("creating docker client: %w", err)
+	}
+	defer cli.Close()
+
+	// Get system info for CPU cores and total memory
+	info, err := cli.Info(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getting system info: %w", err)
+	}
+
+	// List all running containers (no project filter)
+	f := filters.NewArgs()
+	f.Add("status", "running")
+	containers, err := cli.ContainerList(ctx, container.ListOptions{Filters: f})
+	if err != nil {
+		return nil, fmt.Errorf("listing containers: %w", err)
+	}
+
+	// Count total containers (including stopped)
+	allContainers, err := cli.ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		return nil, fmt.Errorf("listing all containers: %w", err)
+	}
+
+	stats := &app.HostStats{
+		CPUCores:          info.NCPU,
+		MemoryLimitMB:     math.Round(float64(info.MemTotal)/1024/1024*100) / 100,
+		ContainersRunning: len(containers),
+		ContainersTotal:   len(allContainers),
+		CollectedAt:       time.Now().UTC().Format(time.RFC3339),
+	}
+
+	if info.NCPU > 0 {
+		stats.PerCPUPercent = make([]float64, info.NCPU)
+	}
+
+	// Collect metrics concurrently with bounded semaphore
+	type metricsResult struct {
+		stats    container.StatsResponse
+		hasStats bool
+		project  string
+	}
+
+	results := make([]metricsResult, len(containers))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 10) // max 10 concurrent
+
+	for i, c := range containers {
+		project := c.Labels["com.docker.compose.project"]
+		wg.Add(1)
+		go func(idx int, containerID string, proj string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			resp, err := cli.ContainerStatsOneShot(ctx, containerID)
+			if err != nil {
+				results[idx] = metricsResult{project: proj}
+				return
+			}
+			defer resp.Body.Close()
+
+			var s container.StatsResponse
+			if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+				results[idx] = metricsResult{project: proj}
+				return
+			}
+			results[idx] = metricsResult{stats: s, hasStats: true, project: proj}
+		}(i, c.ID, project)
+	}
+	wg.Wait()
+
+	// Per-app stats map
+	appStats := make(map[string]*app.AppResourceStats)
+
+	// Aggregate all results
+	for _, r := range results {
+		// Track per-app container count even without stats
+		if r.project != "" {
+			as, ok := appStats[r.project]
+			if !ok {
+				as = &app.AppResourceStats{}
+				appStats[r.project] = as
+			}
+			as.Containers++
+		}
+
+		if !r.hasStats {
+			continue
+		}
+		s := r.stats
+
+		// CPU
+		cpuDelta := float64(s.CPUStats.CPUUsage.TotalUsage - s.PreCPUStats.CPUUsage.TotalUsage)
+		systemDelta := float64(s.CPUStats.SystemUsage - s.PreCPUStats.SystemUsage)
+		var cpuPct float64
+		if systemDelta > 0 && s.CPUStats.OnlineCPUs > 0 {
+			cpuPct = (cpuDelta / systemDelta) * float64(s.CPUStats.OnlineCPUs) * 100
+			stats.CPUPercent += cpuPct
+		}
+
+		// Per-CPU usage aggregation
+		if len(s.CPUStats.CPUUsage.PercpuUsage) > 0 && len(s.PreCPUStats.CPUUsage.PercpuUsage) > 0 {
+			for j := 0; j < len(s.CPUStats.CPUUsage.PercpuUsage) && j < len(stats.PerCPUPercent); j++ {
+				coreDelta := float64(s.CPUStats.CPUUsage.PercpuUsage[j] - s.PreCPUStats.CPUUsage.PercpuUsage[j])
+				if systemDelta > 0 {
+					stats.PerCPUPercent[j] += (coreDelta / systemDelta) * float64(s.CPUStats.OnlineCPUs) * 100
+				}
+			}
+		}
+
+		// Memory
+		memUsageMB := float64(s.MemoryStats.Usage) / 1024 / 1024
+		memLimitMB := float64(s.MemoryStats.Limit) / 1024 / 1024
+		stats.MemoryUsageMB += memUsageMB
+
+		// Network
+		var rxMB, txMB float64
+		for _, net := range s.Networks {
+			rxMB += float64(net.RxBytes) / 1024 / 1024
+			txMB += float64(net.TxBytes) / 1024 / 1024
+		}
+		stats.NetworkRxMB += rxMB
+		stats.NetworkTxMB += txMB
+
+		// Block I/O
+		for _, bio := range s.BlkioStats.IoServiceBytesRecursive {
+			switch bio.Op {
+			case "read", "Read":
+				stats.BlockReadMB += float64(bio.Value) / 1024 / 1024
+			case "write", "Write":
+				stats.BlockWriteMB += float64(bio.Value) / 1024 / 1024
+			}
+		}
+
+		// PIDs
+		pids := int(s.PidsStats.Current)
+		stats.PIDs += pids
+
+		// Accumulate per-app stats
+		if r.project != "" {
+			as := appStats[r.project]
+			as.CPUPercent += cpuPct
+			as.MemoryUsageMB += memUsageMB
+			as.MemoryLimitMB += memLimitMB
+			as.NetworkRxMB += rxMB
+			as.NetworkTxMB += txMB
+			as.PIDs += pids
+		}
+	}
+
+	// Round per-app values
+	for _, as := range appStats {
+		as.CPUPercent = math.Round(as.CPUPercent*100) / 100
+		as.MemoryUsageMB = math.Round(as.MemoryUsageMB*100) / 100
+		as.MemoryLimitMB = math.Round(as.MemoryLimitMB*100) / 100
+		if as.MemoryLimitMB > 0 {
+			as.MemoryPercent = math.Round(as.MemoryUsageMB/as.MemoryLimitMB*10000) / 100
+		}
+		as.NetworkRxMB = math.Round(as.NetworkRxMB*100) / 100
+		as.NetworkTxMB = math.Round(as.NetworkTxMB*100) / 100
+	}
+	if len(appStats) > 0 {
+		stats.Apps = appStats
+	}
+
+	// Round values
+	stats.CPUPercent = math.Round(stats.CPUPercent*100) / 100
+	stats.MemoryUsageMB = math.Round(stats.MemoryUsageMB*100) / 100
+	stats.NetworkRxMB = math.Round(stats.NetworkRxMB*100) / 100
+	stats.NetworkTxMB = math.Round(stats.NetworkTxMB*100) / 100
+	stats.BlockReadMB = math.Round(stats.BlockReadMB*100) / 100
+	stats.BlockWriteMB = math.Round(stats.BlockWriteMB*100) / 100
+	for j := range stats.PerCPUPercent {
+		stats.PerCPUPercent[j] = math.Round(stats.PerCPUPercent[j]*100) / 100
+	}
+
+	if stats.MemoryLimitMB > 0 {
+		stats.MemoryPercent = math.Round(stats.MemoryUsageMB/stats.MemoryLimitMB*10000) / 100
+	}
+
+	// Docker disk usage (best-effort, don't fail if unavailable)
+	du, err := cli.DiskUsage(ctx, types.DiskUsageOptions{})
+	if err == nil {
+		diskUsage := &app.DiskUsage{
+			ImagesCount:  len(du.Images),
+			VolumesCount: len(du.Volumes),
+		}
+		for _, img := range du.Images {
+			if img != nil {
+				diskUsage.ImagesSizeMB += float64(img.Size) / 1024 / 1024
+			}
+		}
+		for _, c := range du.Containers {
+			if c != nil {
+				diskUsage.ContainersSizeMB += float64(c.SizeRw) / 1024 / 1024
+			}
+		}
+		for _, v := range du.Volumes {
+			if v != nil && v.UsageData != nil && v.UsageData.Size > 0 {
+				diskUsage.VolumesSizeMB += float64(v.UsageData.Size) / 1024 / 1024
+			}
+		}
+		for _, bc := range du.BuildCache {
+			if bc != nil {
+				diskUsage.BuildCacheSizeMB += float64(bc.Size) / 1024 / 1024
+			}
+		}
+		diskUsage.ImagesSizeMB = math.Round(diskUsage.ImagesSizeMB*100) / 100
+		diskUsage.ContainersSizeMB = math.Round(diskUsage.ContainersSizeMB*100) / 100
+		diskUsage.VolumesSizeMB = math.Round(diskUsage.VolumesSizeMB*100) / 100
+		diskUsage.BuildCacheSizeMB = math.Round(diskUsage.BuildCacheSizeMB*100) / 100
+		diskUsage.TotalSizeMB = math.Round((diskUsage.ImagesSizeMB+diskUsage.ContainersSizeMB+diskUsage.VolumesSizeMB+diskUsage.BuildCacheSizeMB)*100) / 100
+		stats.DiskUsage = diskUsage
+	}
+
+	return stats, nil
 }

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mkolb22/dockercd/internal/app"
+	"github.com/mkolb22/dockercd/internal/eventbus"
+	"github.com/mkolb22/dockercd/internal/events"
 	"github.com/mkolb22/dockercd/internal/inspector"
 	"github.com/mkolb22/dockercd/internal/reconciler"
 	"github.com/mkolb22/dockercd/internal/store"
@@ -17,17 +20,20 @@ import (
 
 // Handler holds the HTTP handler methods.
 type Handler struct {
-	store      *store.SQLiteStore
-	reconciler reconciler.Reconciler
-	inspector  inspector.StateInspector
-	logger     *slog.Logger
+	store         *store.SQLiteStore
+	reconciler    reconciler.Reconciler
+	inspector     inspector.StateInspector
+	logger        *slog.Logger
+	sseHub        eventbus.Broadcaster
+	eventWatcher  *events.Watcher
+	webhookSecret string
 }
 
 // Healthz is the liveness probe.
 func (h *Handler) Healthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(HealthResponse{Status: "ok"})
+	_ = json.NewEncoder(w).Encode(HealthResponse{Status: "ok"})
 }
 
 // Readyz is the readiness probe.
@@ -53,10 +59,10 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 
 	if allOk {
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(ReadyResponse{Status: "ready", Checks: checks})
+		_ = json.NewEncoder(w).Encode(ReadyResponse{Status: "ready", Checks: checks})
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(ReadyResponse{Status: "not ready", Checks: checks})
+		_ = json.NewEncoder(w).Encode(ReadyResponse{Status: "not ready", Checks: checks})
 	}
 }
 
@@ -183,6 +189,8 @@ func (h *Handler) GetApplication(w http.ResponseWriter, r *http.Request) {
 }
 
 // SyncApplication triggers a manual sync for an application.
+// If the query parameter ?dryRun=true is set, it computes the diff without
+// deploying and returns a DryRunResponse.
 func (h *Handler) SyncApplication(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 
@@ -194,6 +202,17 @@ func (h *Handler) SyncApplication(w http.ResponseWriter, r *http.Request) {
 	}
 	if appRec == nil {
 		writeError(w, http.StatusNotFound, "application not found: "+name, CodeNotFound)
+		return
+	}
+
+	// Dry-run mode: compute diff without deploying
+	if r.URL.Query().Get("dryRun") == "true" {
+		diff, headSHA, err := h.reconciler.DryRun(r.Context(), name)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "dry-run failed: "+err.Error(), CodeInternalError)
+			return
+		}
+		writeJSON(w, http.StatusOK, DryRunResponse{Diff: diff, HeadSHA: headSHA})
 		return
 	}
 
@@ -298,6 +317,22 @@ func (h *Handler) GetSystemInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, SystemInfoResponse{Host: info})
 }
 
+// GetHostStats returns aggregated resource usage across all running containers.
+func (h *Handler) GetHostStats(w http.ResponseWriter, r *http.Request) {
+	if h.inspector == nil {
+		writeError(w, http.StatusServiceUnavailable, "inspector not available", CodeUnavailable)
+		return
+	}
+
+	stats, err := h.inspector.HostStats(r.Context(), "")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "getting host stats: "+err.Error(), CodeInternalError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, HostStatsResponse{Stats: stats})
+}
+
 // GetAppMetrics returns per-service resource metrics for an application.
 func (h *Handler) GetAppMetrics(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
@@ -335,6 +370,140 @@ func (h *Handler) GetAppMetrics(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// RollbackApplication re-deploys an application from a stored commit SHA snapshot.
+func (h *Handler) RollbackApplication(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+
+	appRec, err := h.store.GetApplication(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "getting application: "+err.Error(), CodeInternalError)
+		return
+	}
+	if appRec == nil {
+		writeError(w, http.StatusNotFound, "application not found: "+name, CodeNotFound)
+		return
+	}
+
+	var req RollbackRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error(), CodeBadRequest)
+		return
+	}
+	if req.TargetSHA == "" {
+		writeError(w, http.StatusBadRequest, "targetSHA is required", CodeBadRequest)
+		return
+	}
+
+	result, err := h.reconciler.Rollback(r.Context(), name, req.TargetSHA)
+	if err != nil {
+		if result != nil {
+			writeJSON(w, http.StatusOK, result)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "rollback failed: "+err.Error(), CodeInternalError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+// AdoptApplication snapshots the current live state of an application and marks
+// it as synced, avoiding an unnecessary re-deployment.
+func (h *Handler) AdoptApplication(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+
+	appRec, err := h.store.GetApplication(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "getting application: "+err.Error(), CodeInternalError)
+		return
+	}
+	if appRec == nil {
+		writeError(w, http.StatusNotFound, "application not found: "+name, CodeNotFound)
+		return
+	}
+
+	var application app.Application
+	if err := json.Unmarshal([]byte(appRec.Manifest), &application); err != nil {
+		writeError(w, http.StatusInternalServerError, "parsing manifest: "+err.Error(), CodeInternalError)
+		return
+	}
+
+	// Inspect live state
+	liveStates, err := h.inspector.Inspect(r.Context(), application.Spec.Destination)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "inspecting live state: "+err.Error(), CodeInternalError)
+		return
+	}
+
+	// Convert live state to a compose spec snapshot
+	services := make([]app.ServiceSpec, 0, len(liveStates))
+	for _, s := range liveStates {
+		services = append(services, app.ServiceSpec{
+			Name:          s.Name,
+			Image:         s.Image,
+			Environment:   s.Environment,
+			Ports:         s.Ports,
+			Volumes:       s.Volumes,
+			Networks:      s.Networks,
+			Labels:        s.Labels,
+			RestartPolicy: s.RestartPolicy,
+			Command:       s.Command,
+			Entrypoint:    s.Entrypoint,
+		})
+	}
+	composeSpec := &app.ComposeSpec{Services: services}
+	specJSON, err := json.Marshal(composeSpec)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "serializing compose spec: "+err.Error(), CodeInternalError)
+		return
+	}
+
+	// Build service statuses for persisting
+	serviceStatuses := make([]app.ServiceStatus, 0, len(liveStates))
+	for _, s := range liveStates {
+		serviceStatuses = append(serviceStatuses, app.ServiceStatus{
+			Name:   s.Name,
+			Image:  s.Image,
+			Health: s.Health,
+			State:  s.Status,
+			Ports:  s.Ports,
+		})
+	}
+	servicesJSON, _ := json.Marshal(serviceStatuses)
+
+	// Record sync with operation=adopt
+	now := time.Now()
+	syncRec := &store.SyncRecord{
+		AppName:         name,
+		StartedAt:       now,
+		FinishedAt:      &now,
+		CommitSHA:       appRec.HeadSHA,
+		Operation:       string(app.SyncOperationAdopt),
+		Result:          string(app.SyncResultSuccess),
+		ComposeSpecJSON: string(specJSON),
+	}
+	if err := h.store.RecordSync(r.Context(), syncRec); err != nil {
+		writeError(w, http.StatusInternalServerError, "recording sync: "+err.Error(), CodeInternalError)
+		return
+	}
+
+	// Mark application as synced
+	_ = h.store.UpdateApplicationStatus(r.Context(), name, store.StatusUpdate{
+		SyncStatus:   string(app.SyncStatusSynced),
+		LastSyncTime: &now,
+		ServicesJSON: string(servicesJSON),
+		LastError:    " ",
+	})
+
+	h.logger.Info("application adopted", "name", name, "services", len(liveStates))
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":   "adopted",
+		"name":     name,
+		"services": len(liveStates),
+	})
+}
+
 // GetPollInterval returns the current global poll interval override.
 func (h *Handler) GetPollInterval(w http.ResponseWriter, r *http.Request) {
 	interval := h.reconciler.GetPollOverride()
@@ -358,7 +527,48 @@ func (h *Handler) SetPollInterval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.reconciler.SetPollOverride(d)
-	writeJSON(w, http.StatusOK, PollIntervalResponse{IntervalMs: req.IntervalMs})
+	writeJSON(w, http.StatusOK, PollIntervalResponse(req))
+}
+
+// StreamEvents sends Server-Sent Events for real-time updates.
+func (h *Handler) StreamEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming not supported", CodeInternalError)
+		return
+	}
+
+	if h.sseHub == nil {
+		writeError(w, http.StatusServiceUnavailable, "event stream not available", CodeUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	ch, unsub := h.sseHub.Subscribe()
+	defer unsub()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case event, ok := <-ch:
+			if !ok {
+				return
+			}
+			data, err := eventbus.MarshalEvent(event)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)
+			flusher.Flush()
+		}
+	}
 }
 
 // --- Helpers ---
@@ -397,12 +607,12 @@ func buildAppResponse(rec store.ApplicationRecord) (ApplicationResponse, error) 
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func writeError(w http.ResponseWriter, status int, msg string, code string) {
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(ErrorResponse{Error: msg, Code: code})
+	_ = json.NewEncoder(w).Encode(ErrorResponse{Error: msg, Code: code})
 }
 
 func queryInt(r *http.Request, key string, defaultVal int) int {

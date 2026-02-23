@@ -10,8 +10,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mkolb22/dockercd/internal/app"
+	"github.com/mkolb22/dockercd/internal/inspector"
 	"github.com/mkolb22/dockercd/internal/store"
 )
 
@@ -21,6 +23,31 @@ type mockReconciler struct {
 	result *app.SyncResult
 	err    error
 }
+
+// --- Mock inspector ---
+
+type mockInspector struct {
+	states []app.ServiceState
+}
+
+func (m *mockInspector) Inspect(_ context.Context, _ app.DestinationSpec) ([]app.ServiceState, error) {
+	return m.states, nil
+}
+func (m *mockInspector) InspectService(_ context.Context, _ app.DestinationSpec, _ string) (*app.ServiceState, error) {
+	return nil, nil
+}
+func (m *mockInspector) InspectWithMetrics(_ context.Context, _ app.DestinationSpec) ([]app.ServiceStatus, error) {
+	return nil, nil
+}
+func (m *mockInspector) SystemInfo(_ context.Context, _ string) (*app.DockerHostInfo, error) {
+	return nil, nil
+}
+func (m *mockInspector) HostStats(_ context.Context, _ string) (*app.HostStats, error) {
+	return nil, nil
+}
+func (m *mockInspector) RegisterTLS(_ string, _ inspector.TLSConfig)   {}
+func (m *mockInspector) UnregisterTLS(_ string)                        {}
+func (m *mockInspector) GetTLSCertPath(_ string) string                { return "" }
 
 func (m *mockReconciler) Start(_ context.Context) error                { return nil }
 func (m *mockReconciler) Stop(_ context.Context) error                 { return nil }
@@ -35,6 +62,22 @@ func (m *mockReconciler) ReconcileNow(_ context.Context, appName string) (*app.S
 		Operation: app.SyncOperationManual,
 	}, m.err
 }
+
+func (m *mockReconciler) DryRun(_ context.Context, appName string) (*app.DiffResult, string, error) {
+	return &app.DiffResult{InSync: true, Summary: "All in sync"}, "abc123", nil
+}
+
+func (m *mockReconciler) Rollback(_ context.Context, appName string, targetSHA string) (*app.SyncResult, error) {
+	return &app.SyncResult{
+		AppName:   appName,
+		Result:    app.SyncResultSuccess,
+		Operation: app.SyncOperationRollback,
+		CommitSHA: targetSHA,
+	}, nil
+}
+
+func (m *mockReconciler) SetPollOverride(_ time.Duration) {}
+func (m *mockReconciler) GetPollOverride() time.Duration  { return 0 }
 
 // --- Test helpers ---
 
@@ -99,7 +142,7 @@ func TestHealthz(t *testing.T) {
 	}
 
 	var resp HealthResponse
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp.Status != "ok" {
 		t.Errorf("expected status=ok, got %q", resp.Status)
 	}
@@ -116,7 +159,7 @@ func TestReadyz(t *testing.T) {
 	}
 
 	var resp ReadyResponse
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp.Status != "ready" {
 		t.Errorf("expected status=ready, got %q", resp.Status)
 	}
@@ -138,7 +181,7 @@ func TestListApplications_Empty(t *testing.T) {
 	}
 
 	var resp ListResponse[ApplicationResponse]
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp.Total != 0 {
 		t.Errorf("expected total=0, got %d", resp.Total)
 	}
@@ -160,7 +203,7 @@ func TestListApplications_WithApps(t *testing.T) {
 	}
 
 	var resp ListResponse[ApplicationResponse]
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp.Total != 2 {
 		t.Errorf("expected total=2, got %d", resp.Total)
 	}
@@ -192,7 +235,7 @@ func TestGetApplication_Found(t *testing.T) {
 	}
 
 	var resp ApplicationResponse
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp.Metadata.Name != "myapp" {
 		t.Errorf("expected name=myapp, got %q", resp.Metadata.Name)
 	}
@@ -212,7 +255,7 @@ func TestGetApplication_NotFound(t *testing.T) {
 	}
 
 	var resp ErrorResponse
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp.Code != CodeNotFound {
 		t.Errorf("expected code=%s, got %q", CodeNotFound, resp.Code)
 	}
@@ -241,7 +284,7 @@ func TestSyncApplication_Success(t *testing.T) {
 	}
 
 	var result app.SyncResult
-	json.NewDecoder(w.Body).Decode(&result)
+	_ = json.NewDecoder(w.Body).Decode(&result)
 	if result.Result != app.SyncResultSuccess {
 		t.Errorf("expected success, got %s", result.Result)
 	}
@@ -283,9 +326,34 @@ func TestSyncApplication_WithError(t *testing.T) {
 	}
 
 	var result app.SyncResult
-	json.NewDecoder(w.Body).Decode(&result)
+	_ = json.NewDecoder(w.Body).Decode(&result)
 	if result.Result != app.SyncResultFailure {
 		t.Errorf("expected failure, got %s", result.Result)
+	}
+}
+
+func TestSyncApplication_DryRun(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp")
+	srv := newTestServer(t, s, nil)
+
+	w := doRequest(t, srv, "POST", "/api/v1/applications/myapp/sync?dryRun=true")
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	var resp DryRunResponse
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+
+	if resp.HeadSHA != "abc123" {
+		t.Errorf("expected headSHA=abc123, got %q", resp.HeadSHA)
+	}
+	if resp.Diff == nil {
+		t.Fatal("expected diff in dry-run response")
+	}
+	if !resp.Diff.InSync {
+		t.Errorf("expected diff.inSync=true, got false")
 	}
 }
 
@@ -303,7 +371,7 @@ func TestDiffApplication_NoHistory(t *testing.T) {
 	}
 
 	var diff app.DiffResult
-	json.NewDecoder(w.Body).Decode(&diff)
+	_ = json.NewDecoder(w.Body).Decode(&diff)
 	if !diff.InSync {
 		t.Error("expected inSync=true when no history")
 	}
@@ -322,7 +390,7 @@ func TestDiffApplication_WithHistory(t *testing.T) {
 		Summary: "1 to update",
 	}
 	diffJSON, _ := json.Marshal(diffData)
-	s.RecordSync(context.Background(), &store.SyncRecord{
+	_ = s.RecordSync(context.Background(), &store.SyncRecord{
 		AppName:   "myapp",
 		Operation: "poll",
 		Result:    "success",
@@ -338,7 +406,7 @@ func TestDiffApplication_WithHistory(t *testing.T) {
 	}
 
 	var diff app.DiffResult
-	json.NewDecoder(w.Body).Decode(&diff)
+	_ = json.NewDecoder(w.Body).Decode(&diff)
 	if diff.InSync {
 		t.Error("expected inSync=false")
 	}
@@ -361,7 +429,7 @@ func TestGetEvents_Empty(t *testing.T) {
 	}
 
 	var resp ListResponse[store.EventRecord]
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp.Total != 0 {
 		t.Errorf("expected 0 events, got %d", resp.Total)
 	}
@@ -371,7 +439,7 @@ func TestGetEvents_WithEvents(t *testing.T) {
 	s := setupTestStore(t)
 	createTestApp(t, s, "myapp")
 
-	s.RecordEvent(context.Background(), &store.EventRecord{
+	_ = s.RecordEvent(context.Background(), &store.EventRecord{
 		AppName:  "myapp",
 		Type:     "SyncCompleted",
 		Message:  "Sync success",
@@ -387,7 +455,7 @@ func TestGetEvents_WithEvents(t *testing.T) {
 	}
 
 	var resp ListResponse[store.EventRecord]
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp.Total != 1 {
 		t.Errorf("expected 1 event, got %d", resp.Total)
 	}
@@ -398,7 +466,7 @@ func TestGetEvents_LimitParam(t *testing.T) {
 	createTestApp(t, s, "myapp")
 
 	for i := 0; i < 5; i++ {
-		s.RecordEvent(context.Background(), &store.EventRecord{
+		_ = s.RecordEvent(context.Background(), &store.EventRecord{
 			AppName:  "myapp",
 			Type:     "test",
 			Message:  fmt.Sprintf("event %d", i),
@@ -411,7 +479,7 @@ func TestGetEvents_LimitParam(t *testing.T) {
 	w := doRequest(t, srv, "GET", "/api/v1/applications/myapp/events?limit=2")
 
 	var resp ListResponse[store.EventRecord]
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp.Total != 2 {
 		t.Errorf("expected 2 events (limit=2), got %d", resp.Total)
 	}
@@ -431,7 +499,7 @@ func TestGetHistory_Empty(t *testing.T) {
 	}
 
 	var resp ListResponse[store.SyncRecord]
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp.Total != 0 {
 		t.Errorf("expected 0 records, got %d", resp.Total)
 	}
@@ -441,7 +509,7 @@ func TestGetHistory_WithRecords(t *testing.T) {
 	s := setupTestStore(t)
 	createTestApp(t, s, "myapp")
 
-	s.RecordSync(context.Background(), &store.SyncRecord{
+	_ = s.RecordSync(context.Background(), &store.SyncRecord{
 		AppName:   "myapp",
 		Operation: "poll",
 		Result:    "success",
@@ -453,7 +521,7 @@ func TestGetHistory_WithRecords(t *testing.T) {
 	w := doRequest(t, srv, "GET", "/api/v1/applications/myapp/history")
 
 	var resp ListResponse[store.SyncRecord]
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp.Total != 1 {
 		t.Errorf("expected 1 record, got %d", resp.Total)
 	}
@@ -521,10 +589,127 @@ func TestGetApplication_MethodNotAllowed(t *testing.T) {
 	createTestApp(t, s, "myapp")
 	srv := newTestServer(t, s, nil)
 
-	w := doRequest(t, srv, "DELETE", "/api/v1/applications/myapp")
+	w := doRequest(t, srv, "PATCH", "/api/v1/applications/myapp")
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", w.Code)
+	}
+}
+
+// --- Rollback Application ---
+
+func TestRollbackApplication_Success(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp")
+	srv := newTestServer(t, s, nil)
+
+	body := strings.NewReader(`{"targetSHA":"abc123"}`)
+	req := httptest.NewRequest("POST", "/api/v1/applications/myapp/rollback", body)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result app.SyncResult
+	_ = json.NewDecoder(w.Body).Decode(&result)
+	if result.Result != app.SyncResultSuccess {
+		t.Errorf("expected result=success, got %q", result.Result)
+	}
+	if result.Operation != app.SyncOperationRollback {
+		t.Errorf("expected operation=rollback, got %q", result.Operation)
+	}
+	if result.CommitSHA != "abc123" {
+		t.Errorf("expected commitSHA=abc123, got %q", result.CommitSHA)
+	}
+}
+
+func TestRollbackApplication_NotFound(t *testing.T) {
+	s := setupTestStore(t)
+	srv := newTestServer(t, s, nil)
+
+	body := strings.NewReader(`{"targetSHA":"abc123"}`)
+	req := httptest.NewRequest("POST", "/api/v1/applications/nonexistent/rollback", body)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", w.Code)
+	}
+
+	var resp ErrorResponse
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Code != CodeNotFound {
+		t.Errorf("expected code=%s, got %q", CodeNotFound, resp.Code)
+	}
+}
+
+func TestRollbackApplication_MissingSHA(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp")
+	srv := newTestServer(t, s, nil)
+
+	body := strings.NewReader(`{}`)
+	req := httptest.NewRequest("POST", "/api/v1/applications/myapp/rollback", body)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+
+	var resp ErrorResponse
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Code != CodeBadRequest {
+		t.Errorf("expected code=%s, got %q", CodeBadRequest, resp.Code)
+	}
+}
+
+// --- Adopt Application ---
+
+func TestAdoptApplication_Success(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp")
+
+	srv := NewServer(":0", ServerDeps{
+		Store:      s,
+		Reconciler: &mockReconciler{},
+		Inspector: &mockInspector{
+			states: []app.ServiceState{
+				{Name: "web", Image: "nginx:latest", Health: app.HealthStatusHealthy, Status: "running"},
+			},
+		},
+		Logger: testLogger(),
+	})
+
+	w := doRequest(t, srv, "POST", "/api/v1/applications/myapp/adopt")
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result map[string]interface{}
+	_ = json.NewDecoder(w.Body).Decode(&result)
+	if result["status"] != "adopted" {
+		t.Errorf("expected status=adopted, got %v", result["status"])
+	}
+	if result["name"] != "myapp" {
+		t.Errorf("expected name=myapp, got %v", result["name"])
+	}
+}
+
+func TestAdoptApplication_NotFound(t *testing.T) {
+	s := setupTestStore(t)
+	srv := NewServer(":0", ServerDeps{
+		Store:      s,
+		Reconciler: &mockReconciler{},
+		Inspector:  &mockInspector{},
+		Logger:     testLogger(),
+	})
+
+	w := doRequest(t, srv, "POST", "/api/v1/applications/nonexistent/adopt")
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", w.Code)
 	}
 }
 
@@ -535,7 +720,7 @@ func TestGetApplication_ResponseStructure(t *testing.T) {
 	createTestApp(t, s, "myapp")
 
 	// Set some status fields
-	s.UpdateApplicationStatus(context.Background(), "myapp", store.StatusUpdate{
+	_ = s.UpdateApplicationStatus(context.Background(), "myapp", store.StatusUpdate{
 		LastSyncedSHA: "deadbeef",
 		HeadSHA:       "deadbeef",
 	})
@@ -545,7 +730,7 @@ func TestGetApplication_ResponseStructure(t *testing.T) {
 	w := doRequest(t, srv, "GET", "/api/v1/applications/myapp")
 
 	var resp ApplicationResponse
-	json.NewDecoder(w.Body).Decode(&resp)
+	_ = json.NewDecoder(w.Body).Decode(&resp)
 
 	if resp.Spec.Source.RepoURL != "https://github.com/test/repo.git" {
 		t.Errorf("unexpected repo URL: %q", resp.Spec.Source.RepoURL)
@@ -555,5 +740,193 @@ func TestGetApplication_ResponseStructure(t *testing.T) {
 	}
 	if resp.Status.LastSyncedSHA != "deadbeef" {
 		t.Errorf("expected LastSyncedSHA=deadbeef, got %q", resp.Status.LastSyncedSHA)
+	}
+}
+
+// --- Docker Hosts ---
+
+func doRequestWithBody(t *testing.T, srv *Server, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+	return w
+}
+
+func TestCreateHost_Success(t *testing.T) {
+	s := setupTestStore(t)
+	srv := newTestServer(t, s, nil)
+
+	w := doRequestWithBody(t, srv, "POST", "/api/v1/hosts",
+		`{"name":"my-server","url":"tcp://192.168.1.100:2376","tlsCertPath":"/certs/my-server"}`)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp DockerHostResponse
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Name != "my-server" {
+		t.Errorf("expected name=my-server, got %q", resp.Name)
+	}
+	if resp.URL != "tcp://192.168.1.100:2376" {
+		t.Errorf("expected url=tcp://192.168.1.100:2376, got %q", resp.URL)
+	}
+	if resp.TLSCertPath != "/certs/my-server" {
+		t.Errorf("expected tlsCertPath=/certs/my-server, got %q", resp.TLSCertPath)
+	}
+	if resp.HealthStatus != "Unknown" {
+		t.Errorf("expected healthStatus=Unknown, got %q", resp.HealthStatus)
+	}
+}
+
+func TestCreateHost_DuplicateName(t *testing.T) {
+	s := setupTestStore(t)
+	srv := newTestServer(t, s, nil)
+
+	doRequestWithBody(t, srv, "POST", "/api/v1/hosts",
+		`{"name":"my-server","url":"tcp://192.168.1.100:2376"}`)
+
+	w := doRequestWithBody(t, srv, "POST", "/api/v1/hosts",
+		`{"name":"my-server","url":"tcp://192.168.1.200:2376"}`)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("expected 409, got %d", w.Code)
+	}
+}
+
+func TestCreateHost_DuplicateURL(t *testing.T) {
+	s := setupTestStore(t)
+	srv := newTestServer(t, s, nil)
+
+	doRequestWithBody(t, srv, "POST", "/api/v1/hosts",
+		`{"name":"server-a","url":"tcp://192.168.1.100:2376"}`)
+
+	w := doRequestWithBody(t, srv, "POST", "/api/v1/hosts",
+		`{"name":"server-b","url":"tcp://192.168.1.100:2376"}`)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("expected 409, got %d", w.Code)
+	}
+}
+
+func TestCreateHost_MissingName(t *testing.T) {
+	s := setupTestStore(t)
+	srv := newTestServer(t, s, nil)
+
+	w := doRequestWithBody(t, srv, "POST", "/api/v1/hosts",
+		`{"url":"tcp://192.168.1.100:2376"}`)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestCreateHost_InvalidURL(t *testing.T) {
+	s := setupTestStore(t)
+	srv := newTestServer(t, s, nil)
+
+	w := doRequestWithBody(t, srv, "POST", "/api/v1/hosts",
+		`{"name":"my-server","url":"http://not-valid"}`)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestListHosts_Empty(t *testing.T) {
+	s := setupTestStore(t)
+	srv := newTestServer(t, s, nil)
+
+	w := doRequest(t, srv, "GET", "/api/v1/hosts")
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	var resp ListResponse[DockerHostResponse]
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Total != 0 {
+		t.Errorf("expected total=0, got %d", resp.Total)
+	}
+}
+
+func TestListHosts_WithHosts(t *testing.T) {
+	s := setupTestStore(t)
+	srv := newTestServer(t, s, nil)
+
+	doRequestWithBody(t, srv, "POST", "/api/v1/hosts",
+		`{"name":"server-a","url":"tcp://10.0.0.1:2376"}`)
+	doRequestWithBody(t, srv, "POST", "/api/v1/hosts",
+		`{"name":"server-b","url":"tcp://10.0.0.2:2376"}`)
+
+	w := doRequest(t, srv, "GET", "/api/v1/hosts")
+
+	var resp ListResponse[DockerHostResponse]
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Total != 2 {
+		t.Errorf("expected total=2, got %d", resp.Total)
+	}
+}
+
+func TestGetHost_Found(t *testing.T) {
+	s := setupTestStore(t)
+	srv := newTestServer(t, s, nil)
+
+	doRequestWithBody(t, srv, "POST", "/api/v1/hosts",
+		`{"name":"my-server","url":"tcp://10.0.0.1:2376"}`)
+
+	w := doRequest(t, srv, "GET", "/api/v1/hosts/my-server")
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	var resp DockerHostResponse
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Name != "my-server" {
+		t.Errorf("expected name=my-server, got %q", resp.Name)
+	}
+}
+
+func TestGetHost_NotFound(t *testing.T) {
+	s := setupTestStore(t)
+	srv := newTestServer(t, s, nil)
+
+	w := doRequest(t, srv, "GET", "/api/v1/hosts/nonexistent")
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestDeleteHost_Success(t *testing.T) {
+	s := setupTestStore(t)
+	srv := newTestServer(t, s, nil)
+
+	doRequestWithBody(t, srv, "POST", "/api/v1/hosts",
+		`{"name":"my-server","url":"tcp://10.0.0.1:2376"}`)
+
+	w := doRequest(t, srv, "DELETE", "/api/v1/hosts/my-server")
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	// Verify it's gone
+	w2 := doRequest(t, srv, "GET", "/api/v1/hosts/my-server")
+	if w2.Code != http.StatusNotFound {
+		t.Errorf("expected 404 after delete, got %d", w2.Code)
+	}
+}
+
+func TestDeleteHost_NotFound(t *testing.T) {
+	s := setupTestStore(t)
+	srv := newTestServer(t, s, nil)
+
+	w := doRequest(t, srv, "DELETE", "/api/v1/hosts/nonexistent")
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", w.Code)
 	}
 }
