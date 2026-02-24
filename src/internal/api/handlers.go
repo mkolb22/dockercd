@@ -66,9 +66,13 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// maxRequestBody is the maximum allowed request body size (1 MB).
+const maxRequestBody = 1 << 20
+
 // CreateApplication registers a new application.
 func (h *Handler) CreateApplication(w http.ResponseWriter, r *http.Request) {
 	var application app.Application
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	if err := json.NewDecoder(r.Body).Decode(&application); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error(), CodeBadRequest)
 		return
@@ -385,6 +389,7 @@ func (h *Handler) RollbackApplication(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req RollbackRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error(), CodeBadRequest)
 		return
@@ -513,6 +518,7 @@ func (h *Handler) GetPollInterval(w http.ResponseWriter, r *http.Request) {
 // SetPollInterval sets the global poll interval override.
 func (h *Handler) SetPollInterval(w http.ResponseWriter, r *http.Request) {
 	var req PollIntervalRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", CodeBadRequest)
 		return

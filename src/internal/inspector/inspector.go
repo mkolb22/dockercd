@@ -98,6 +98,11 @@ type DockerInspector struct {
 	// Dynamic TLS config registry for runtime host management.
 	tlsConfigs map[string]TLSConfig
 	tlsMu      sync.RWMutex
+
+	// Client cache: one client per host, reused across calls to avoid
+	// repeated TLS config loading and client creation overhead.
+	clientCache   map[string]DockerClient
+	clientCacheMu sync.Mutex
 }
 
 // ClientFactory creates Docker API clients.
@@ -117,7 +122,8 @@ type DockerClient interface {
 // New creates a DockerInspector with the default Docker client factory.
 func New() *DockerInspector {
 	d := &DockerInspector{
-		tlsConfigs: make(map[string]TLSConfig),
+		tlsConfigs:  make(map[string]TLSConfig),
+		clientCache: make(map[string]DockerClient),
 	}
 	d.clientFactory = d.tlsAwareClientFactory
 	return d
@@ -128,6 +134,7 @@ func NewWithFactory(factory ClientFactory) *DockerInspector {
 	return &DockerInspector{
 		clientFactory: factory,
 		tlsConfigs:    make(map[string]TLSConfig),
+		clientCache:   make(map[string]DockerClient),
 	}
 }
 
@@ -136,7 +143,8 @@ func NewWithFactory(factory ClientFactory) *DockerInspector {
 // Hosts not present in the map use the default (unauthenticated) client.
 func NewWithTLS(tlsConfigs map[string]TLSConfig) *DockerInspector {
 	d := &DockerInspector{
-		tlsConfigs: make(map[string]TLSConfig, len(tlsConfigs)),
+		tlsConfigs:  make(map[string]TLSConfig, len(tlsConfigs)),
+		clientCache: make(map[string]DockerClient),
 	}
 	for k, v := range tlsConfigs {
 		d.tlsConfigs[k] = v
@@ -170,17 +178,33 @@ func (d *DockerInspector) tlsAwareClientFactory(host string) (DockerClient, erro
 }
 
 // RegisterTLS adds or updates TLS configuration for a remote Docker host.
+// Invalidates any cached client for this host so the new TLS config takes effect.
 func (d *DockerInspector) RegisterTLS(host string, cfg TLSConfig) {
 	d.tlsMu.Lock()
 	d.tlsConfigs[host] = cfg
 	d.tlsMu.Unlock()
+
+	d.clientCacheMu.Lock()
+	if cli, ok := d.clientCache[host]; ok {
+		cli.Close()
+		delete(d.clientCache, host)
+	}
+	d.clientCacheMu.Unlock()
 }
 
 // UnregisterTLS removes TLS configuration for a remote Docker host.
+// Invalidates any cached client for this host.
 func (d *DockerInspector) UnregisterTLS(host string) {
 	d.tlsMu.Lock()
 	delete(d.tlsConfigs, host)
 	d.tlsMu.Unlock()
+
+	d.clientCacheMu.Lock()
+	if cli, ok := d.clientCache[host]; ok {
+		cli.Close()
+		delete(d.clientCache, host)
+	}
+	d.clientCacheMu.Unlock()
 }
 
 // GetTLSCertPath returns the TLS cert path for a host, or empty string if not configured.
@@ -194,13 +218,43 @@ func (d *DockerInspector) GetTLSCertPath(host string) string {
 	return ""
 }
 
+// getClient returns a cached Docker client for the given host, creating one
+// via clientFactory on first access. Clients are reused across calls to avoid
+// repeated TLS config loading and object allocation.
+func (d *DockerInspector) getClient(host string) (DockerClient, error) {
+	d.clientCacheMu.Lock()
+	defer d.clientCacheMu.Unlock()
+
+	if cli, ok := d.clientCache[host]; ok {
+		return cli, nil
+	}
+
+	cli, err := d.clientFactory(host)
+	if err != nil {
+		return nil, err
+	}
+	d.clientCache[host] = cli
+	return cli, nil
+}
+
+// CloseAllClients closes and removes all cached Docker clients.
+// Call during shutdown to release resources.
+func (d *DockerInspector) CloseAllClients() {
+	d.clientCacheMu.Lock()
+	defer d.clientCacheMu.Unlock()
+
+	for host, cli := range d.clientCache {
+		cli.Close()
+		delete(d.clientCache, host)
+	}
+}
+
 // Inspect returns the live state of all containers in the given compose project.
 func (d *DockerInspector) Inspect(ctx context.Context, dest app.DestinationSpec) ([]app.ServiceState, error) {
-	cli, err := d.clientFactory(dest.DockerHost)
+	cli, err := d.getClient(dest.DockerHost)
 	if err != nil {
 		return nil, fmt.Errorf("creating docker client for %q: %w", dest.DockerHost, err)
 	}
-	defer cli.Close()
 
 	// Filter containers by compose project label
 	f := filters.NewArgs()
@@ -214,7 +268,7 @@ func (d *DockerInspector) Inspect(ctx context.Context, dest app.DestinationSpec)
 		return nil, fmt.Errorf("listing containers for project %q: %w", dest.ProjectName, err)
 	}
 
-	var states []app.ServiceState
+	states := make([]app.ServiceState, 0, len(containers))
 	for _, c := range containers {
 		// Get detailed inspection data
 		detail, err := cli.ContainerInspect(ctx, c.ID)
@@ -231,11 +285,10 @@ func (d *DockerInspector) Inspect(ctx context.Context, dest app.DestinationSpec)
 
 // InspectService returns the live state of a single service by name.
 func (d *DockerInspector) InspectService(ctx context.Context, dest app.DestinationSpec, serviceName string) (*app.ServiceState, error) {
-	cli, err := d.clientFactory(dest.DockerHost)
+	cli, err := d.getClient(dest.DockerHost)
 	if err != nil {
 		return nil, fmt.Errorf("creating docker client: %w", err)
 	}
-	defer cli.Close()
 
 	f := filters.NewArgs()
 	f.Add("label", fmt.Sprintf("com.docker.compose.project=%s", dest.ProjectName))
@@ -281,29 +334,8 @@ func mapContainerToState(c container.Summary, detail container.InspectResponse) 
 		state.Entrypoint = detail.Config.Entrypoint
 	}
 
-	// Extract port mappings
-	for containerPort, bindings := range detail.NetworkSettings.Ports {
-		port := string(containerPort)
-		proto := "tcp"
-		if parts := strings.SplitN(port, "/", 2); len(parts) == 2 {
-			port = parts[0]
-			proto = parts[1]
-		}
-		if len(bindings) == 0 {
-			state.Ports = append(state.Ports, app.PortMapping{
-				ContainerPort: port,
-				Protocol:      proto,
-			})
-		} else {
-			for _, b := range bindings {
-				state.Ports = append(state.Ports, app.PortMapping{
-					HostPort:      b.HostPort,
-					ContainerPort: port,
-					Protocol:      proto,
-				})
-			}
-		}
-	}
+	// Extract port mappings (reuse extractPorts to avoid duplication)
+	state.Ports = extractPorts(detail)
 
 	// Extract volume mounts
 	if detail.Mounts != nil {
@@ -397,11 +429,10 @@ func extractPorts(detail container.InspectResponse) []app.PortMapping {
 
 // InspectWithMetrics returns per-service status with resource usage metrics.
 func (d *DockerInspector) InspectWithMetrics(ctx context.Context, dest app.DestinationSpec) ([]app.ServiceStatus, error) {
-	cli, err := d.clientFactory(dest.DockerHost)
+	cli, err := d.getClient(dest.DockerHost)
 	if err != nil {
 		return nil, fmt.Errorf("creating docker client: %w", err)
 	}
-	defer cli.Close()
 
 	f := filters.NewArgs()
 	f.Add("label", fmt.Sprintf("com.docker.compose.project=%s", dest.ProjectName))
@@ -414,7 +445,7 @@ func (d *DockerInspector) InspectWithMetrics(ctx context.Context, dest app.Desti
 		return nil, fmt.Errorf("listing containers: %w", err)
 	}
 
-	var results []app.ServiceStatus
+	results := make([]app.ServiceStatus, 0, len(containers))
 	for _, c := range containers {
 		detail, err := cli.ContainerInspect(ctx, c.ID)
 		if err != nil {
@@ -527,11 +558,10 @@ func formatUptime(d time.Duration) string {
 
 // SystemInfo returns information about the Docker daemon.
 func (d *DockerInspector) SystemInfo(ctx context.Context, dockerHost string) (*app.DockerHostInfo, error) {
-	cli, err := d.clientFactory(dockerHost)
+	cli, err := d.getClient(dockerHost)
 	if err != nil {
 		return nil, fmt.Errorf("creating docker client: %w", err)
 	}
-	defer cli.Close()
 
 	info, err := cli.Info(ctx)
 	if err != nil {
@@ -557,11 +587,10 @@ func (d *DockerInspector) SystemInfo(ctx context.Context, dockerHost string) (*a
 
 // HostStats aggregates resource usage across all running containers on the host.
 func (d *DockerInspector) HostStats(ctx context.Context, dockerHost string) (*app.HostStats, error) {
-	cli, err := d.clientFactory(dockerHost)
+	cli, err := d.getClient(dockerHost)
 	if err != nil {
 		return nil, fmt.Errorf("creating docker client: %w", err)
 	}
-	defer cli.Close()
 
 	// Get system info for CPU cores and total memory
 	info, err := cli.Info(ctx)
@@ -569,18 +598,17 @@ func (d *DockerInspector) HostStats(ctx context.Context, dockerHost string) (*ap
 		return nil, fmt.Errorf("getting system info: %w", err)
 	}
 
-	// List all running containers (no project filter)
-	f := filters.NewArgs()
-	f.Add("status", "running")
-	containers, err := cli.ContainerList(ctx, container.ListOptions{Filters: f})
+	// Single ContainerList call with All:true, then filter running in memory
+	allContainers, err := cli.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
 		return nil, fmt.Errorf("listing containers: %w", err)
 	}
 
-	// Count total containers (including stopped)
-	allContainers, err := cli.ContainerList(ctx, container.ListOptions{All: true})
-	if err != nil {
-		return nil, fmt.Errorf("listing all containers: %w", err)
+	containers := make([]container.Summary, 0, len(allContainers))
+	for _, c := range allContainers {
+		if c.State == "running" {
+			containers = append(containers, c)
+		}
 	}
 
 	stats := &app.HostStats{

@@ -86,7 +86,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 
 	// Build TLS configs for remote Docker hosts
-	var insp inspector.StateInspector
+	var inspConcrete *inspector.DockerInspector
 	if len(cfg.TLS) > 0 {
 		tlsMap := make(map[string]inspector.TLSConfig, len(cfg.TLS))
 		for _, tc := range cfg.TLS {
@@ -95,11 +95,12 @@ func runServe(_ *cobra.Command, _ []string) error {
 				Verify:   tc.Verify,
 			}
 		}
-		insp = inspector.NewWithTLS(tlsMap)
+		inspConcrete = inspector.NewWithTLS(tlsMap)
 		logger.Info("TLS enabled for remote Docker hosts", "hosts", len(cfg.TLS))
 	} else {
-		insp = inspector.New()
+		inspConcrete = inspector.New()
 	}
+	var insp inspector.StateInspector = inspConcrete
 
 	// Load TLS configs from DB-registered Docker hosts into the inspector
 	dbHosts, err := st.ListDockerHosts(context.Background())
@@ -331,6 +332,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	hostMon.Stop()
 	healthMon.Stop()
 	_ = apiServer.Stop(shutdownCtx)
+	inspConcrete.CloseAllClients()
 	gitSyncer.Close()
 
 	if err != nil && ctx.Err() == nil {

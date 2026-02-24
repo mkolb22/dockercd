@@ -10,31 +10,37 @@ import (
 
 // schedulerLoop runs the scheduling loop that pushes app names onto the work queue
 // when their poll interval expires or when a manual trigger is received.
+// Uses a single reusable timer to avoid per-iteration allocation.
 func (r *ReconcilerImpl) schedulerLoop(ctx context.Context) {
 	defer r.wg.Done()
 
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+
 	for {
-		// Compute next wake time
+		// Compute next wake time and reset the timer
 		nextWake := r.nextWakeTime()
-		var timer *time.Timer
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
 		if nextWake.IsZero() {
-			// No apps scheduled — wait for trigger or context cancel
-			timer = time.NewTimer(10 * time.Second)
+			timer.Reset(10 * time.Second)
 		} else {
 			wait := time.Until(nextWake)
 			if wait < 0 {
 				wait = 0
 			}
-			timer = time.NewTimer(wait)
+			timer.Reset(wait)
 		}
 
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return
 
 		case appName := <-r.trigger:
-			timer.Stop()
 			// Immediate reconciliation requested
 			r.scheduleMu.Lock()
 			r.schedule[appName] = time.Now()
@@ -136,9 +142,16 @@ func (r *ReconcilerImpl) AddApp(appName string) {
 	r.scheduleMu.Unlock()
 }
 
-// RemoveApp removes an application from the schedule.
+// RemoveApp removes an application from the schedule and cleans up associated
+// per-app state (locks, circuit breakers) to prevent unbounded map growth.
 func (r *ReconcilerImpl) RemoveApp(appName string) {
 	r.scheduleMu.Lock()
 	delete(r.schedule, appName)
 	r.scheduleMu.Unlock()
+
+	r.appLocks.Delete(appName)
+
+	r.breakersMu.Lock()
+	delete(r.breakers, appName)
+	r.breakersMu.Unlock()
 }

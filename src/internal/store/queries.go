@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -507,12 +508,5 @@ func scanDockerHost(row *sql.Row) (*DockerHostRecord, error) {
 }
 
 func joinStrings(strs []string, sep string) string {
-	result := ""
-	for i, s := range strs {
-		if i > 0 {
-			result += sep
-		}
-		result += s
-	}
-	return result
+	return strings.Join(strs, sep)
 }

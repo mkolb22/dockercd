@@ -15,6 +15,7 @@ import (
 // CreateHost registers a new Docker host.
 func (h *Handler) CreateHost(w http.ResponseWriter, r *http.Request) {
 	var req CreateHostRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error(), CodeBadRequest)
 		return

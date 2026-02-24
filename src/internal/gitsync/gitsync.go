@@ -45,6 +45,11 @@ type GoGitSyncer struct {
 
 	// mu protects concurrent access to the same repo URL.
 	mu sync.Map // map[string]*sync.Mutex
+
+	// repos caches opened git.Repository objects to avoid repeated
+	// git.PlainOpen calls which re-read the .git object database.
+	repos   map[string]*git.Repository
+	reposMu sync.Mutex
 }
 
 // New creates a new GoGitSyncer with the given cache directory for cloned repos.
@@ -68,6 +73,7 @@ func New(cacheDir string, logger *slog.Logger, gitToken string) (*GoGitSyncer, e
 		cache:  cache,
 		logger: logger,
 		auth:   auth,
+		repos:  make(map[string]*git.Repository),
 	}, nil
 }
 
@@ -96,6 +102,7 @@ func (g *GoGitSyncer) Sync(ctx context.Context, source app.SourceSpec) (string, 
 				"repo", source.RepoURL,
 				"error", err,
 			)
+			g.evictRepo(repoPath)
 			if removeErr := os.RemoveAll(repoPath); removeErr != nil {
 				return "", fmt.Errorf("removing corrupted repo %q: %w", repoPath, removeErr)
 			}
@@ -103,12 +110,14 @@ func (g *GoGitSyncer) Sync(ctx context.Context, source app.SourceSpec) (string, 
 			if err != nil {
 				return "", fmt.Errorf("re-clone after pull failure: %w", err)
 			}
+			g.cacheRepo(repoPath, repo)
 		}
 	} else {
 		repo, err = g.clone(ctx, source.RepoURL, repoPath, refName)
 		if err != nil {
 			return "", err
 		}
+		g.cacheRepo(repoPath, repo)
 	}
 
 	head, err := repo.Head()
@@ -135,9 +144,43 @@ func (g *GoGitSyncer) RepoPath(repoURL string) string {
 	return path
 }
 
-// Close is a no-op for now (no file locks held).
+// Close releases cached repository objects.
 func (g *GoGitSyncer) Close() error {
+	g.reposMu.Lock()
+	g.repos = make(map[string]*git.Repository)
+	g.reposMu.Unlock()
 	return nil
+}
+
+// getOrOpenRepo returns a cached *git.Repository for the path, or opens one.
+func (g *GoGitSyncer) getOrOpenRepo(path string) (*git.Repository, error) {
+	g.reposMu.Lock()
+	defer g.reposMu.Unlock()
+
+	if repo, ok := g.repos[path]; ok {
+		return repo, nil
+	}
+
+	repo, err := git.PlainOpen(path)
+	if err != nil {
+		return nil, err
+	}
+	g.repos[path] = repo
+	return repo, nil
+}
+
+// cacheRepo stores an opened repository in the cache.
+func (g *GoGitSyncer) cacheRepo(path string, repo *git.Repository) {
+	g.reposMu.Lock()
+	g.repos[path] = repo
+	g.reposMu.Unlock()
+}
+
+// evictRepo removes a cached repository (e.g., before re-clone).
+func (g *GoGitSyncer) evictRepo(path string) {
+	g.reposMu.Lock()
+	delete(g.repos, path)
+	g.reposMu.Unlock()
 }
 
 func (g *GoGitSyncer) clone(ctx context.Context, url, path string, ref plumbing.ReferenceName) (*git.Repository, error) {
@@ -161,7 +204,7 @@ func (g *GoGitSyncer) clone(ctx context.Context, url, path string, ref plumbing.
 }
 
 func (g *GoGitSyncer) pull(ctx context.Context, path string, ref plumbing.ReferenceName) (*git.Repository, error) {
-	repo, err := git.PlainOpen(path)
+	repo, err := g.getOrOpenRepo(path)
 	if err != nil {
 		return nil, fmt.Errorf("opening repo at %q: %w", path, err)
 	}
@@ -192,7 +235,7 @@ func (g *GoGitSyncer) Commit(ctx context.Context, repoURL string, message string
 	defer mu.Unlock()
 
 	repoPath := g.cache.PathFor(repoURL)
-	repo, err := git.PlainOpen(repoPath)
+	repo, err := g.getOrOpenRepo(repoPath)
 	if err != nil {
 		return fmt.Errorf("opening repo: %w", err)
 	}
@@ -224,7 +267,7 @@ func (g *GoGitSyncer) Push(ctx context.Context, repoURL string) error {
 	defer mu.Unlock()
 
 	repoPath := g.cache.PathFor(repoURL)
-	repo, err := git.PlainOpen(repoPath)
+	repo, err := g.getOrOpenRepo(repoPath)
 	if err != nil {
 		return fmt.Errorf("opening repo: %w", err)
 	}

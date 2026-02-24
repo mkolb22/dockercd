@@ -205,6 +205,8 @@ func (m *Monitor) WaitForServicesHealthy(ctx context.Context, appName string, se
 }
 
 // CheckApp performs a single health check for the named application.
+// Only writes to the store when the health status or services have changed,
+// avoiding unnecessary DB writes during periodic sweeps.
 func (m *Monitor) CheckApp(ctx context.Context, appName string) (app.HealthStatus, []app.ServiceStatus, error) {
 	// Look up the application
 	appRec, err := m.store.GetApplication(ctx, appName)
@@ -241,12 +243,15 @@ func (m *Monitor) CheckApp(ctx context.Context, appName string) (app.HealthStatu
 
 	aggregated := Aggregate(serviceStatuses)
 
-	// Persist to store
+	// Only persist when status changed to avoid unnecessary DB writes on every sweep
 	servicesJSON, _ := json.Marshal(serviceStatuses)
-	_ = m.store.UpdateApplicationStatus(ctx, appName, store.StatusUpdate{
-		HealthStatus: string(aggregated),
-		ServicesJSON: string(servicesJSON),
-	})
+	newServicesStr := string(servicesJSON)
+	if string(aggregated) != appRec.HealthStatus || newServicesStr != appRec.ServicesJSON {
+		_ = m.store.UpdateApplicationStatus(ctx, appName, store.StatusUpdate{
+			HealthStatus: string(aggregated),
+			ServicesJSON: newServicesStr,
+		})
+	}
 
 	return aggregated, serviceStatuses, nil
 }

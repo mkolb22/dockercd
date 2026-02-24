@@ -6,6 +6,7 @@ package reconciler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -221,22 +222,32 @@ func (r *ReconcilerImpl) GetPollOverride() time.Duration {
 // detection, parse, inspect, and diff. It returns the compose spec, diff
 // result, head SHA, and any error. It also updates application status in the
 // store as a side effect (headSHA, health on error).
-func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced bool) (*app.ComposeSpec, *app.DiffResult, string, error) {
+//
+// If appRec and application are non-nil, they are used directly (avoiding a
+// redundant store fetch and JSON unmarshal). Pass nil for both when calling
+// from DryRun where no pre-fetched data is available.
+func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced bool, appRec *store.ApplicationRecord, application *app.Application) (*app.ComposeSpec, *app.DiffResult, string, error) {
 	logger := r.logger.With("app", appName)
 
-	// Look up the application from the store
-	appRec, err := r.deps.Store.GetApplication(ctx, appName)
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("store error: %v", err)
-	}
+	// Look up the application from the store (unless pre-fetched)
 	if appRec == nil {
-		return nil, nil, "", fmt.Errorf("application %q not found", appName)
+		var err error
+		appRec, err = r.deps.Store.GetApplication(ctx, appName)
+		if err != nil {
+			return nil, nil, "", fmt.Errorf("store error: %v", err)
+		}
+		if appRec == nil {
+			return nil, nil, "", fmt.Errorf("application %q not found", appName)
+		}
 	}
 
-	// Deserialize manifest to get app spec
-	var application app.Application
-	if err := json.Unmarshal([]byte(appRec.Manifest), &application); err != nil {
-		return nil, nil, "", fmt.Errorf("invalid manifest: %v", err)
+	// Deserialize manifest to get app spec (unless pre-parsed)
+	if application == nil {
+		var a app.Application
+		if err := json.Unmarshal([]byte(appRec.Manifest), &a); err != nil {
+			return nil, nil, "", fmt.Errorf("invalid manifest: %v", err)
+		}
+		application = &a
 	}
 
 	// STEP 1: Git Sync
@@ -308,7 +319,7 @@ func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced
 
 // DryRun computes the diff for an application without deploying anything.
 func (r *ReconcilerImpl) DryRun(ctx context.Context, appName string) (*app.DiffResult, string, error) {
-	_, diffResult, headSHA, err := r.computeDiff(ctx, appName, true)
+	_, diffResult, headSHA, err := r.computeDiff(ctx, appName, true, nil, nil)
 	if err != nil {
 		return nil, headSHA, err
 	}
@@ -357,8 +368,8 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 		return r.finishResult(ctx, result, app.SyncResultSkipped, "circuit breaker open", logger)
 	}
 
-	// STEPS 1-5: Git sync, parse, inspect, diff
-	composeSpec, diffResult, headSHA, err := r.computeDiff(ctx, appName, forced)
+	// STEPS 1-5: Git sync, parse, inspect, diff (pass pre-fetched record + parsed manifest)
+	composeSpec, diffResult, headSHA, err := r.computeDiff(ctx, appName, forced, appRec, &application)
 	if err != nil {
 		breaker.RecordFailure()
 		return r.finishResult(ctx, result, app.SyncResultFailure, err.Error(), logger)
@@ -573,24 +584,40 @@ func (r *ReconcilerImpl) finishResult(ctx context.Context, result *app.SyncResul
 		logger.Error("failed to record sync", "error", err)
 	}
 
-	// Record event for non-skipped results
+	// Record event and send notifications for non-skipped results
 	if status != app.SyncResultSkipped {
+		// Build message once, reuse for event record and notification
 		severity := "info"
 		eventType := "SyncSuccess"
+		notifyType := "sync.success"
 		message := fmt.Sprintf("Sync %s (%s)", status, result.Operation)
 		if status == app.SyncResultFailure {
 			severity = "error"
 			eventType = "SyncError"
+			notifyType = "sync.failure"
 			message = fmt.Sprintf("Sync failed (%s): %s", result.Operation, errMsg)
 		} else if result.CommitSHA != "" {
 			message = fmt.Sprintf("Deployed %s via %s", result.CommitSHA[:min(7, len(result.CommitSHA))], result.Operation)
 		}
+
 		_ = r.deps.Store.RecordEvent(ctx, &store.EventRecord{
 			AppName:  result.AppName,
 			Type:     eventType,
 			Message:  message,
 			Severity: severity,
 		})
+
+		if r.deps.Notifier != nil {
+			if notifyErr := r.deps.Notifier.Notify(ctx, notifier.NotificationEvent{
+				Type:    notifyType,
+				AppName: result.AppName,
+				Message: message,
+				Data:    result,
+				Time:    now,
+			}); notifyErr != nil {
+				logger.Error("failed to send sync notification", "error", notifyErr)
+			}
+		}
 	}
 
 	// Broadcast sync event to SSE subscribers
@@ -602,31 +629,8 @@ func (r *ReconcilerImpl) finishResult(ctx context.Context, result *app.SyncResul
 		})
 	}
 
-	// Send structured notifications for significant sync events
-	if r.deps.Notifier != nil && status != app.SyncResultSkipped {
-		eventType := "sync.success"
-		if status == app.SyncResultFailure {
-			eventType = "sync.failure"
-		}
-		notifyMsg := fmt.Sprintf("Sync %s (%s)", status, result.Operation)
-		if status == app.SyncResultSuccess && result.CommitSHA != "" {
-			notifyMsg = fmt.Sprintf("Deployed %s via %s", result.CommitSHA[:min(7, len(result.CommitSHA))], result.Operation)
-		} else if status == app.SyncResultFailure && errMsg != "" {
-			notifyMsg = fmt.Sprintf("Sync failed (%s): %s", result.Operation, errMsg)
-		}
-		if notifyErr := r.deps.Notifier.Notify(ctx, notifier.NotificationEvent{
-			Type:    eventType,
-			AppName: result.AppName,
-			Message: notifyMsg,
-			Data:    result,
-			Time:    now,
-		}); notifyErr != nil {
-			logger.Error("failed to send sync notification", "error", notifyErr)
-		}
-	}
-
 	if errMsg != "" {
-		return result, fmt.Errorf("%s", errMsg)
+		return result, errors.New(errMsg)
 	}
 	return result, nil
 }
