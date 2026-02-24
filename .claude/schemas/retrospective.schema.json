@@ -1,0 +1,174 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Retrospective",
+  "description": "Schema for retrospective analysis following the Reflexion pattern",
+  "type": "object",
+  "required": ["retro_id", "flow_id", "timestamp", "trigger", "failure_analysis", "learnings", "recommendations", "status"],
+  "properties": {
+    "retro_id": {
+      "type": "string",
+      "pattern": "^retro-[0-9]{3,}$",
+      "description": "Unique identifier for this retrospective"
+    },
+    "flow_id": {
+      "type": "string",
+      "pattern": "^flow-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}h[0-9]{2}m[0-9]{2}s$",
+      "description": "ID of the flow that failed"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When this retrospective was created"
+    },
+    "trigger": {
+      "type": "object",
+      "required": ["concept", "action", "status"],
+      "properties": {
+        "concept": {
+          "type": "string",
+          "enum": ["story", "architecture", "implementation", "quality", "version"],
+          "description": "Which concept triggered the retrospective"
+        },
+        "action": {
+          "type": "string",
+          "description": "Which action failed"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["rejected", "failed", "blocked"],
+          "description": "The failure status that triggered analysis"
+        }
+      }
+    },
+    "failure_analysis": {
+      "type": "object",
+      "required": ["what_happened", "root_causes"],
+      "properties": {
+        "what_happened": {
+          "type": "string",
+          "minLength": 50,
+          "description": "Clear description of the failure"
+        },
+        "root_causes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["category", "description", "evidence"],
+            "properties": {
+              "category": {
+                "type": "string",
+                "enum": ["requirements", "architecture", "implementation", "process", "external"],
+                "description": "Category of the root cause"
+              },
+              "description": {
+                "type": "string",
+                "minLength": 20,
+                "description": "What the root cause is"
+              },
+              "evidence": {
+                "type": "string",
+                "minLength": 10,
+                "description": "Evidence supporting this root cause"
+              },
+              "why_chain": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "5 Whys analysis chain"
+              }
+            }
+          }
+        },
+        "contributing_factors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Additional factors that contributed to failure"
+        }
+      }
+    },
+    "learnings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "insight", "applies_to", "action"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^L[0-9]{3}$",
+            "description": "Unique learning identifier"
+          },
+          "insight": {
+            "type": "string",
+            "minLength": 20,
+            "description": "The actionable insight learned"
+          },
+          "applies_to": {
+            "type": "string",
+            "enum": ["story", "architecture", "implementation", "quality", "version", "workflow"],
+            "description": "Which concept this learning applies to"
+          },
+          "action": {
+            "type": "string",
+            "minLength": 10,
+            "description": "Concrete action to implement this learning"
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["high", "medium", "low"],
+            "description": "Priority of implementing this learning"
+          }
+        }
+      }
+    },
+    "recommendations": {
+      "type": "object",
+      "required": ["immediate", "future"],
+      "properties": {
+        "immediate": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          },
+          "description": "Actions to take right now"
+        },
+        "future": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Changes to prevent recurrence"
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["analyzing", "analyzed", "applied"],
+      "description": "Current status of the retrospective"
+    },
+    "applied_learnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "learning_id": {
+            "type": "string"
+          },
+          "applied_to": {
+            "type": "string"
+          },
+          "applied_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "description": "Track which learnings have been applied"
+    }
+  }
+}

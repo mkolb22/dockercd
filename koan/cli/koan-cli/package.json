@@ -1,0 +1,38 @@
+{
+  "name": "@zen/koan-cli",
+  "version": "1.0.0",
+  "description": "Unified koan CLI",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "koan": "./bin/koan"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "chalk": "^5.3.0"
+  },
+  "optionalDependencies": {
+    "@zen/koan-validate": "file:../koan-validate",
+    "@zen/koan-costs": "file:../koan-costs",
+    "@zen/koan-bridge": "file:../koan-bridge",
+    "@zen/koan-compose": "file:../koan-compose",
+    "@zen/koan-drift": "file:../koan-drift",
+    "@zen/koan-flow": "file:../koan-flow",
+    "@zen/koan-bench": "file:../koan-bench",
+    "@zen/koan-timeline": "file:../koan-timeline",
+    "@zen/koan-evolve": "file:../koan-evolve",
+    "@zen/koan-learn": "file:../koan-learn",
+    "@zen/koan-observe": "file:../koan-observe",
+    "@zen/koan-migrate": "file:../koan-migrate"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3",
+    "vitest": "^3.0.0"
+  }
+}

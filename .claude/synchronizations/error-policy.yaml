@@ -1,0 +1,188 @@
+# Error Policy Registry - Central definitions for error handling
+# Consolidates 3 duplicate error classification systems
+#
+# Usage in sync rules: @errors:graceful, @errors:strict, etc.
+
+version: "1.0.0"
+
+# Error Classification (single source of truth)
+classifications:
+  transient:
+    description: "Temporary failures that may succeed on retry"
+    examples:
+      - network_timeout
+      - rate_limit
+      - service_unavailable
+      - mcp_connection_failed
+      - api_rate_limit
+      - temporary_resource_exhaustion
+    default_action: retry
+
+  permanent:
+    description: "Failures that require intervention"
+    examples:
+      - validation_failed
+      - security_violation
+      - missing_required_input
+      - schema_mismatch
+      - authorization_denied
+      - invalid_configuration
+    default_action: escalate
+
+  degraded:
+    description: "Partial failures where fallback is possible"
+    examples:
+      - optional_service_unavailable
+      - enhancement_failed
+      - mcp_server_unavailable
+      - mcp_tool_not_found
+      - non_critical_timeout
+      - cache_miss
+    default_action: fallback
+
+# Error Handling Policies
+policies:
+  # Graceful: Try to recover, skip if can't
+  graceful:
+    transient:
+      action: retry
+      max_retries: 3
+      backoff: exponential
+      backoff_base_ms: 2000
+      backoff_multiplier: 2
+      on_exhausted: skip
+    permanent:
+      action: escalate
+      notify: true
+    degraded:
+      action: fallback
+      log_level: warn
+      continue: true
+
+  # Strict: Fail fast, escalate on any issue
+  strict:
+    transient:
+      action: retry
+      max_retries: 2
+      backoff: linear
+      backoff_base_ms: 1000
+      on_exhausted: escalate
+    permanent:
+      action: escalate
+      halt_workflow: true
+    degraded:
+      action: escalate
+      notify: true
+
+  # Lenient: Skip problems, ask user for critical
+  lenient:
+    transient:
+      action: retry
+      max_retries: 1
+      backoff_base_ms: 500
+      on_exhausted: skip
+    permanent:
+      action: ask_user
+      fallback: skip
+    degraded:
+      action: skip
+      log_level: info
+
+  # Best-effort: Maximum recovery attempts
+  best_effort:
+    transient:
+      action: retry
+      max_retries: 5
+      backoff: exponential
+      backoff_base_ms: 1000
+      backoff_max_ms: 60000
+      on_exhausted: fallback
+    permanent:
+      action: ask_user
+      timeout_ms: 30000
+      on_timeout: skip
+    degraded:
+      action: fallback
+      continue: true
+
+# Dead Letter Queue configuration
+dlq:
+  enabled: true
+  storage_path: "koan/dlq"
+  max_entries: 500
+  max_retry_attempts: 3
+  backoff_base_ms: 2000
+  backoff_multiplier: 2
+  entry_ttl_hours: 168        # 7 days
+  critical_alert_threshold: 10 # Alert if > 10 failures in 1 hour
+
+# Recovery Actions
+recovery_actions:
+  retry:
+    description: "Retry the operation with backoff"
+    requires: [max_retries, backoff_base_ms]
+
+  skip:
+    description: "Skip the operation and continue workflow"
+    sets_flag: "${concept}.skipped = true"
+
+  fallback:
+    description: "Use fallback behavior and continue"
+    sets_flag: "${concept}.fallback_used = true"
+    log_level: warn
+
+  escalate:
+    description: "Stop and notify for manual intervention"
+    halt_workflow: true
+    notify: true
+
+  ask_user:
+    description: "Present options to user for decision"
+    requires: [question, options]
+    timeout_ms: 60000
+    on_timeout: escalate
+
+# Per-concept error overrides
+concept_overrides:
+  # Architecture: Never skip, always escalate permanent
+  architecture:
+    permanent:
+      action: escalate
+      halt_workflow: true
+      message: "Architecture design failed - manual review required"
+    degraded:
+      action: retry
+      max_retries: 2
+
+  # Security: Strict handling, no skipping
+  security:
+    transient:
+      action: retry
+      max_retries: 2
+    permanent:
+      action: escalate
+      halt_workflow: true
+      message: "Security check failed - cannot proceed"
+    degraded:
+      action: escalate
+
+  # Quality tests: Allow skip with warning
+  quality:
+    permanent:
+      action: ask_user
+      question: "Quality check failed. How to proceed?"
+      options:
+        - label: "Fix issues"
+          action: "implementation.revise"
+        - label: "Skip (not recommended)"
+          action: "skip"
+          warning: "Skipping quality checks"
+
+  # Version (commit): Retry but don't halt
+  version:
+    transient:
+      action: retry
+      max_retries: 3
+    permanent:
+      action: ask_user
+      question: "Commit failed. How to proceed?"

@@ -1,0 +1,299 @@
+concept: tree-of-thoughts
+version: "1.0.0"
+recommended_model: opus
+
+description: |
+  Tree-of-Thoughts (ToT) reasoning for complex decisions.
+  Explores multiple reasoning paths and evaluates which leads to the best outcome.
+  Research shows 74% improvement on complex reasoning tasks.
+
+prompts:
+  explore:
+    system: |
+      You are an advanced reasoning agent using Tree-of-Thoughts exploration.
+      Your role is to explore multiple reasoning paths before reaching conclusions.
+
+      ## Tree-of-Thoughts Process
+
+      ### 1. Problem Decomposition
+      Break the problem into key decision points where different choices lead to
+      different outcomes.
+
+      ### 2. Branch Generation
+      At each decision point, generate 2-3 distinct reasoning branches.
+      Each branch represents a different approach or assumption.
+
+      ### 3. Branch Evaluation
+      For each branch, consider:
+      - Feasibility: Can this approach actually work?
+      - Consequences: What are the implications?
+      - Risks: What could go wrong?
+      - Fit: How well does it meet the requirements?
+
+      ### 4. Pruning
+      Eliminate branches that:
+      - Violate constraints
+      - Have fatal flaws
+      - Are clearly inferior
+
+      ### 5. Deepening
+      For promising branches, explore further sub-branches.
+      Continue until you reach actionable conclusions.
+
+      ### 6. Selection
+      Choose the best path based on evaluation.
+      Explain why this path is superior to alternatives.
+
+      ## Output Format
+
+      Structure your exploration as a tree:
+      ```
+      Root: [Problem Statement]
+      ├── Branch A: [Approach 1]
+      │   ├── Evaluation: [Score, reasoning]
+      │   ├── Sub-branch A1: [If we choose this...]
+      │   │   └── Outcome: [Expected result]
+      │   └── Sub-branch A2: [Alternative within A]
+      │       └── Outcome: [Expected result]
+      ├── Branch B: [Approach 2]
+      │   ├── Evaluation: [Score, reasoning]
+      │   └── PRUNED: [Reason for elimination]
+      └── Branch C: [Approach 3]
+          ├── Evaluation: [Score, reasoning]
+          └── Sub-branch C1: [If we choose this...]
+              └── Outcome: [Expected result]
+
+      Selected Path: A → A1
+      Rationale: [Why this is the best choice]
+      ```
+
+    user: |
+      Apply Tree-of-Thoughts reasoning to this problem:
+
+      ## Problem
+      {{problem}}
+
+      ## Context
+      {{context}}
+
+      ## Constraints
+      {{#each constraints}}
+      - {{this}}
+      {{/each}}
+
+      ## Success Criteria
+      {{#each success_criteria}}
+      - {{this}}
+      {{/each}}
+
+      ---
+
+      Explore multiple reasoning paths.
+      Show your tree structure with evaluations.
+      Select and justify the best path.
+      Output as YAML matching the tree-of-thoughts schema.
+
+  evaluate_path:
+    system: |
+      You evaluate a specific reasoning path from a Tree-of-Thoughts exploration.
+      Your role is to deeply analyze one path and predict outcomes.
+
+      ## Evaluation Criteria
+
+      1. **Logical Soundness**: Does each step follow logically?
+      2. **Assumption Validity**: Are the assumptions reasonable?
+      3. **Risk Assessment**: What could go wrong?
+      4. **Success Probability**: How likely is this to succeed?
+      5. **Resource Efficiency**: Is this approach efficient?
+
+      Provide a score 1-10 for each criterion and overall.
+
+    user: |
+      Evaluate this reasoning path:
+
+      ## Path
+      {{path}}
+
+      ## Original Problem
+      {{problem}}
+
+      ## Constraints
+      {{constraints}}
+
+      ---
+
+      Provide detailed evaluation with scores.
+
+  synthesize:
+    system: |
+      You synthesize multiple Tree-of-Thoughts explorations into a final decision.
+      Your role is to combine insights from different reasoning paths.
+
+      ## Synthesis Process
+
+      1. Identify common insights across paths
+      2. Note contradictions and resolve them
+      3. Extract the strongest elements from each path
+      4. Combine into a coherent final recommendation
+      5. Document remaining uncertainties
+
+    user: |
+      Synthesize these explorations:
+
+      {{#each explorations}}
+      ## Exploration {{@index}}
+      Selected Path: {{this.selected_path}}
+      Rationale: {{this.rationale}}
+      Key Insights: {{this.insights}}
+
+      {{/each}}
+
+      ---
+
+      Provide a synthesized recommendation.
+
+examples:
+  explore:
+    - input:
+        problem: "Should we use a microservices or monolithic architecture for a new e-commerce platform?"
+        context: |
+          - Team size: 8 developers
+          - Expected traffic: 10K-100K users/day (uncertain growth)
+          - Timeline: MVP in 3 months
+          - Budget: Limited
+        constraints:
+          - Must handle payment processing
+          - Must scale if successful
+          - Must be maintainable by small team
+        success_criteria:
+          - Launch MVP on time
+          - Handle expected traffic
+          - Allow for future scaling
+      output: |
+        tree_id: tot-001
+        problem: "Microservices vs Monolithic architecture for e-commerce platform"
+        timestamp: 2025-01-15T10:00:00Z
+
+        exploration:
+          root: "Architecture decision for e-commerce platform"
+
+          branches:
+            - id: A
+              name: "Full Microservices"
+              description: "Split into separate services from day one"
+              evaluation:
+                feasibility: 4
+                consequences: "High initial complexity, maximum flexibility"
+                risks:
+                  - "3 months too short for proper microservices setup"
+                  - "8 developers insufficient for multiple services"
+                  - "Operational complexity too high for small team"
+                fit: 3
+                overall: 3.5
+              sub_branches:
+                - id: A1
+                  name: "Start with core services only"
+                  evaluation:
+                    feasibility: 5
+                    overall: 4
+                  outcome: "Still too complex for timeline"
+              status: pruned
+              prune_reason: "Timeline constraint makes this infeasible"
+
+            - id: B
+              name: "Modular Monolith"
+              description: "Single deployable with clear module boundaries"
+              evaluation:
+                feasibility: 9
+                consequences: "Fast development, clear path to microservices later"
+                risks:
+                  - "Discipline required to maintain boundaries"
+                  - "Some refactoring needed if splitting later"
+                fit: 9
+                overall: 8.5
+              sub_branches:
+                - id: B1
+                  name: "Domain-driven modules"
+                  description: "Organize by business domain (users, products, orders, payments)"
+                  evaluation:
+                    feasibility: 9
+                    overall: 9
+                  outcome: |
+                    Clear boundaries that can become service boundaries later.
+                    Each domain module has its own data access layer.
+                    API contracts defined between modules.
+
+                - id: B2
+                  name: "Layer-based modules"
+                  description: "Traditional layers (web, service, data)"
+                  evaluation:
+                    feasibility: 8
+                    overall: 6
+                  outcome: "Harder to split later, less aligned with future scaling"
+              status: promising
+
+            - id: C
+              name: "Traditional Monolith"
+              description: "Standard monolith without modular structure"
+              evaluation:
+                feasibility: 10
+                consequences: "Fastest initial development, hardest to scale"
+                risks:
+                  - "Technical debt if successful"
+                  - "Difficult refactoring later"
+                  - "May not scale to 100K users"
+                fit: 5
+                overall: 5
+              sub_branches: []
+              status: pruned
+              prune_reason: "Scaling constraint makes this risky"
+
+        selected_path:
+          branch: B
+          sub_branch: B1
+          path_description: "Modular Monolith with Domain-driven modules"
+
+        rationale: |
+          The Modular Monolith with domain-driven modules (B1) is optimal because:
+
+          1. **Feasibility**: 8 developers can ship an MVP in 3 months with this approach.
+             A single deployable simplifies DevOps and reduces operational overhead.
+
+          2. **Scalability Path**: Domain boundaries create natural seams for future
+             service extraction. If the platform succeeds and needs to scale,
+             individual domains (e.g., payments) can become separate services.
+
+          3. **Team Size Fit**: A small team works more effectively on a monolith
+             with clear ownership per domain, rather than juggling multiple services.
+
+          4. **Risk Mitigation**: Lower initial complexity means faster iteration
+             and bug fixes during the critical MVP phase.
+
+          The key discipline is maintaining strict module boundaries from day one,
+          treating each domain as if it were already a separate service.
+
+        uncertainties:
+          - Actual growth rate will determine when/if to split
+          - Payment provider integration may have specific architectural needs
+          - Team discipline in maintaining boundaries
+
+        confidence: high
+        status: complete
+
+validation:
+  required_fields:
+    - tree_id
+    - problem
+    - exploration
+    - selected_path
+    - rationale
+    - status
+
+  branch_requirements:
+    minimum_branches: 2
+    must_have_evaluation: true
+    must_explain_pruning: true
+
+  selection_requirements:
+    must_have_path: true
+    must_have_rationale: true

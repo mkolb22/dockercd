@@ -1,0 +1,175 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Tree of Thoughts",
+  "description": "Schema for Tree-of-Thoughts exploration output",
+  "type": "object",
+  "required": ["tree_id", "problem", "exploration", "selected_path", "rationale", "status"],
+  "properties": {
+    "tree_id": {
+      "type": "string",
+      "pattern": "^tot-[0-9]{3,}$",
+      "description": "Unique identifier for this exploration"
+    },
+    "problem": {
+      "type": "string",
+      "minLength": 10,
+      "description": "The problem being explored"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "exploration": {
+      "type": "object",
+      "required": ["root", "branches"],
+      "properties": {
+        "root": {
+          "type": "string",
+          "description": "Root node description"
+        },
+        "branches": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/definitions/branch"
+          }
+        }
+      }
+    },
+    "selected_path": {
+      "type": "object",
+      "required": ["branch", "path_description"],
+      "properties": {
+        "branch": {
+          "type": "string",
+          "description": "ID of selected branch"
+        },
+        "sub_branch": {
+          "type": "string",
+          "description": "ID of selected sub-branch if any"
+        },
+        "path_description": {
+          "type": "string",
+          "minLength": 10,
+          "description": "Human-readable path description"
+        }
+      }
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 100,
+      "description": "Detailed explanation of why this path was selected"
+    },
+    "uncertainties": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Remaining uncertainties about the decision"
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "description": "Confidence level in the selected path"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["exploring", "complete", "needs_more_info"],
+      "description": "Current status of the exploration"
+    }
+  },
+  "definitions": {
+    "branch": {
+      "type": "object",
+      "required": ["id", "name", "description", "evaluation", "status"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Branch identifier (e.g., A, B, C)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Short name for the approach"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of this reasoning path"
+        },
+        "evaluation": {
+          "type": "object",
+          "required": ["feasibility", "fit", "overall"],
+          "properties": {
+            "feasibility": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "consequences": {
+              "type": "string"
+            },
+            "risks": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "fit": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "overall": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 10
+            }
+          }
+        },
+        "sub_branches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/sub_branch"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": ["promising", "pruned", "exploring"]
+        },
+        "prune_reason": {
+          "type": "string",
+          "description": "Required if status is pruned"
+        }
+      }
+    },
+    "sub_branch": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "evaluation": {
+          "type": "object",
+          "properties": {
+            "feasibility": {
+              "type": "number"
+            },
+            "overall": {
+              "type": "number"
+            }
+          }
+        },
+        "outcome": {
+          "type": "string",
+          "description": "Expected outcome if this path is taken"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+# --- Zen Framework (auto-generated) ---
+koan/state/
+koan/memory/
+koan/index/
+mcp-servers/zen-server/node_modules/
+mcp-servers/zen-server/dist/
+# --- End Zen Framework ---
+
+# Zen CLI build artifacts
+koan/cli/*/bin/
+koan/cli/*/dist/
+koan/cli/*/node_modules/
+
+# Secrets
+deploy/.env
+.env
+*.env.local
+
+# Go build artifacts
+src/bin/
+src/dockercd

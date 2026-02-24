@@ -1,0 +1,303 @@
+concept: planning
+version: "1.0.0"
+recommended_model: sonnet
+
+description: |
+  Explicit Chain-of-Thought planning phase that precedes complex concept actions.
+  Forces structured reasoning before implementation decisions.
+
+prompts:
+  create:
+    system: |
+      You are a senior technical planner specializing in structured reasoning.
+      Your role is to think through problems systematically before solutions are designed.
+
+      ## Chain-of-Thought Process
+
+      You MUST work through these steps explicitly, showing your reasoning:
+
+      ### Step 1: Decompose the Problem
+      - What is being asked?
+      - What are the sub-problems?
+      - What are the dependencies between sub-problems?
+      - What is the scope boundary?
+
+      ### Step 2: Gather Constraints
+      - Technical constraints (language, framework, existing patterns)
+      - Business constraints (timeline, resources, compliance)
+      - Quality constraints (performance, security, maintainability)
+      - Integration constraints (APIs, databases, services)
+
+      ### Step 3: Identify Unknowns
+      - What information is missing?
+      - What assumptions are we making?
+      - What risks exist?
+      - What clarifications are needed?
+
+      ### Step 4: Generate Options
+      - List at least 3 possible approaches
+      - For each approach:
+        - Brief description
+        - Key trade-offs
+        - Fit with constraints
+        - Risk level
+
+      ### Step 5: Evaluate and Recommend
+      - Score each option against constraints
+      - Identify the recommended approach
+      - Explain why this approach is best
+      - Note what would change the recommendation
+
+      ### Step 6: Define Success Criteria
+      - How will we know this succeeded?
+      - What metrics matter?
+      - What are the acceptance conditions?
+
+      ## Output Requirements
+      - Show ALL reasoning steps explicitly
+      - Do not skip to conclusions
+      - Include confidence levels
+      - Flag any blockers that need resolution
+
+    user: |
+      Create a plan for the following:
+
+      ## Context
+      {{context}}
+
+      ## Objective
+      {{objective}}
+
+      ## Known Constraints
+      {{#each constraints}}
+      - {{this}}
+      {{/each}}
+
+      ## Relevant Learnings from Past Failures
+      {{#each learnings}}
+      - {{this.insight}}
+      {{/each}}
+
+      ---
+
+      Work through all 6 planning steps explicitly.
+      Show your reasoning at each step.
+      Output as YAML matching the planning schema.
+
+  review:
+    system: |
+      You review plans created by the planning process.
+      Check for completeness, logical consistency, and overlooked factors.
+
+      ## Review Checklist
+      - Are all sub-problems identified?
+      - Are constraints complete and accurate?
+      - Are assumptions explicitly stated?
+      - Are at least 3 options considered?
+      - Is the evaluation criteria clear?
+      - Is the recommendation well-justified?
+      - Are success criteria measurable?
+
+    user: |
+      Review this plan:
+
+      ```yaml
+      {{plan}}
+      ```
+
+      Check against the review checklist.
+      Identify any gaps or improvements needed.
+
+examples:
+  create:
+    - input:
+        context: |
+          E-commerce platform with 10K daily users.
+          React frontend, Node.js backend, PostgreSQL database.
+          Currently no caching layer.
+        objective: |
+          Add product search functionality with autocomplete.
+        constraints:
+          - Search results must appear within 200ms
+          - Must work with existing product catalog (50K products)
+          - Cannot significantly increase hosting costs
+        learnings:
+          - insight: Consider rate limits when integrating external APIs
+          - insight: Add input validation at all API boundaries
+      output: |
+        plan_id: plan-001
+        objective: Add product search functionality with autocomplete
+        timestamp: 2025-01-15T10:00:00Z
+
+        step_1_decomposition:
+          main_problem: Implement fast product search with autocomplete
+          sub_problems:
+            - name: Search indexing
+              description: Index 50K products for fast retrieval
+              dependencies: []
+
+            - name: Search API
+              description: Backend endpoint for search queries
+              dependencies: [search_indexing]
+
+            - name: Autocomplete UI
+              description: Frontend component with debounced input
+              dependencies: [search_api]
+
+            - name: Search ranking
+              description: Relevance algorithm for results
+              dependencies: [search_indexing]
+
+          scope_boundary: |
+            In scope: Basic text search, autocomplete, relevance ranking
+            Out of scope: Faceted search, filters, search analytics
+
+        step_2_constraints:
+          technical:
+            - React frontend (must use existing component patterns)
+            - Node.js backend (Express, existing middleware)
+            - PostgreSQL (50K products, ~100MB data)
+
+          performance:
+            - 200ms response time requirement
+            - Support 10K daily users
+            - Handle burst traffic during sales
+
+          cost:
+            - Minimize hosting cost increase
+            - Prefer solutions with free tier
+
+          quality:
+            - Input validation required (learning from past failures)
+            - Rate limiting needed (learning from past failures)
+
+        step_3_unknowns:
+          missing_information:
+            - Current database query performance
+            - Peak concurrent users
+            - Product data structure
+
+          assumptions:
+            - Product titles and descriptions are searchable
+            - English language only
+            - No personalization required
+
+          risks:
+            - PostgreSQL full-text may not meet 200ms at scale
+            - Autocomplete could overwhelm API without rate limiting
+
+          clarifications_needed:
+            - Is fuzzy matching required?
+            - Should search history be stored?
+
+        step_4_options:
+          - name: PostgreSQL Full-Text Search
+            description: Use native PostgreSQL tsvector/tsquery
+            trade_offs:
+              pros:
+                - No additional infrastructure
+                - Zero additional cost
+                - Simpler deployment
+              cons:
+                - May not meet 200ms at 50K products
+                - Limited autocomplete support
+                - Scaling limited to DB scaling
+            fit_with_constraints: Medium
+            risk_level: Medium
+
+          - name: Elasticsearch
+            description: Dedicated search cluster
+            trade_offs:
+              pros:
+                - Excellent performance at scale
+                - Built-in autocomplete
+                - Advanced relevance tuning
+              cons:
+                - Additional infrastructure cost
+                - Operational complexity
+                - Data sync required
+            fit_with_constraints: Low (cost constraint)
+            risk_level: Low
+
+          - name: Meilisearch (Self-hosted)
+            description: Lightweight search engine, self-hosted
+            trade_offs:
+              pros:
+                - Fast and lightweight
+                - Easy autocomplete
+                - Minimal resource needs
+                - Free and open source
+              cons:
+                - Another service to manage
+                - Less mature than Elasticsearch
+            fit_with_constraints: High
+            risk_level: Low
+
+        step_5_evaluation:
+          scoring:
+            postgresql:
+              performance: 2/5
+              cost: 5/5
+              complexity: 5/5
+              total: 12/15
+
+            elasticsearch:
+              performance: 5/5
+              cost: 2/5
+              complexity: 2/5
+              total: 9/15
+
+            meilisearch:
+              performance: 4/5
+              cost: 4/5
+              complexity: 4/5
+              total: 12/15
+
+          recommendation: Meilisearch (Self-hosted)
+          rationale: |
+            Meilisearch offers the best balance of performance and cost.
+            It meets the 200ms requirement easily, has excellent autocomplete
+            support, and can run on minimal resources (256MB RAM).
+            The operational overhead is low compared to Elasticsearch.
+
+          would_change_if: |
+            - If cost is no concern: Elasticsearch
+            - If <10K products: PostgreSQL full-text
+            - If already using Elasticsearch: Use existing cluster
+
+        step_6_success_criteria:
+          metrics:
+            - p95 search latency < 200ms
+            - Autocomplete suggestions appear < 100ms
+            - Search relevance satisfaction > 80%
+
+          acceptance_conditions:
+            - All 50K products indexed and searchable
+            - Autocomplete shows suggestions after 2 characters
+            - Results ranked by relevance
+            - Rate limiting prevents abuse
+            - Input properly validated
+
+        confidence: high
+        blockers: []
+        status: ready
+
+validation:
+  required_fields:
+    - plan_id
+    - objective
+    - step_1_decomposition
+    - step_2_constraints
+    - step_3_unknowns
+    - step_4_options
+    - step_5_evaluation
+    - step_6_success_criteria
+    - status
+
+  options_requirements:
+    minimum_count: 3
+    must_have_trade_offs: true
+
+  evaluation_requirements:
+    must_have_recommendation: true
+    must_have_rationale: true

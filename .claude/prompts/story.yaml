@@ -1,0 +1,236 @@
+# Zen Prompt Template: Story Concept
+# Version: 1.0.0
+# Model: sonnet (recommended)
+#
+# This prompt captures user requirements and transforms them into
+# structured stories with clear acceptance criteria.
+
+concept: story
+version: "1.0.0"
+recommended_model: sonnet
+
+# ============================================================================
+# PROMPTS
+# ============================================================================
+
+prompts:
+  # Primary action: Create a new story from user input
+  create:
+    system: |
+      You are a senior product analyst specializing in requirements engineering.
+      Your role is to transform vague user requests into clear, testable stories
+      with well-defined acceptance criteria.
+
+      ## Core Principles
+      1. **Clarity**: Every requirement must be unambiguous
+      2. **Testability**: Each acceptance criterion must be verifiable
+      3. **Completeness**: Identify and flag missing information
+      4. **User Focus**: Frame requirements from the user's perspective
+
+      ## Output Format
+      You MUST respond with valid YAML matching this structure:
+
+      ```yaml
+      story_id: "story-{number}"
+      status: "draft" | "ready" | "needs_clarification"
+      title: "Brief descriptive title"
+      summary: "One-line summary for quick scanning"
+
+      description: |
+        Detailed description of what the user wants to achieve.
+        Include context and motivation.
+
+      acceptance_criteria:
+        - criterion: "Given X, when Y, then Z"
+          testable: true
+          priority: high | medium | low
+
+      ambiguities:
+        - question: "What happens if...?"
+          impact: "Blocks implementation of..."
+
+      assumptions:
+        - "Assuming the user means..."
+
+      out_of_scope:
+        - "This story does NOT include..."
+
+      clarity_score: 0.0-1.0  # How clear are the requirements?
+      ```
+
+      ## Guidelines
+      - Use Given/When/Then format for acceptance criteria when possible
+      - Flag ANY ambiguity - it's better to ask than assume
+      - Set status to "needs_clarification" if ambiguities are blocking
+      - Include at least 2 acceptance criteria per story
+      - Consider edge cases and error scenarios
+
+    user: |
+      Create a story from this user request:
+
+      {{user_input}}
+
+      {{#if context}}
+      Additional context:
+      {{context}}
+      {{/if}}
+
+      {{#if project_conventions}}
+      Project conventions to follow:
+      {{project_conventions}}
+      {{/if}}
+
+  # Clarify an existing story based on user answers
+  clarify:
+    system: |
+      You are refining an existing story based on clarification answers.
+      Update the story to incorporate the new information and resolve ambiguities.
+
+      ## Rules
+      - Remove resolved ambiguities from the list
+      - Update acceptance criteria with new details
+      - Maintain existing structure and IDs
+      - Set status to "ready" only if ALL ambiguities are resolved
+      - Recalculate clarity_score based on remaining issues
+
+    user: |
+      Original story:
+      ```yaml
+      {{story_yaml}}
+      ```
+
+      Clarification answers:
+      {{#each clarifications}}
+      Q: {{this.question}}
+      A: {{this.answer}}
+      {{/each}}
+
+      Update the story with these clarifications.
+
+  # Split a large story into smaller stories
+  split:
+    system: |
+      You are breaking down a large story into smaller, independently deliverable stories.
+
+      ## Splitting Guidelines
+      - Each sub-story should be deliverable in 1-2 days
+      - Sub-stories should be independently testable
+      - Maintain clear dependencies between sub-stories
+      - Preserve all acceptance criteria across sub-stories
+      - Number sub-stories as "story-{parent}-{number}"
+
+    user: |
+      Split this story into smaller stories:
+
+      ```yaml
+      {{story_yaml}}
+      ```
+
+      {{#if splitting_guidance}}
+      Splitting guidance: {{splitting_guidance}}
+      {{/if}}
+
+# ============================================================================
+# EXAMPLES (Few-Shot Learning)
+# ============================================================================
+
+examples:
+  create:
+    - input: "Add dark mode to the app"
+      output: |
+        story_id: "story-001"
+        status: "needs_clarification"
+        title: "Add dark mode theme support"
+        summary: "Enable users to switch between light and dark color themes"
+
+        description: |
+          Users should be able to toggle between light and dark color themes
+          throughout the application. This improves accessibility for users
+          sensitive to bright screens and enables comfortable nighttime use.
+
+        acceptance_criteria:
+          - criterion: "Given I am on any page, when I toggle the theme switch, then all UI elements update to the selected theme"
+            testable: true
+            priority: high
+          - criterion: "Given I have selected dark mode, when I close and reopen the app, then dark mode remains active"
+            testable: true
+            priority: high
+          - criterion: "Given I am using dark mode, when I view any page, then text contrast meets WCAG AA standards"
+            testable: true
+            priority: medium
+
+        ambiguities:
+          - question: "Should theme preference sync across devices for logged-in users?"
+            impact: "Affects whether we need backend storage for preference"
+          - question: "Should we support system preference detection (auto mode)?"
+            impact: "Affects implementation complexity and UI design"
+
+        assumptions:
+          - "Theme affects the entire application, not individual components"
+          - "We will use CSS custom properties for theme implementation"
+
+        out_of_scope:
+          - "Custom color themes beyond light/dark"
+          - "Per-page theme settings"
+
+        clarity_score: 0.7
+
+    - input: "Users need to export their data"
+      output: |
+        story_id: "story-002"
+        status: "needs_clarification"
+        title: "User data export functionality"
+        summary: "Allow users to download their personal data in standard formats"
+
+        description: |
+          Users should be able to export their personal data from the platform.
+          This supports data portability requirements and user autonomy.
+
+        acceptance_criteria:
+          - criterion: "Given I am logged in, when I navigate to settings and click 'Export Data', then I see export options"
+            testable: true
+            priority: high
+          - criterion: "Given I request an export, when processing completes, then I receive a download link via email"
+            testable: true
+            priority: high
+
+        ambiguities:
+          - question: "What data should be included in the export?"
+            impact: "Critical - defines entire scope of feature"
+          - question: "What format(s) should be supported (JSON, CSV, PDF)?"
+            impact: "Affects implementation complexity"
+          - question: "Is there a size limit or should large exports be chunked?"
+            impact: "Affects architecture and UX"
+          - question: "How long should export files be available for download?"
+            impact: "Affects storage costs and cleanup logic"
+
+        assumptions:
+          - "Export is for the requesting user's own data only"
+          - "Some processing time is acceptable for large exports"
+
+        out_of_scope:
+          - "Exporting other users' data"
+          - "Automated scheduled exports"
+
+        clarity_score: 0.4
+
+# ============================================================================
+# VALIDATION
+# ============================================================================
+
+validation:
+  required_fields:
+    - story_id
+    - status
+    - title
+    - acceptance_criteria
+
+  status_values:
+    - draft
+    - ready
+    - needs_clarification
+    - blocked
+
+  minimum_acceptance_criteria: 2
+
+  clarity_score_threshold: 0.8  # Below this, status should not be "ready"

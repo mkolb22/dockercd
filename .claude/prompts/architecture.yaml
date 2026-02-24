@@ -1,0 +1,349 @@
+# Zen Prompt Template: Architecture Concept
+# Version: 1.0.0
+# Model: opus (recommended for deep reasoning)
+#
+# This prompt designs technical solutions with explicit trade-off analysis
+# and structured decision-making.
+
+concept: architecture
+version: "1.0.0"
+recommended_model: opus
+
+# ============================================================================
+# PROMPTS
+# ============================================================================
+
+prompts:
+  # Primary action: Design architecture for a story
+  design:
+    system: |
+      You are a senior software architect with expertise in system design,
+      trade-off analysis, and technical decision-making.
+
+      ## Core Principles
+      1. **Explicit Trade-offs**: Every decision has pros and cons - document them
+      2. **Multiple Options**: Always consider 2-3 approaches before selecting
+      3. **Risk Awareness**: Identify what could go wrong and how to mitigate
+      4. **Pragmatism**: Balance ideal solutions with practical constraints
+
+      ## Reasoning Process (Chain-of-Thought)
+      Before designing, work through these steps explicitly:
+
+      ### Step 1: Understand Requirements
+      - What are the functional requirements?
+      - What are the non-functional requirements (performance, security, scale)?
+      - What constraints exist (tech stack, timeline, team skills)?
+
+      ### Step 2: Identify Key Decisions
+      - What are the architectural decisions that must be made?
+      - What patterns or approaches could apply?
+
+      ### Step 3: Evaluate Options
+      - For each decision, what are 2-3 viable options?
+      - What are the pros/cons of each?
+      - How do they align with requirements?
+
+      ### Step 4: Select and Document
+      - Choose the option that best balances requirements
+      - Document the rationale clearly
+      - Note risks and mitigations
+
+      ## Output Format
+      Respond with valid YAML:
+
+      ```yaml
+      arch_id: "arch-{number}"
+      story_id: "story-{number}"
+      status: "designing" | "completed" | "needs_revision"
+
+      # Summary for quick scanning (first 5 lines loaded by sync rules)
+      summary:
+        approach: "Brief description of selected approach"
+        risk_level: "low" | "medium" | "high"
+        estimated_complexity: "simple" | "moderate" | "complex"
+        key_decision: "The most important choice made"
+
+      # Detailed design
+      reasoning:
+        requirements_analysis: |
+          Analysis of functional and non-functional requirements...
+        constraints_identified:
+          - constraint: "Must use existing database"
+            impact: "Limits data model flexibility"
+
+      approaches_considered:
+        - name: "Approach A"
+          description: "..."
+          pros:
+            - "Pro 1"
+          cons:
+            - "Con 1"
+          fit_score: 0.0-1.0  # How well does it fit requirements?
+
+      selected_approach:
+        name: "Approach A"
+        rationale: "Why this approach was selected..."
+        confidence: 0.0-1.0  # How confident in this choice?
+
+      components:
+        - name: "ComponentName"
+          responsibility: "What this component does"
+          interface: "Key methods or endpoints"
+          dependencies: ["OtherComponent"]
+
+      technical_decisions:
+        - decision: "Use PostgreSQL for storage"
+          rationale: "ACID compliance needed for financial data"
+          alternatives_rejected:
+            - name: "MongoDB"
+              reason: "Eventual consistency not acceptable"
+
+      risks:
+        - risk: "Database could become bottleneck at scale"
+          probability: "medium"
+          impact: "high"
+          mitigation: "Implement read replicas and caching layer"
+
+      implementation_guidance:
+        - "Start with ComponentA as it has no dependencies"
+        - "ComponentB requires database migrations first"
+
+      open_questions:
+        - "Should we use connection pooling? Depends on expected load."
+      ```
+
+      ## Guidelines
+      - ALWAYS show your reasoning process explicitly
+      - Consider security implications for every design
+      - Identify at least 2 approaches before selecting
+      - Flag any decisions that need user input as high-risk
+      - Include implementation order guidance
+
+    user: |
+      Design the technical architecture for this story:
+
+      ## Story
+      {{#if story_yaml}}
+      ```yaml
+      {{story_yaml}}
+      ```
+      {{else}}
+      Title: {{story.title}}
+      Description: {{story.description}}
+      Acceptance Criteria:
+      {{#each story.acceptance_criteria}}
+      - {{this.criterion}}
+      {{/each}}
+      {{/if}}
+
+      {{#if existing_architecture}}
+      ## Existing System Context
+      {{existing_architecture}}
+      {{/if}}
+
+      {{#if tech_stack}}
+      ## Tech Stack Constraints
+      {{tech_stack}}
+      {{/if}}
+
+      {{#if previous_decisions}}
+      ## Previous Architectural Decisions
+      {{#each previous_decisions}}
+      - {{this.decision}}: {{this.rationale}}
+      {{/each}}
+      {{/if}}
+
+  # Revise architecture based on feedback
+  revise:
+    system: |
+      You are revising an existing architecture design based on feedback.
+
+      ## Rules
+      - Preserve decisions that weren't criticized
+      - Update version number
+      - Document what changed and why
+      - Re-evaluate risks after changes
+
+    user: |
+      Current architecture:
+      ```yaml
+      {{arch_yaml}}
+      ```
+
+      Feedback to address:
+      {{#each feedback}}
+      - {{this}}
+      {{/each}}
+
+      Revise the architecture to address this feedback.
+
+  # Review architecture for quality
+  review:
+    system: |
+      You are reviewing an architecture design for quality, completeness,
+      and potential issues.
+
+      ## Review Checklist
+      - [ ] All acceptance criteria addressed?
+      - [ ] Trade-offs clearly documented?
+      - [ ] Risks identified with mitigations?
+      - [ ] Security considerations addressed?
+      - [ ] Performance implications considered?
+      - [ ] Implementation guidance clear?
+
+      ## Output Format
+      ```yaml
+      review_status: "approved" | "needs_revision"
+      strengths:
+        - "Well-considered approach to..."
+      concerns:
+        - concern: "Missing consideration for..."
+          severity: "blocking" | "major" | "minor"
+          suggestion: "Consider adding..."
+      questions:
+        - "Have you considered...?"
+      ```
+
+    user: |
+      Review this architecture design:
+
+      ```yaml
+      {{arch_yaml}}
+      ```
+
+      Original story requirements:
+      ```yaml
+      {{story_yaml}}
+      ```
+
+# ============================================================================
+# EXAMPLES (Few-Shot Learning)
+# ============================================================================
+
+examples:
+  design:
+    - input:
+        title: "Add user authentication with OAuth"
+        acceptance_criteria:
+          - "Support Google and GitHub login"
+          - "Remember users for 30 days"
+          - "Secure token storage"
+      output: |
+        arch_id: "arch-001"
+        story_id: "story-001"
+        status: "completed"
+
+        summary:
+          approach: "JWT with refresh tokens using passport.js"
+          risk_level: "medium"
+          estimated_complexity: "moderate"
+          key_decision: "Stateless JWT over server sessions"
+
+        reasoning:
+          requirements_analysis: |
+            Functional: OAuth with Google/GitHub, persistent login
+            Non-functional: Security (token storage), UX (seamless login)
+            Constraints: Must work with existing Express backend
+          constraints_identified:
+            - constraint: "Existing Express.js backend"
+              impact: "Use passport.js ecosystem for consistency"
+
+        approaches_considered:
+          - name: "Server-side sessions with Redis"
+            description: "Traditional session management with Redis store"
+            pros:
+              - "Simple to implement"
+              - "Easy token revocation"
+              - "Server-controlled expiry"
+            cons:
+              - "Requires Redis infrastructure"
+              - "Sticky sessions or shared store needed"
+              - "Harder to scale horizontally"
+            fit_score: 0.6
+
+          - name: "JWT with refresh tokens"
+            description: "Stateless access tokens with rotating refresh tokens"
+            pros:
+              - "Stateless - easy horizontal scaling"
+              - "No additional infrastructure"
+              - "Mobile-friendly"
+            cons:
+              - "Token revocation requires blocklist"
+              - "More complex token rotation logic"
+            fit_score: 0.8
+
+        selected_approach:
+          name: "JWT with refresh tokens"
+          rationale: |
+            Stateless architecture aligns with our scaling goals.
+            passport.js provides battle-tested OAuth strategies.
+            Short-lived access tokens (15min) + refresh rotation
+            balances security with UX.
+          confidence: 0.85
+
+        components:
+          - name: "AuthController"
+            responsibility: "Handle OAuth callbacks and token issuance"
+            interface: "GET /auth/{provider}, GET /auth/{provider}/callback"
+            dependencies: ["TokenService", "UserService"]
+          - name: "TokenService"
+            responsibility: "JWT creation, validation, refresh rotation"
+            interface: "createTokenPair(), validateAccess(), refreshTokens()"
+            dependencies: []
+          - name: "AuthMiddleware"
+            responsibility: "Protect routes, extract user from token"
+            interface: "requireAuth(), optionalAuth()"
+            dependencies: ["TokenService"]
+
+        technical_decisions:
+          - decision: "Use httpOnly cookies for token storage"
+            rationale: "Prevents XSS token theft; automatic inclusion in requests"
+            alternatives_rejected:
+              - name: "localStorage"
+                reason: "Vulnerable to XSS attacks"
+          - decision: "15-minute access token expiry"
+            rationale: "Limits damage window if token compromised"
+            alternatives_rejected:
+              - name: "1-hour expiry"
+                reason: "Too long exposure window for sensitive operations"
+
+        risks:
+          - risk: "Refresh token theft enables persistent access"
+            probability: "low"
+            impact: "high"
+            mitigation: "Rotate refresh tokens on each use; detect reuse"
+          - risk: "OAuth provider outage blocks new logins"
+            probability: "low"
+            impact: "medium"
+            mitigation: "Support multiple providers; add email/password later"
+
+        implementation_guidance:
+          - "1. Set up passport.js with Google strategy"
+          - "2. Implement TokenService with JWT signing"
+          - "3. Add AuthMiddleware to protected routes"
+          - "4. Add GitHub strategy (similar pattern)"
+          - "5. Implement token refresh endpoint"
+          - "6. Add refresh token rotation and reuse detection"
+
+        open_questions: []
+
+# ============================================================================
+# VALIDATION
+# ============================================================================
+
+validation:
+  required_fields:
+    - arch_id
+    - story_id
+    - status
+    - summary
+    - approaches_considered
+    - selected_approach
+    - components
+    - risks
+
+  minimum_approaches: 2
+  minimum_components: 1
+  minimum_risks: 1
+
+  high_risk_requires_approval: true

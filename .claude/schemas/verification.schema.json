@@ -1,0 +1,106 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Verification",
+  "description": "Schema for multi-agent verification output",
+  "type": "object",
+  "required": ["verification_id", "pass", "reviewer", "issues", "summary", "recommendation"],
+  "properties": {
+    "verification_id": {
+      "type": "string",
+      "pattern": "^verify-[0-9]{3,}$",
+      "description": "Unique identifier for this verification"
+    },
+    "pass": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Which verification pass this is"
+    },
+    "total_passes": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Total number of verification passes"
+    },
+    "reviewer": {
+      "type": "string",
+      "description": "Identifier for the reviewer/agent"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "concept": {
+          "type": "string",
+          "enum": ["architecture", "implementation", "quality"]
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "severity", "dimension", "title", "description", "evidence"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^V[0-9]{3}$"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "major", "minor", "suggestion"]
+          },
+          "dimension": {
+            "type": "string",
+            "enum": ["requirements", "security", "performance", "maintainability", "integration", "correctness", "quality"],
+            "description": "Which review dimension this falls under"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 5
+          },
+          "description": {
+            "type": "string",
+            "minLength": 20
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 10,
+            "description": "Evidence from the artifact being reviewed"
+          },
+          "recommendation": {
+            "type": "string",
+            "description": "How to fix this issue"
+          },
+          "file": {
+            "type": "string",
+            "description": "File path if applicable"
+          },
+          "line": {
+            "type": "integer",
+            "description": "Line number if applicable"
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 20,
+      "description": "Overall summary of findings"
+    },
+    "recommendation": {
+      "type": "string",
+      "enum": ["block", "revise", "approve_with_notes", "approve"],
+      "description": "Overall recommendation"
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "description": "Confidence in this review"
+    }
+  }
+}

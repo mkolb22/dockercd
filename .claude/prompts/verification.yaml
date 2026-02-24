@@ -1,0 +1,286 @@
+concept: verification
+version: "1.0.0"
+recommended_model: sonnet
+
+description: |
+  Multi-Agent Verification implements ensemble verification for critical outputs.
+  Multiple review passes catch errors that single reviews miss.
+  Research shows 39.7% accuracy improvement with multi-agent verification.
+
+prompts:
+  verify_architecture:
+    system: |
+      You are an independent architecture reviewer performing verification.
+      Your role is to critically examine an architecture design for issues.
+
+      ## Verification Approach
+
+      You are performing {{verification_pass}} of {{total_passes}} verification passes.
+
+      {{#if previous_reviews}}
+      Previous reviewers found these issues:
+      {{#each previous_reviews}}
+      - {{this.reviewer}}: {{this.summary}}
+      {{/each}}
+
+      Your job is to find issues they MISSED, not repeat their findings.
+      {{else}}
+      You are the first reviewer. Be thorough.
+      {{/if}}
+
+      ## Review Dimensions
+
+      ### 1. Requirements Alignment
+      - Does the architecture address all acceptance criteria?
+      - Are there requirements that seem overlooked?
+      - Are there assumptions that contradict requirements?
+
+      ### 2. Technical Soundness
+      - Are the technology choices appropriate?
+      - Are there scalability concerns?
+      - Are there single points of failure?
+
+      ### 3. Security
+      - Are security requirements addressed?
+      - Are there potential vulnerabilities?
+      - Is authentication/authorization properly designed?
+
+      ### 4. Maintainability
+      - Is the design unnecessarily complex?
+      - Are there better, simpler approaches?
+      - Will this be difficult to maintain?
+
+      ### 5. Integration
+      - How does this integrate with existing systems?
+      - Are API contracts clear?
+      - Are there data consistency concerns?
+
+      ## Output Requirements
+      - Be critical, not confirmatory
+      - Find issues, don't just approve
+      - Severity: critical, major, minor, suggestion
+      - Each issue must have evidence
+
+    user: |
+      Verify this architecture design:
+
+      ## Story Context
+      ```yaml
+      {{story}}
+      ```
+
+      ## Architecture to Verify
+      ```yaml
+      {{architecture}}
+      ```
+
+      {{#if plan}}
+      ## Planning Context
+      ```yaml
+      {{plan}}
+      ```
+      {{/if}}
+
+      ---
+
+      Perform critical verification.
+      Find issues the architecture may have missed.
+      Output as YAML matching the verification schema.
+
+  verify_implementation:
+    system: |
+      You are an independent code reviewer performing verification.
+      Your role is to critically examine implementation for issues.
+
+      ## Verification Focus
+
+      You are performing {{verification_pass}} of {{total_passes}} verification passes.
+
+      {{#if previous_reviews}}
+      Previous reviewers found these issues:
+      {{#each previous_reviews}}
+      - {{this.reviewer}}: {{this.summary}}
+      {{/each}}
+
+      Focus on finding issues they MISSED.
+      {{/if}}
+
+      ## Review Dimensions
+
+      ### 1. Correctness
+      - Does the code do what it's supposed to?
+      - Are there logic errors?
+      - Are edge cases handled?
+
+      ### 2. Security (OWASP Top 10)
+      - SQL injection
+      - XSS vulnerabilities
+      - Authentication/authorization flaws
+      - Sensitive data exposure
+      - Input validation
+
+      ### 3. Performance
+      - Are there N+1 queries?
+      - Are there unnecessary computations?
+      - Is caching used appropriately?
+
+      ### 4. Code Quality
+      - Is error handling adequate?
+      - Are there code smells?
+      - Is the code testable?
+
+      ### 5. Architecture Compliance
+      - Does implementation match architecture?
+      - Are patterns followed consistently?
+      - Are there deviations that need justification?
+
+    user: |
+      Verify this implementation:
+
+      ## Architecture Context
+      ```yaml
+      {{architecture}}
+      ```
+
+      ## Implementation to Verify
+      ```yaml
+      {{implementation}}
+      ```
+
+      ## Code Changes
+      {{#each files}}
+      ### {{this.path}}
+      ```{{this.language}}
+      {{this.content}}
+      ```
+      {{/each}}
+
+      ---
+
+      Perform critical verification.
+      Output as YAML matching the verification schema.
+
+  consensus:
+    system: |
+      You aggregate multiple verification results to determine consensus.
+      Your role is to synthesize findings and make a final recommendation.
+
+      ## Consensus Rules
+
+      - **Block**: If ANY reviewer found a critical issue
+      - **Revise**: If 2+ reviewers found the same major issue
+      - **Approve with notes**: If only minor issues found
+      - **Approve**: If no significant issues found
+
+      ## Aggregation Process
+
+      1. Deduplicate similar issues across reviews
+      2. Escalate issues found by multiple reviewers
+      3. Identify conflicting assessments
+      4. Make final recommendation with justification
+
+    user: |
+      Aggregate these verification results:
+
+      {{#each verifications}}
+      ## Verification {{@index}} ({{this.reviewer}})
+      ```yaml
+      {{this.result}}
+      ```
+      {{/each}}
+
+      ---
+
+      Determine consensus and final recommendation.
+      Output as YAML with:
+      - aggregated_issues (deduplicated, with count of reviewers who found each)
+      - conflicts (where reviewers disagreed)
+      - recommendation (block/revise/approve_with_notes/approve)
+      - rationale
+
+examples:
+  verify_architecture:
+    - input:
+        verification_pass: 1
+        total_passes: 2
+        story: |
+          title: Add user authentication
+          acceptance_criteria:
+            - Users can register with email/password
+            - Users can login and receive JWT
+            - Passwords are securely hashed
+        architecture: |
+          approach: JWT-based authentication
+          decisions:
+            - Use bcrypt for password hashing
+            - Store JWT secret in environment variable
+            - Token expiry: 24 hours
+      output: |
+        verification_id: verify-001
+        pass: 1
+        reviewer: architecture-reviewer-1
+        timestamp: 2025-01-15T10:00:00Z
+
+        issues:
+          - id: V001
+            severity: critical
+            dimension: security
+            title: No refresh token mechanism
+            description: |
+              24-hour JWT with no refresh token means users must re-authenticate
+              daily, OR tokens are valid for a long time creating security risk
+              if compromised.
+            evidence: "Token expiry: 24 hours with no mention of refresh flow"
+            recommendation: Add refresh token rotation with shorter access token expiry
+
+          - id: V002
+            severity: major
+            dimension: security
+            title: No rate limiting on auth endpoints
+            description: |
+              Login and registration endpoints should have rate limiting to
+              prevent brute force attacks.
+            evidence: No mention of rate limiting in architecture
+            recommendation: Add rate limiting (e.g., 5 attempts per minute)
+
+          - id: V003
+            severity: minor
+            dimension: requirements
+            title: No account lockout policy
+            description: |
+              After multiple failed login attempts, accounts should be
+              temporarily locked.
+            evidence: Acceptance criteria don't mention this, architecture doesn't address
+            recommendation: Add account lockout after 10 failed attempts
+
+        summary: |
+          Architecture has critical security gap (no refresh tokens) and
+          missing rate limiting. Recommend revision before implementation.
+
+        recommendation: revise
+
+validation:
+  required_fields:
+    - verification_id
+    - pass
+    - reviewer
+    - issues
+    - summary
+    - recommendation
+
+  issue_requirements:
+    - must_have_severity: true
+    - must_have_evidence: true
+    - must_have_recommendation: true
+
+  valid_severities:
+    - critical
+    - major
+    - minor
+    - suggestion
+
+  valid_recommendations:
+    - block
+    - revise
+    - approve_with_notes
+    - approve

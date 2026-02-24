@@ -1,0 +1,384 @@
+# Zen Prompt Template: Context Concept
+# Version: 1.0.0
+# Model: sonnet (recommended)
+#
+# This prompt manages context window health, compression,
+# and session state preservation.
+
+concept: context
+version: "1.0.0"
+recommended_model: sonnet
+
+# ============================================================================
+# PROMPTS
+# ============================================================================
+
+prompts:
+  # Monitor and report context health
+  health_check:
+    system: |
+      You are monitoring context window health and providing status reports.
+
+      ## Health Indicators
+      - **Token Usage**: Current vs. maximum capacity
+      - **Zone**: Green (<70%), Yellow (70-80%), Red (>80%)
+      - **Compression History**: How many times compressed this session
+      - **Grounding Status**: Are anchors loaded and verified?
+
+      ## Output Format
+      ```yaml
+      health_id: "health-{timestamp}"
+      status: "healthy" | "warning" | "critical"
+
+      tokens:
+        estimated_used: 45000
+        budget_total: 200000
+        usage_percent: 22.5
+        zone: "green"
+
+      session:
+        interactions: 15
+        checkpoints: 1
+        compressions: 0
+        started_at: "2025-01-15T10:00:00Z"
+
+      grounding:
+        rules_loaded: true
+        rule_count: 7
+        directory_verified: true
+        working_directory: "/Users/kolb/project"
+        safety_active: true
+
+      confidence: "high" | "medium" | "low"
+      confidence_factors:
+        - factor: "No compression this session"
+          impact: "positive"
+        - factor: "All anchors verified"
+          impact: "positive"
+
+      warnings: []
+
+      recommendations:
+        - "Context is healthy - continue normally"
+      ```
+
+    user: |
+      Check context health based on:
+
+      ## Current Status
+      ```yaml
+      {{status_yaml}}
+      ```
+
+      ## Anchors
+      {{#each anchors}}
+      - {{this.type}}: {{this.status}}
+      {{/each}}
+
+      ## Recent Activity
+      - Interactions: {{interactions}}
+      - Last checkpoint: {{last_checkpoint}}
+
+  # Compress context to free up space
+  compress:
+    system: |
+      You are compressing conversation context to stay within limits.
+
+      ## Compression Strategy
+      1. Keep last 3 interactions in full detail
+      2. Summarize earlier interactions
+      3. Preserve all decisions and their rationale
+      4. Preserve all code changes made
+      5. Preserve current task state
+      6. Reference files rather than including content
+
+      ## What to Preserve (CRITICAL)
+      - Current task and its status
+      - All architectural decisions made
+      - File paths that were modified
+      - Test results and their implications
+      - User preferences discovered
+      - Blockers and their resolutions
+
+      ## What Can Be Summarized
+      - Exploratory conversations
+      - Debugging attempts (keep only solution)
+      - File contents (reference by path instead)
+      - Repeated explanations
+
+      ## Output Format
+      ```yaml
+      compression_id: "compress-{timestamp}"
+      tokens_before: 180000
+      tokens_after: 50000
+      compression_ratio: 0.72
+
+      preserved:
+        current_task:
+          description: "Implementing OAuth authentication"
+          status: "in_progress"
+          next_step: "Add GitHub OAuth provider"
+
+        decisions:
+          - decision: "Use JWT with refresh tokens"
+            rationale: "Stateless, scalable"
+            made_at: "interaction-5"
+
+        files_modified:
+          - path: "src/services/auth.ts"
+            changes: "Created OAuth service with Google provider"
+          - path: "src/middleware/auth.ts"
+            changes: "Added authentication middleware"
+
+        user_preferences:
+          - "Prefers TypeScript strict mode"
+          - "Wants comprehensive test coverage"
+
+      summarized:
+        - interactions: [1, 5]
+          summary: "Initial project setup and requirements discussion"
+        - interactions: [6, 10]
+          summary: "Architecture design for auth system, chose JWT approach"
+
+      recovery_prompt: |
+        Session resumed after context compression.
+
+        Current task: Implementing OAuth authentication
+        Status: In progress - Google provider complete
+        Next step: Add GitHub OAuth provider
+
+        Key decisions:
+        - Using JWT with refresh tokens (stateless, scalable)
+        - Tokens stored in httpOnly cookies (XSS protection)
+
+        Files modified:
+        - src/services/auth.ts (OAuth service)
+        - src/middleware/auth.ts (auth middleware)
+
+        User preferences: TypeScript strict, comprehensive tests
+      ```
+
+    user: |
+      Compress this conversation context:
+
+      ## Current Token Usage
+      Used: {{tokens_used}} / {{tokens_total}} ({{usage_percent}}%)
+
+      ## Conversation History
+      {{conversation_summary}}
+
+      ## Current Task State
+      {{current_task}}
+
+      ## Files in Context
+      {{#each files_in_context}}
+      - {{this.path}} ({{this.tokens}} tokens)
+      {{/each}}
+
+  # Create a checkpoint for later restoration
+  checkpoint:
+    system: |
+      You are creating a session checkpoint that can be restored later.
+
+      ## Checkpoint Contents
+      1. **Task State**: What's being worked on and current progress
+      2. **Decisions**: All decisions made with rationale
+      3. **Context**: Important facts discovered about the project
+      4. **Files**: Key files and what was done to them
+      5. **Warnings**: Any issues or concerns noted
+      6. **Recovery Prompt**: Text to restore context efficiently
+
+      ## Output Format
+      ```yaml
+      checkpoint_id: "chk-{timestamp}"
+      name: "{{checkpoint_name}}"
+      created_at: "{{timestamp}}"
+      interaction_count: {{count}}
+      estimated_tokens: {{tokens}}
+
+      task_state:
+        description: "What we're working on"
+        phase: "architecture" | "implementation" | "testing" | "review"
+        progress_percent: 60
+        completed:
+          - "Designed authentication architecture"
+          - "Implemented Google OAuth"
+        in_progress:
+          - "Adding GitHub OAuth provider"
+        pending:
+          - "Write integration tests"
+          - "Security review"
+
+      decisions:
+        - id: "dec-001"
+          decision: "Use passport.js for OAuth"
+          rationale: "Battle-tested, good ecosystem"
+          alternatives_rejected:
+            - "Custom implementation - too much work"
+        - id: "dec-002"
+          decision: "Store tokens in httpOnly cookies"
+          rationale: "XSS protection, automatic sending"
+
+      context:
+        project_facts:
+          - "Express.js backend with TypeScript"
+          - "PostgreSQL database"
+          - "Jest for testing"
+        user_preferences:
+          - "Prefers explicit error handling"
+          - "Wants 80%+ test coverage"
+        constraints:
+          - "Must support existing user sessions"
+          - "Cannot modify user table schema"
+
+      files_touched:
+        - path: "src/services/auth.ts"
+          status: "created"
+          purpose: "OAuth authentication service"
+        - path: "src/middleware/auth.ts"
+          status: "created"
+          purpose: "Route protection middleware"
+
+      warnings:
+        - "Token refresh not yet tested"
+        - "Rate limiting not implemented"
+
+      restoration_prompt: |
+        ## Session Restored: {{checkpoint_name}}
+
+        We're implementing OAuth authentication for the Express.js backend.
+
+        ### Progress
+        - ✅ Architecture: JWT with refresh tokens, passport.js
+        - ✅ Google OAuth: Complete and tested
+        - 🔄 GitHub OAuth: In progress
+        - ⏳ Integration tests: Pending
+        - ⏳ Security review: Pending
+
+        ### Key Decisions
+        1. passport.js for OAuth (battle-tested ecosystem)
+        2. httpOnly cookies for tokens (XSS protection)
+        3. 15-minute access token expiry (security)
+
+        ### Constraints
+        - Cannot modify user table schema
+        - Must maintain existing session compatibility
+
+        ### Next Step
+        Add GitHub OAuth provider following the same pattern as Google.
+
+        ### Files to Review
+        - src/services/auth.ts (OAuth service)
+        - src/middleware/auth.ts (auth middleware)
+      ```
+
+    user: |
+      Create a checkpoint for this session:
+
+      ## Checkpoint Name
+      {{name}}
+
+      ## Current State
+      {{#if task_description}}
+      Task: {{task_description}}
+      {{/if}}
+
+      ## Session Summary
+      {{session_summary}}
+
+      ## Decisions Made
+      {{#each decisions}}
+      - {{this.decision}}: {{this.rationale}}
+      {{/each}}
+
+      ## Files Modified
+      {{#each files}}
+      - {{this.path}}: {{this.changes}}
+      {{/each}}
+
+  # Restore from a checkpoint
+  restore:
+    system: |
+      You are restoring context from a checkpoint and re-grounding the session.
+
+      ## Restoration Process
+      1. Load checkpoint data
+      2. Display restoration prompt
+      3. List files to re-read
+      4. Show pending tasks
+      5. Confirm understanding
+
+    user: |
+      Restore from this checkpoint:
+
+      ```yaml
+      {{checkpoint_yaml}}
+      ```
+
+      Please display the restoration summary and confirm what needs to be done next.
+
+# ============================================================================
+# EXAMPLES
+# ============================================================================
+
+examples:
+  health_check:
+    - input:
+        tokens_used: 45000
+        tokens_total: 200000
+        compressions: 0
+        interactions: 15
+      output: |
+        health_id: "health-20250115-143052"
+        status: "healthy"
+
+        tokens:
+          estimated_used: 45000
+          budget_total: 200000
+          usage_percent: 22.5
+          zone: "green"
+
+        session:
+          interactions: 15
+          checkpoints: 0
+          compressions: 0
+
+        grounding:
+          rules_loaded: true
+          rule_count: 7
+          directory_verified: true
+          safety_active: true
+
+        confidence: "high"
+        confidence_factors:
+          - factor: "Low token usage (22.5%)"
+            impact: "positive"
+          - factor: "No compression this session"
+            impact: "positive"
+          - factor: "All anchors verified"
+            impact: "positive"
+
+        warnings: []
+
+        recommendations:
+          - "Context is healthy - continue normally"
+          - "Consider creating a checkpoint before complex operations"
+
+# ============================================================================
+# VALIDATION
+# ============================================================================
+
+validation:
+  required_fields:
+    - status
+    - tokens
+    - confidence
+
+  zone_thresholds:
+    green: 70
+    yellow: 80
+    red: 100
+
+  compression_triggers:
+    warning: 75
+    critical: 90

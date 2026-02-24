@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://zen.dev/schemas/implementation.schema.json",
+  "title": "Zen Implementation Schema",
+  "description": "Schema for implementation state files in koan/implementations/",
+  "type": "object",
+  "required": ["impl_id", "status", "summary"],
+  "properties": {
+    "impl_id": {
+      "type": "string",
+      "pattern": "^impl-[0-9]{3,}$",
+      "description": "Unique implementation identifier"
+    },
+    "arch_id": {
+      "type": "string",
+      "pattern": "^arch-[0-9]{3,}$",
+      "description": "Reference to the architecture being implemented"
+    },
+    "story_id": {
+      "type": "string",
+      "pattern": "^story-[0-9]{3,}$",
+      "description": "Reference to the story"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["generating", "completed", "partial", "blocked", "needs_revision"],
+      "description": "Current status of implementation"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 10,
+      "description": "One-line summary of what was implemented"
+    },
+    "files_changed": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of files created or modified"
+    },
+    "details": {
+      "type": "object",
+      "description": "Full implementation details (progressive disclosure)",
+      "properties": {
+        "files_created": {
+          "type": "array",
+          "description": "List of files created (strings or objects with path/purpose)"
+        },
+        "files_modified": {
+          "type": "array",
+          "description": "List of files modified with change descriptions"
+        },
+        "tests_created": {
+          "type": "array",
+          "description": "List of test files created (strings or objects)"
+        },
+        "implementation_notes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Notes about the implementation"
+        },
+        "blockers": {
+          "type": "array",
+          "description": "Any blockers encountered"
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "created_at": { "type": "string" },
+            "concept": { "type": "string" },
+            "model": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

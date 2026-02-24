@@ -1,0 +1,125 @@
+research_id: "research-20260217-ha-swarm"
+topic: "High Availability Architecture for dockercd on Docker Swarm"
+depth: "thorough"
+
+documentation_sources:
+  - title: "Raft consensus in swarm mode"
+    url: "https://docs.docker.com/engine/swarm/raft/"
+    key_insight: "Raft tolerates (N-1)/2 failures, requires (N/2)+1 quorum. 3 managers tolerate 1 failure, 5 tolerate 2."
+
+  - title: "Administer and maintain a swarm"
+    url: "https://docs.docker.com/engine/swarm/admin_guide/"
+    key_insight: "Managers need static IPs, should be drained from worker duties, distribute across 3+ availability zones."
+
+  - title: "Manage swarm service networks"
+    url: "https://docs.docker.com/engine/swarm/networking/"
+    key_insight: "Overlay networks span all nodes via VXLAN. Built-in DNS and VIP load balancing for service discovery."
+
+  - title: "Deploy a stack to a swarm"
+    url: "https://docs.docker.com/engine/swarm/stack-deploy/"
+    key_insight: "docker stack deploy uses legacy Compose v3 format, not latest Compose spec. No build directive support."
+
+  - title: "PKI in Swarm mode"
+    url: "https://docs.docker.com/engine/swarm/how-swarm-mode-works/pki/"
+    key_insight: "Mutual TLS between all nodes. Auto certificate rotation every 3 months, configurable down to 1 hour."
+
+  - title: "LiteFS vs Litestream vs rqlite vs dqlite on VPS in 2025"
+    url: "https://onidel.com/blog/sqlite-replication-vps-2025"
+    key_insight: "rqlite best for clustering, LiteFS for transparent replication, Litestream for backup/restore."
+
+  - title: "rqlite FAQ"
+    url: "https://rqlite.io/docs/faq/"
+    key_insight: "CP system. Write performance reduced vs standalone SQLite. No BEGIN/COMMIT/ROLLBACK. Single binary deployment."
+
+  - title: "How LiteFS Works"
+    url: "https://fly.io/docs/litefs/how-it-works/"
+    key_insight: "FUSE filesystem, single-writer via Consul lease, async replication, rolling checksum for consistency."
+
+  - title: "gorqlite Go client"
+    url: "https://github.com/rqlite/gorqlite"
+    key_insight: "Go client with database/sql-like API. Auto leader discovery and failover."
+
+  - title: "Docker Swarm split brain forum discussion"
+    url: "https://forums.docker.com/t/docker-swarm-possible-splitbrain-issue/119081"
+    key_insight: "Existing tasks continue running during quorum loss but no new scheduling occurs."
+
+  - title: "SQLite on NFS corruption issues"
+    url: "https://github.com/Sonarr/Sonarr/issues/2797"
+    key_insight: "SQLite on NFS results in 'database is locked' errors. Corruption is eventual."
+
+current_implementation:
+  files_analyzed:
+    - path: "src/internal/store/store.go"
+      summary: "SQLiteStore using modernc.org/sqlite (pure Go), WAL mode, busy_timeout=5000ms, embedded migrations"
+      gap: "Single-writer file-based SQLite cannot be shared across multiple containers"
+
+    - path: "src/internal/reconciler/reconciler.go"
+      summary: "ReconcilerImpl with worker pool (default 4), scheduler loop, per-app mutex locks, circuit breakers"
+      gap: "In-process state (schedule map, app locks, breakers) not shared across instances"
+
+    - path: "src/internal/deployer/compose.go"
+      summary: "Shells out to 'docker compose' CLI with DOCKER_HOST env var support"
+      gap: "'docker compose up' only affects the local Docker daemon, not the full swarm"
+
+    - path: "src/internal/events/watcher.go"
+      summary: "Subscribes to Docker events stream via SDK, debounces, triggers reconciliation"
+      gap: "Events from docker.sock only see local node containers, not full swarm"
+
+    - path: "src/internal/inspector/inspector.go"
+      summary: "Docker SDK client with configurable host, inspects containers by compose project label"
+      gap: "Already supports remote Docker hosts via ClientFactory pattern - good foundation for multi-host"
+
+    - path: "src/internal/gitsync/cache.go"
+      summary: "Filesystem-based git repo cache using URL hash directories"
+      gap: "Local filesystem cache means each instance re-clones repos independently"
+
+synthesis:
+  key_insights:
+    - "Docker Swarm's Raft consensus provides built-in HA for the orchestrator itself, but dockercd sits above this layer - it needs its own HA strategy"
+    - "docker compose commands only affect the local Docker daemon. In Swarm mode, docker stack deploy is needed for multi-node, but this uses legacy Compose v3 format"
+    - "SQLite on NFS/shared filesystems is unreliable and will cause corruption. This is well-documented and consistent across sources"
+    - "rqlite offers the most mature Go-native distributed SQLite alternative with automatic leader election, but requires HTTP API changes (no direct file access)"
+    - "LiteFS offers transparent replication without code changes but requires FUSE and Consul, adding operational complexity"
+    - "Docker Swarm replicas=1 does NOT guarantee exactly-one semantics during failover - brief dual-running is possible"
+    - "The inspector module already has a ClientFactory pattern supporting remote Docker hosts, providing a foundation for multi-host inspection"
+    - "The deployer shells out to docker compose CLI which is inherently single-host. Multi-host deployment requires docker stack or per-host remote docker compose calls"
+
+  recommendations:
+    - priority: "high"
+      action: "Implement active-passive with leader election"
+      evidence: "Simplest path that preserves SQLite, matches existing single-writer architecture"
+
+    - priority: "high"
+      action: "Use Docker Swarm global service with replicas=1 on manager nodes"
+      evidence: "Swarm handles rescheduling on failure with sub-90s detection via health checks"
+
+    - priority: "medium"
+      action: "Add rqlite as optional distributed store backend"
+      evidence: "gorqlite provides database/sql-compatible API, fault-tolerant auto-failover"
+
+    - priority: "medium"
+      action: "Support docker stack deploy as alternative to docker compose up"
+      evidence: "Required for true multi-node service distribution in Swarm mode"
+
+    - priority: "low"
+      action: "Consider active-active with app partitioning for large deployments"
+      evidence: "Splits reconciliation load but adds complexity of partition management"
+
+  what_not_to_do:
+    - action: "Do not put SQLite on NFS/GlusterFS shared volumes"
+      reason: "File locking does not work reliably on network filesystems"
+      evidence: "Multiple documented cases of 'database is locked' errors and eventual corruption"
+
+    - action: "Do not assume replicas=1 guarantees single-instance"
+      reason: "During failover, Swarm may briefly run two instances simultaneously"
+      evidence: "Docker Swarm forum discussions on split-brain scenarios"
+
+    - action: "Do not use docker compose up for multi-node Swarm deployment"
+      reason: "docker compose only deploys to the local daemon, not the swarm"
+      evidence: "Docker documentation explicitly states this limitation"
+
+    - action: "Do not add more than 7 Swarm manager nodes"
+      reason: "Raft consensus overhead increases with manager count, diminishing returns past 7"
+      evidence: "Docker best practices documentation"
+
+confidence: 0.88

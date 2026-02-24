@@ -1,0 +1,319 @@
+# Consolidated Synchronization DSL
+# Replaces 20 YAML files (~11,000 lines) with compact rule definitions
+#
+# WYSIWID Principle: This file IS the workflow logic
+# Read this file to understand exactly what happens and when
+#
+# DSL Syntax:
+#   trigger -> action @slo [condition]
+#
+# Examples:
+#   story.create:completed -> architecture.design:opus @architecture
+#   code-analysis:completed -> architecture.design:opus @architecture [parallel]
+#
+# Version: 1.0.0
+# Generated: 2026-01-30
+
+# === IMPORTS ===
+# SLO profiles defined in slo-registry.yaml
+# Error policies defined in error-policy.yaml
+
+# ============================================================================
+# WORKFLOWS - Named pipeline configurations
+# ============================================================================
+
+workflows:
+  # Standard feature workflow (full pipeline)
+  feature:
+    pipeline: story | parallel(code-analysis, security) | architecture | verification[2] | implementation | parallel(quality.review, quality.test) | version
+    slo: standard
+    errors: graceful
+
+  # Quick bugfix (skip verification)
+  bugfix:
+    pipeline: story | implementation | quality | version
+    slo: fast
+    errors: strict
+
+  # Documentation-only workflow
+  docs:
+    pipeline: story | implementation | version
+    slo: fast
+    errors: lenient
+
+  # Refactoring workflow (thorough verification)
+  refactor:
+    pipeline: story | code-analysis | architecture | verification[2] | implementation | quality | version
+    slo: thorough
+    errors: strict
+
+# ============================================================================
+# CORE WORKFLOW RULES
+# ============================================================================
+
+rules:
+  # --- Phase 0: Story Clarification (Optional) ---
+
+  # Ask for clarification when story is ambiguous
+  - story.create[clarity=ambiguous]:completed -> ask_user(story_ambiguous) @quick
+
+  # --- Phase 1A: Story -> Parallel Analysis ---
+
+  # Story ready triggers parallel code analysis and security
+  - story.create[ready]:completed -> code-analysis.context:sonnet @mcp [parallel]
+  - story.create[ready]:completed -> security.threat_model:sonnet @mcp [parallel]
+
+  # --- Phase 1B: Context Injection ---
+
+  # Inject global learnings before architecture design starts
+  - architecture.design:starting -> inject_context(global_patterns) @zero
+
+  # --- Phase 1C: Analysis -> Architecture ---
+
+  # Code analysis triggers architecture (waits for both parallel steps)
+  - code-analysis.context:completed -> architecture.design:opus @architecture
+  - code-analysis.context:failed -> architecture.design:opus @architecture [skip_analysis=true]
+  - code-analysis.context:skipped -> architecture.design:opus @architecture [skip_analysis=true]
+
+  # --- Phase 2: Architecture -> Verification ---
+
+  # Multi-pass verification for non-trivial architectures
+  - architecture.design:completed -> verification.verify[pass=1]:sonnet @verification [risk != low]
+  - verification.verify[pass=1]:completed -> verification.verify[pass=2]:sonnet @verification
+  - verification.verify[pass=2]:completed -> verification.consensus:sonnet @quick
+
+  # Skip verification for low-risk changes
+  - architecture.design[risk=low]:completed -> implementation.generate:sonnet @implementation
+
+  # --- Phase 2.5: Verification Outcomes ---
+
+  # Verification approved -> implementation
+  - verification.consensus[approve]:completed -> implementation.generate:sonnet @implementation
+  - verification.consensus[approve_with_notes]:completed -> implementation.generate:sonnet @implementation
+
+  # Verification blocked -> architecture revision
+  - verification.consensus[block]:completed -> architecture.revise:opus @architecture
+  - verification.consensus[revise]:completed -> architecture.revise:opus @architecture
+
+  # --- Phase 2.7: Auto Test Generation (MCP) ---
+
+  # Generate tests in parallel with implementation
+  - implementation.generate:completed -> quality.generate_tests:sonnet @test_generation [parallel, mcp]
+
+  # --- Phase 3: Implementation -> Quality ---
+
+  # Implementation triggers parallel quality checks
+  - implementation.generate:completed -> quality.review:sonnet @quality [parallel]
+  - implementation.generate:completed -> quality.test:sonnet @quality [parallel, test_files.length > 0]
+
+  # --- Phase 3.5: Self-Repair Loop (MCP) ---
+
+  # Test failures trigger self-repair
+  - quality.test:failed -> quality.self_repair:sonnet @execution_loop [repair_attempts < 3, mcp]
+  - quality.self_repair:succeeded -> quality.test:sonnet @quality
+  - quality.self_repair:failed -> ask_user(repair_failed) @quick [repair_attempts >= 3]
+
+  # --- Phase 4: Quality -> Version ---
+
+  # Commit when both quality checks pass
+  - quality.all:completed -> version.commit:sonnet @quick [review.approved, test.passed]
+  - quality.review:approved -> version.commit:sonnet @quick [test.skipped OR test.passed]
+
+  # --- Phase 4B: Auto-complete Story ---
+
+  # Mark story complete after successful commit
+  - version.commit:completed -> story.complete:sonnet @quick [flow.completed]
+
+# ============================================================================
+# CONTEXT MANAGEMENT RULES
+# ============================================================================
+
+context:
+  # Create checkpoint before compression
+  - usage >= 70% AND last_checkpoint < 70% -> checkpoint.create:haiku @quick [name="pre-compress"]
+
+  # Compress context when approaching limit
+  - usage >= 75% -> context.compress:sonnet @context
+
+  # Emergency snapshot at high usage
+  - usage >= 90% -> context.snapshot:sonnet @context [reset_to="5K_summary"]
+
+# ============================================================================
+# LEARNING LOOP RULES
+# ============================================================================
+
+learning:
+  # Extract patterns from successful zero-rework implementations
+  - quality.review[approved, rework_cycles=0]:completed -> retrospective.extract_pattern:sonnet @quick
+
+  # Extract learnings from implementations that needed changes
+  - quality.review[needs_changes]:completed -> retrospective.extract_learning:sonnet @quick
+
+  # Analyze workflow after completion
+  - version.commit[flow.completed]:completed -> retrospective.analyze_workflow:sonnet @quick
+
+  # Auto-remember architecture decisions
+  - architecture.design:completed -> memory.store(architecture_decision) @zero
+
+  # Auto-remember successful patterns
+  - quality.review[approved]:completed -> memory.store(successful_pattern) @zero
+
+# ============================================================================
+# CHECKPOINT RULES
+# ============================================================================
+
+checkpoints:
+  # Checkpoint on git commit
+  - git.commit:completed -> checkpoint.create:haiku @quick [type="commit"]
+
+  # Checkpoint on workflow milestone completion
+  - version.commit[flow.completed]:completed -> checkpoint.create:haiku @quick [type="milestone"]
+
+  # Pre-architecture checkpoint (expensive operation coming)
+  - architecture.design:starting -> checkpoint.create:haiku @quick [type="pre-architecture"]
+
+# ============================================================================
+# ERROR RECOVERY RULES
+# ============================================================================
+
+recovery:
+  # Story errors -> ask user
+  - story.create:failed -> ask_user(story_error) @quick [error.classification == permanent]
+
+  # Code analysis errors -> skip and continue
+  - code-analysis.context:failed -> set_flag(code_analysis.skipped=true) @zero
+
+  # Architecture errors -> escalate (critical)
+  - architecture.design:failed -> escalate(architecture_failed) @quick
+
+  # Implementation errors -> retry then ask user
+  - implementation.generate:failed -> implementation.generate:sonnet @implementation [retry, attempts < 2]
+  - implementation.generate:failed -> ask_user(implementation_failed) @quick [attempts >= 2]
+
+  # Quality errors -> self-repair via MCP
+  - quality.test:failed -> quality.self_repair:sonnet @execution_loop [mcp, attempts < 3]
+
+  # Version errors -> retry then escalate
+  - version.commit:failed -> version.commit:sonnet @quick [retry, attempts < 3]
+  - version.commit:failed -> escalate(commit_failed) @quick [attempts >= 3]
+
+# ============================================================================
+# REACT FALLBACK RULES (Phase 3: Hybrid Declarative/Imperative)
+# ============================================================================
+
+fallback:
+  # Sync blocked after max retries -> trigger ReAct
+  - sync.blocked[retry_count >= 3]:triggered -> react-fallback.handle_blocked:sonnet @fallback
+
+  # Sync rule not found -> ReAct infers next step
+  - sync.no_match:detected -> react-fallback.handle_blocked:sonnet @fallback [reason="no_matching_rule"]
+
+  # Circular dependency -> ReAct breaks cycle
+  - sync.circular_dependency:detected -> react-fallback.handle_blocked:sonnet @fallback [reason="circular"]
+
+  # Ambiguous state -> ReAct analyzes and chooses
+  - workflow.ambiguous_state:detected -> react-fallback.handle_blocked:sonnet @fallback [reason="ambiguous"]
+
+  # ReAct resolved -> resume workflow
+  - react-fallback.handle_blocked[status=resolved]:completed -> resume_workflow @zero
+
+  # ReAct failed -> send to DLQ
+  - react-fallback.handle_blocked[status=unresolved]:completed -> dlq.add_entry @zero
+  - react-fallback.handle_blocked[iterations >= 5]:completed -> dlq.add_entry @zero [reason="max_iterations"]
+
+  # DLQ threshold exceeded -> alert user
+  - dlq.add_entry[entries.length >= 10]:completed -> alert_user(high_dlq_rate) @quick
+
+# ============================================================================
+# USER DECISION POINTS
+# ============================================================================
+
+decisions:
+  story_ambiguous:
+    trigger: story.clarity == ambiguous OR story.confidence < 0.7
+    question: "Story is ambiguous. What's the primary goal?"
+    options:
+      - "New feature" -> story.update(goal_type=feature)
+      - "Bug fix" -> story.update(goal_type=fix)
+      - "Refactor" -> story.update(goal_type=refactor)
+      - "Performance" -> story.update(goal_type=performance)
+
+  high_risk_architecture:
+    trigger: architecture.risk == high
+    question: "Architecture has HIGH RISK. How to proceed?"
+    options:
+      - "Approve anyway" -> implementation.generate(user_approval=approved_high_risk)
+      - "Request revision" -> architecture.revise(constraint="lower risk")
+      - "Cancel workflow" -> story.cancel(reason="high risk rejected")
+
+  repair_failed:
+    trigger: quality.self_repair.attempts >= 3
+    question: "Auto-repair failed after ${repair_attempts} attempts. What next?"
+    options:
+      - "Show errors and continue manually" -> display(test.failures, diagnosis)
+      - "Try different implementation approach" -> implementation.revise(constraint="different approach")
+      - "Skip tests (not recommended)" -> version.commit(warning="TESTS SKIPPED")
+
+  story_error:
+    trigger: story.create.failed AND error.classification == permanent
+    question: "Story creation failed: ${error.message}. How to proceed?"
+    options:
+      - "Provide more details" -> story.update(needs_clarification=true)
+      - "Skip story capture" -> architecture.design(skip_story=true)
+      - "Cancel" -> workflow.cancel(reason="story failed")
+
+  implementation_failed:
+    trigger: implementation.generate.failed AND attempts >= 2
+    question: "Implementation failed after ${attempts} attempts."
+    options:
+      - "Show error and retry manually" -> display(error.details)
+      - "Revise architecture" -> architecture.revise(constraint="simpler implementation")
+      - "Cancel workflow" -> workflow.cancel(reason="implementation failed")
+
+  react_fallback_failed:
+    trigger: react-fallback.handle_blocked.iterations >= 3
+    question: "ReAct fallback could not resolve after ${iterations} attempts. What next?"
+    options:
+      - "Continue trying (2 more iterations)" -> react-fallback.continue(max_iterations=5)
+      - "Show diagnostic info" -> display(fallback.log, suggestions)
+      - "Send to dead letter queue" -> dlq.add_entry(fallback_exhausted)
+      - "Resume workflow manually" -> workflow.resume(skip_blocked_step=true)
+
+  high_dlq_rate:
+    trigger: dlq.entries.length >= 10
+    question: "High dead letter queue rate (${dlq.entries.length} entries). Review needed."
+    options:
+      - "Show all DLQ entries" -> display(dlq.entries)
+      - "Review sync rules for improvements" -> display(dlq.patterns)
+      - "Clear resolved entries" -> dlq.cleanup(status=resolved)
+
+# ============================================================================
+# MCP INTEGRATION
+# ============================================================================
+
+mcp:
+  servers:
+    - name: ast-index
+      tools: [find_symbol, get_symbol_info, find_references, get_call_graph, get_file_symbols]
+      used_by: [code-analysis]
+
+    - name: semantic-rag
+      tools: [semantic_search, find_similar_code]
+      used_by: [code-analysis, implementation]
+
+  fallback:
+    # When MCP unavailable, use legacy manual paths
+    ast-index: skip_code_analysis
+    semantic-rag: skip_context_gathering
+
+# ============================================================================
+# PROVENANCE CATEGORIES
+# ============================================================================
+# All rules automatically track provenance with these categories:
+#
+# core       - Main workflow transitions
+# recovery   - Error handling and retry paths
+# learning   - Pattern extraction and memory storage
+# intelligence - Context gathering and enrichment
+# memory     - Semantic memory operations
+# checkpoint - State preservation

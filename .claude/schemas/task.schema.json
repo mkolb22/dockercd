@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Zen Task Schema",
+  "description": "Schema for task tracking in koan/tasks/",
+  "type": "object",
+  "required": ["task_id", "title", "status", "priority", "type", "created_at"],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^task-[0-9]{3,}$",
+      "description": "Unique task identifier"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Brief task title"
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed task description"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["todo", "in_progress", "done", "blocked"],
+      "description": "Current task status"
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"],
+      "description": "Task priority level"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["feature", "bug", "chore", "spike", "refactor"],
+      "description": "Type of work"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 creation timestamp"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 last update timestamp"
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "story_id": { "type": ["string", "null"] },
+        "architecture_id": { "type": ["string", "null"] },
+        "implementation_id": { "type": ["string", "null"] },
+        "review_id": { "type": ["string", "null"] }
+      },
+      "description": "Links to Zen workflow artifacts"
+    },
+    "subtasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["todo", "in_progress", "done"]
+          }
+        }
+      },
+      "description": "List of subtasks for progress tracking"
+    },
+    "git": {
+      "type": "object",
+      "properties": {
+        "branch": { "type": ["string", "null"] },
+        "commits": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "pull_request": { "type": ["string", "null"] }
+      },
+      "description": "Git integration metadata"
+    },
+    "ai_metadata": {
+      "type": "object",
+      "properties": {
+        "concept_name": { "type": ["string", "null"] },
+        "model_used": {
+          "type": ["string", "null"],
+          "enum": ["haiku", "sonnet", "opus", null]
+        },
+        "cost_usd": { "type": ["number", "null"] },
+        "context_tokens": { "type": ["integer", "null"] }
+      },
+      "description": "AI-related metadata from Claude"
+    },
+    "labels": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Labels for filtering and categorization"
+    },
+    "assignee": {
+      "type": ["string", "null"],
+      "description": "Assigned person or team"
+    },
+    "due_date": {
+      "type": ["string", "null"],
+      "format": "date",
+      "description": "Optional due date"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["timestamp", "content"],
+        "properties": {
+          "timestamp": { "type": "string", "format": "date-time" },
+          "content": { "type": "string" },
+          "author": { "type": "string" }
+        }
+      },
+      "description": "Notes and comments on the task"
+    }
+  }
+}

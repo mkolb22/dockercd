@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://zen.dev/schemas/story.schema.json",
+  "title": "Zen Story Schema",
+  "description": "Schema for story state files in koan/stories/",
+  "type": "object",
+  "required": ["story_id", "status", "summary"],
+  "properties": {
+    "story_id": {
+      "type": "string",
+      "pattern": "^story-[0-9]{3,}$",
+      "description": "Unique story identifier (e.g., story-001)"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "ready", "needs_clarification", "blocked", "completed"],
+      "description": "Current status of the story"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 200,
+      "description": "One-line summary for quick scanning"
+    },
+    "details": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 200,
+          "description": "Brief descriptive title"
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description of the requirement"
+        },
+        "acceptance_criteria": {
+          "type": "array",
+          "minItems": 1,
+          "description": "List of acceptance criteria"
+        },
+        "context": {
+          "type": "object",
+          "description": "Background, motivation, user impact, constraints"
+        },
+        "ambiguities": {
+          "type": "array",
+          "description": "Questions that need clarification"
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "created_at": {
+              "type": "string"
+            },
+            "concept": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

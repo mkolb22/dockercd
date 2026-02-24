@@ -1,0 +1,11 @@
+action_id: act-test-001
+flow_id: flow-test-001
+concept: story
+action: create
+status: completed
+timestamp: "2024-01-15T10:00:00Z"
+inputs:
+  requirements:
+    - Test requirement
+outputs:
+  story_id: story-test-001

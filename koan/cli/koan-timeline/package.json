@@ -1,0 +1,31 @@
+{
+  "name": "@zen/koan-timeline",
+  "version": "1.0.0",
+  "description": "CLI tool to visualize workflow execution as a timeline",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "koan-timeline": "./bin/koan-timeline"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@zen/koan-core": "file:../koan-core",
+    "chalk": "^5.3.0",
+    "commander": "^12.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3",
+    "vitest": "^3.0.0"
+  }
+}

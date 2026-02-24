@@ -1,0 +1,286 @@
+# Zen Architecture Example: RESTful API Design
+#
+# This example demonstrates architecture design for a RESTful API
+# with proper resource modeling, versioning, and error handling.
+
+example_id: "example-arch-api"
+category: "architecture"
+domain: "api-design"
+complexity: "moderate"
+tags: ["api", "rest", "http", "versioning"]
+
+# ============================================================================
+# INPUT
+# ============================================================================
+
+input:
+  story_id: "story-example-002"
+  title: "Create API for task management"
+  description: |
+    Build a RESTful API that allows users to manage their tasks.
+    The API will be consumed by web and mobile clients.
+
+  acceptance_criteria:
+    - criterion: "Given I have a valid auth token, when I POST to /tasks with task data, then a new task is created and returned with 201 status"
+      priority: high
+    - criterion: "Given I own a task, when I GET /tasks/{id}, then I receive the task details"
+      priority: high
+    - criterion: "Given I request a non-existent task, when I GET /tasks/{id}, then I receive 404 with error details"
+      priority: medium
+    - criterion: "Given I send invalid data, when I POST to /tasks, then I receive 400 with validation errors"
+      priority: medium
+
+# ============================================================================
+# OUTPUT
+# ============================================================================
+
+output:
+  arch_id: "arch-example-002"
+  story_id: "story-example-002"
+  status: "completed"
+
+  summary:
+    approach: "RESTful API with JSON:API response format and URL versioning"
+    risk_level: "low"
+    estimated_complexity: "moderate"
+    key_decision: "JSON:API format for consistent, self-documenting responses"
+
+  reasoning:
+    requirements_analysis: |
+      **Functional:**
+      - CRUD operations for tasks
+      - Authentication required
+      - Support multiple clients (web, mobile)
+
+      **Non-Functional:**
+      - Consistent error handling
+      - Discoverable/self-documenting
+      - Versioning for future changes
+      - Pagination for lists
+
+    constraints_identified:
+      - constraint: "Must support web and mobile clients"
+        impact: "Need consistent JSON format, proper CORS"
+      - constraint: "Existing authentication system"
+        impact: "Use JWT tokens from auth system"
+
+  approaches_considered:
+    - name: "Custom JSON format"
+      description: "Define our own response structure"
+      pros:
+        - "Full control over format"
+        - "Can optimize for our use cases"
+      cons:
+        - "Must document everything ourselves"
+        - "Clients need custom parsing"
+        - "Inconsistency risk across endpoints"
+      fit_score: 0.5
+
+    - name: "JSON:API specification"
+      description: "Follow the JSON:API standard (jsonapi.org)"
+      pros:
+        - "Well-documented standard"
+        - "Client libraries available"
+        - "Consistent structure enforced"
+        - "Built-in pagination, filtering, relationships"
+      cons:
+        - "More verbose than minimal JSON"
+        - "Learning curve for standard"
+      fit_score: 0.8
+
+    - name: "GraphQL"
+      description: "Use GraphQL instead of REST"
+      pros:
+        - "Clients request exactly what they need"
+        - "Single endpoint"
+        - "Strong typing"
+      cons:
+        - "Different paradigm - team learning curve"
+        - "Caching more complex"
+        - "Overkill for simple CRUD"
+      fit_score: 0.4
+
+  selected_approach:
+    name: "JSON:API specification"
+    rationale: |
+      JSON:API provides a well-defined structure that:
+      1. Ensures consistency across all endpoints
+      2. Has existing client libraries for web/mobile
+      3. Includes conventions for pagination, errors, relationships
+      4. Is well-documented, reducing our documentation burden
+
+      The verbosity trade-off is acceptable given the benefits of
+      consistency and standardization.
+    confidence: 0.8
+
+  components:
+    - name: "TaskController"
+      responsibility: "Handle HTTP requests for task resources"
+      interface: |
+        GET    /api/v1/tasks          - List tasks (paginated)
+        POST   /api/v1/tasks          - Create task
+        GET    /api/v1/tasks/:id      - Get task
+        PATCH  /api/v1/tasks/:id      - Update task
+        DELETE /api/v1/tasks/:id      - Delete task
+      dependencies: ["TaskService", "ResponseFormatter"]
+
+    - name: "TaskService"
+      responsibility: "Business logic for task operations"
+      interface: |
+        list(userId, filters, pagination) -> { tasks, meta }
+        create(userId, data) -> task
+        get(userId, taskId) -> task
+        update(userId, taskId, data) -> task
+        delete(userId, taskId) -> void
+      dependencies: ["TaskRepository"]
+
+    - name: "ResponseFormatter"
+      responsibility: "Format responses according to JSON:API spec"
+      interface: |
+        success(data, meta?) -> JSON:API response
+        error(errors) -> JSON:API error response
+        paginated(data, pagination) -> JSON:API collection
+      dependencies: []
+
+    - name: "ErrorHandler"
+      responsibility: "Global error handling middleware"
+      interface: |
+        handleError(error, req, res, next)
+      dependencies: ["ResponseFormatter"]
+
+    - name: "ValidationMiddleware"
+      responsibility: "Validate request data against schemas"
+      interface: |
+        validate(schema)(req, res, next)
+      dependencies: []
+
+  technical_decisions:
+    - decision: "URL-based versioning (/api/v1/)"
+      rationale: |
+        URL versioning is explicit, easy to understand, and works with
+        all HTTP clients. Alternative header-based versioning is harder
+        to test and discover.
+      alternatives_rejected:
+        - name: "Header versioning (Accept-Version)"
+          reason: "Harder to test, less discoverable"
+        - name: "No versioning"
+          reason: "Breaking changes would affect all clients"
+
+    - decision: "Use HTTP status codes semantically"
+      rationale: |
+        - 200: Success (GET, PATCH)
+        - 201: Created (POST)
+        - 204: No Content (DELETE)
+        - 400: Validation error
+        - 401: Not authenticated
+        - 403: Not authorized
+        - 404: Not found
+        - 500: Server error
+      alternatives_rejected:
+        - name: "Always return 200 with error in body"
+          reason: "Breaks HTTP semantics, harder for clients"
+
+    - decision: "Pagination with cursor, not offset"
+      rationale: |
+        Cursor-based pagination is stable when data changes (no skipped
+        or duplicate items) and more efficient for large datasets.
+      alternatives_rejected:
+        - name: "Offset/limit pagination"
+          reason: "Unstable with changing data, inefficient at scale"
+
+  risks:
+    - risk: "Breaking changes in future versions"
+      probability: "medium"
+      impact: "medium"
+      mitigation: |
+        1. Version from day one
+        2. Deprecation policy (6 months notice)
+        3. Maintain previous version during transition
+
+    - risk: "Inconsistent error responses"
+      probability: "low"
+      impact: "medium"
+      mitigation: |
+        Global error handler ensures all errors go through
+        ResponseFormatter, maintaining consistency.
+
+  implementation_guidance:
+    - "1. Set up Express router with /api/v1 prefix"
+    - "2. Implement ResponseFormatter for JSON:API format"
+    - "3. Create global ErrorHandler middleware"
+    - "4. Implement ValidationMiddleware with JSON schemas"
+    - "5. Build TaskController with CRUD endpoints"
+    - "6. Add pagination to list endpoint"
+    - "7. Write API tests for each endpoint"
+
+  # Example responses
+  api_examples:
+    success_response: |
+      {
+        "data": {
+          "type": "tasks",
+          "id": "123",
+          "attributes": {
+            "title": "Complete API design",
+            "status": "in_progress",
+            "createdAt": "2025-01-15T10:00:00Z"
+          }
+        }
+      }
+
+    error_response: |
+      {
+        "errors": [
+          {
+            "status": "400",
+            "code": "VALIDATION_ERROR",
+            "title": "Invalid attribute",
+            "detail": "Title must be at least 3 characters",
+            "source": { "pointer": "/data/attributes/title" }
+          }
+        ]
+      }
+
+    collection_response: |
+      {
+        "data": [...],
+        "meta": {
+          "totalCount": 42
+        },
+        "links": {
+          "self": "/api/v1/tasks?page[cursor]=abc",
+          "next": "/api/v1/tasks?page[cursor]=def",
+          "prev": "/api/v1/tasks?page[cursor]=xyz"
+        }
+      }
+
+# ============================================================================
+# TEACHING NOTES
+# ============================================================================
+
+teaching_notes:
+  key_patterns:
+    - pattern: "Standards Adoption"
+      explanation: |
+        Using JSON:API instead of inventing our own format reduces
+        documentation burden and leverages existing ecosystem.
+
+    - pattern: "Semantic HTTP"
+      explanation: |
+        Using HTTP status codes correctly (201 for create, 204 for delete)
+        makes the API predictable and follows industry conventions.
+
+    - pattern: "Cursor Pagination"
+      explanation: |
+        Cursor-based pagination handles real-time data better than
+        offset-based, especially for feeds or frequently-updated lists.
+
+  common_mistakes:
+    - mistake: "Inconsistent error formats across endpoints"
+      better: "Global error handler with standardized format"
+
+    - mistake: "No versioning from the start"
+      better: "Add /v1/ prefix immediately, even if no plans to change"
+
+    - mistake: "Using POST for everything"
+      better: "Use appropriate HTTP methods (GET, POST, PATCH, DELETE)"

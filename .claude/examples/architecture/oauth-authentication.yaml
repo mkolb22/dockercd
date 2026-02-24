@@ -1,0 +1,305 @@
+# Zen Architecture Example: OAuth Authentication
+#
+# This example demonstrates a well-structured architecture design
+# for implementing OAuth authentication with multiple providers.
+#
+# Use this as a reference when designing authentication systems.
+
+example_id: "example-arch-oauth"
+category: "architecture"
+domain: "authentication"
+complexity: "moderate"
+tags: ["oauth", "authentication", "security", "jwt"]
+
+# ============================================================================
+# INPUT: The story that triggered this architecture
+# ============================================================================
+
+input:
+  story_id: "story-example-001"
+  title: "Add user authentication with OAuth"
+  description: |
+    Users should be able to log in using their existing Google or GitHub
+    accounts instead of creating new credentials. This improves security
+    (no password storage) and reduces friction for new users.
+
+  acceptance_criteria:
+    - criterion: "Given I am on the login page, when I click 'Sign in with Google', then I am redirected to Google's OAuth consent screen"
+      priority: high
+    - criterion: "Given I complete Google OAuth, when I am redirected back, then I am logged in and see my dashboard"
+      priority: high
+    - criterion: "Given I am logged in, when I close and reopen the browser within 30 days, then I remain logged in"
+      priority: high
+    - criterion: "Given I am logged in, when I click logout, then my session is terminated"
+      priority: medium
+
+# ============================================================================
+# OUTPUT: The architecture design
+# ============================================================================
+
+output:
+  arch_id: "arch-example-001"
+  story_id: "story-example-001"
+  status: "completed"
+
+  summary:
+    approach: "JWT with refresh tokens using passport.js OAuth strategies"
+    risk_level: "medium"
+    estimated_complexity: "moderate"
+    key_decision: "Stateless JWT over server-side sessions for scalability"
+
+  # Explicit reasoning process (Chain-of-Thought)
+  reasoning:
+    requirements_analysis: |
+      **Functional Requirements:**
+      - OAuth with Google and GitHub providers
+      - Persistent login for 30 days
+      - Logout capability
+
+      **Non-Functional Requirements:**
+      - Security: No password storage, secure token handling
+      - Performance: Fast authentication checks
+      - Scalability: Support horizontal scaling
+
+      **Implicit Requirements (inferred):**
+      - Handle OAuth failures gracefully
+      - Support adding new providers in future
+      - Maintain user identity across providers
+
+    constraints_identified:
+      - constraint: "Existing Express.js backend"
+        impact: "Use passport.js ecosystem for consistency"
+      - constraint: "PostgreSQL database"
+        impact: "Store user records and refresh tokens in PostgreSQL"
+      - constraint: "Must support mobile apps in future"
+        impact: "JWT preferred over cookies for mobile compatibility"
+
+  # Always consider multiple approaches
+  approaches_considered:
+    - name: "Server-side sessions with Redis"
+      description: |
+        Traditional session-based auth where session ID is stored in cookie
+        and session data lives in Redis.
+      pros:
+        - "Simple mental model"
+        - "Easy session invalidation (delete from Redis)"
+        - "Server controls all session state"
+      cons:
+        - "Requires Redis infrastructure"
+        - "Sticky sessions or shared session store needed"
+        - "Harder to scale horizontally"
+        - "Not ideal for mobile/API clients"
+      fit_score: 0.6
+
+    - name: "JWT with refresh tokens"
+      description: |
+        Stateless access tokens (short-lived) with rotating refresh tokens
+        (long-lived) stored in database.
+      pros:
+        - "Stateless - easy horizontal scaling"
+        - "No additional infrastructure (Redis)"
+        - "Works well for mobile/API clients"
+        - "Standard approach with good tooling"
+      cons:
+        - "Token revocation requires blocklist or short expiry"
+        - "More complex token rotation logic"
+        - "Larger payload than session ID"
+      fit_score: 0.85
+
+    - name: "OAuth tokens only (no local tokens)"
+      description: |
+        Store and use OAuth provider tokens directly, refreshing
+        through provider when needed.
+      pros:
+        - "Simplest implementation"
+        - "Always fresh user data from provider"
+      cons:
+        - "Dependent on provider availability"
+        - "Can't add local-only features"
+        - "Rate limits from providers"
+        - "Different token formats per provider"
+      fit_score: 0.4
+
+  selected_approach:
+    name: "JWT with refresh tokens"
+    rationale: |
+      This approach best fits our requirements:
+
+      1. **Scalability**: Stateless JWTs allow any server to validate tokens
+         without shared state, critical for horizontal scaling.
+
+      2. **Security**: Short-lived access tokens (15 min) limit exposure window.
+         Refresh token rotation detects token theft.
+
+      3. **Flexibility**: Works for web (cookies) and future mobile (headers).
+
+      4. **Simplicity**: No additional infrastructure beyond our existing
+         PostgreSQL for refresh token storage.
+
+      The main drawback (revocation complexity) is mitigated by short access
+      token expiry - even if compromised, exposure is limited to 15 minutes.
+    confidence: 0.85
+
+  # Component breakdown
+  components:
+    - name: "AuthController"
+      responsibility: "Handle OAuth callbacks and coordinate authentication flow"
+      interface: |
+        GET /auth/google - Initiate Google OAuth
+        GET /auth/google/callback - Handle Google OAuth callback
+        GET /auth/github - Initiate GitHub OAuth
+        GET /auth/github/callback - Handle GitHub OAuth callback
+        POST /auth/refresh - Refresh access token
+        POST /auth/logout - Terminate session
+      dependencies: ["TokenService", "UserService", "passport"]
+
+    - name: "TokenService"
+      responsibility: "JWT creation, validation, and refresh token rotation"
+      interface: |
+        createTokenPair(userId) -> { accessToken, refreshToken }
+        validateAccessToken(token) -> payload | throw
+        refreshTokens(refreshToken) -> { accessToken, refreshToken }
+        revokeRefreshToken(token) -> void
+      dependencies: []
+
+    - name: "UserService"
+      responsibility: "User lookup and creation from OAuth profile"
+      interface: |
+        findOrCreateFromOAuth(provider, profile) -> User
+        findById(userId) -> User
+        linkProvider(userId, provider, providerId) -> void
+      dependencies: ["UserRepository"]
+
+    - name: "AuthMiddleware"
+      responsibility: "Protect routes, extract user from token"
+      interface: |
+        requireAuth(req, res, next) - Block if not authenticated
+        optionalAuth(req, res, next) - Attach user if token present
+      dependencies: ["TokenService"]
+
+    - name: "RefreshTokenRepository"
+      responsibility: "Persist refresh tokens for rotation and revocation"
+      interface: |
+        store(userId, tokenHash, expiresAt) -> void
+        find(tokenHash) -> RefreshToken | null
+        revoke(tokenHash) -> void
+        revokeAllForUser(userId) -> void
+      dependencies: ["Database"]
+
+  # Key technical decisions
+  technical_decisions:
+    - decision: "Use httpOnly cookies for token storage (web)"
+      rationale: |
+        httpOnly cookies prevent JavaScript access, mitigating XSS token theft.
+        Tokens are automatically included in requests, simplifying client code.
+      alternatives_rejected:
+        - name: "localStorage"
+          reason: "Vulnerable to XSS - any script can read tokens"
+        - name: "sessionStorage"
+          reason: "Lost on tab close - poor UX for 30-day persistence"
+
+    - decision: "15-minute access token expiry"
+      rationale: |
+        Short expiry limits damage from token theft. Users won't notice
+        as refresh happens automatically. Balance between security and
+        refresh frequency.
+      alternatives_rejected:
+        - name: "1-hour expiry"
+          reason: "Too long exposure window for sensitive operations"
+        - name: "5-minute expiry"
+          reason: "Too frequent refreshes, unnecessary load"
+
+    - decision: "Rotate refresh tokens on each use"
+      rationale: |
+        If a refresh token is stolen and used, the legitimate user's next
+        refresh will fail (token already rotated), signaling compromise.
+        Attacker can be detected and all tokens revoked.
+      alternatives_rejected:
+        - name: "Static refresh tokens"
+          reason: "Theft goes undetected until expiry"
+
+    - decision: "Hash refresh tokens in database"
+      rationale: |
+        If database is compromised, attacker can't use hashed tokens.
+        Same security principle as password hashing.
+      alternatives_rejected:
+        - name: "Store tokens in plain text"
+          reason: "Database breach = all sessions compromised"
+
+  # Risk assessment
+  risks:
+    - risk: "Refresh token theft enables persistent access"
+      probability: "low"
+      impact: "high"
+      mitigation: |
+        1. Rotate tokens on each use (detect theft)
+        2. Hash tokens in database
+        3. Bind tokens to user agent/IP (optional strictness)
+        4. Provide "logout all devices" feature
+
+    - risk: "OAuth provider outage blocks new logins"
+      probability: "low"
+      impact: "medium"
+      mitigation: |
+        1. Support multiple providers (Google AND GitHub)
+        2. Existing sessions continue to work (JWT validation is local)
+        3. Add email/password as fallback (future enhancement)
+
+    - risk: "JWT secret key compromise"
+      probability: "very low"
+      impact: "critical"
+      mitigation: |
+        1. Store secrets in environment variables, never in code
+        2. Use strong, randomly generated secrets (256+ bits)
+        3. Implement key rotation capability
+        4. Monitor for unusual authentication patterns
+
+  # Implementation guidance
+  implementation_guidance:
+    - "1. Set up passport.js with Google OAuth strategy first (simpler)"
+    - "2. Implement TokenService with JWT signing/verification"
+    - "3. Create RefreshTokenRepository with PostgreSQL"
+    - "4. Add AuthMiddleware and test with Google provider"
+    - "5. Add GitHub strategy (follows same pattern as Google)"
+    - "6. Implement token refresh endpoint"
+    - "7. Add refresh token rotation and reuse detection"
+    - "8. Write integration tests for full OAuth flow"
+
+  open_questions: []
+
+# ============================================================================
+# TEACHING NOTES
+# ============================================================================
+
+teaching_notes:
+  key_patterns:
+    - pattern: "Trade-off Documentation"
+      explanation: |
+        Notice how each approach has explicit pros/cons and a fit_score.
+        This makes the decision-making process transparent and auditable.
+
+    - pattern: "Chain-of-Thought Reasoning"
+      explanation: |
+        The 'reasoning' section shows the thought process explicitly:
+        analyzing requirements, identifying constraints, then evaluating
+        options against those constraints.
+
+    - pattern: "Security by Design"
+      explanation: |
+        Security decisions (httpOnly cookies, token rotation, hashing)
+        are made at architecture time, not retrofitted later.
+
+    - pattern: "Implementation Ordering"
+      explanation: |
+        The guidance section provides a logical order that handles
+        dependencies correctly (TokenService before AuthMiddleware).
+
+  common_mistakes:
+    - mistake: "Jumping to implementation without considering alternatives"
+      better: "Always evaluate 2-3 approaches, even if one seems obvious"
+
+    - mistake: "Storing tokens in localStorage"
+      better: "Use httpOnly cookies for web; secure storage for mobile"
+
+    - mistake: "Long-lived access tokens for 'convenience'"
+      better: "Short access tokens + refresh flow is more secure and just as convenient"

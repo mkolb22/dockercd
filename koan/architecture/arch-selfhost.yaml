@@ -1,0 +1,452 @@
+id: "arch-selfhost"
+story_id: "story-20260215-selfhost"
+status: "completed"
+estimated_risk: "low"
+summary: "Multi-stage Dockerfile, deploy/ directory with docker-compose.yml and self-referencing application manifest, environment-variable config for persistent state"
+
+details:
+  approaches_evaluated:
+    - name: "Single deploy/ directory with all artifacts"
+      pros:
+        - "Self-contained: Dockerfile, compose, and manifest in one place"
+        - "Simple for users to discover and clone"
+        - "compose file references Dockerfile via build context"
+      cons:
+        - "Dockerfile in deploy/ breaks the existing Makefile convention (make docker expects Dockerfile in src/)"
+        - "Build context would need to reference parent directory"
+      score: "5/10"
+
+    - name: "Dockerfile in src/, deployment artifacts in deploy/"
+      pros:
+        - "Dockerfile stays where make docker expects it (src/)"
+        - "deploy/ contains only runtime artifacts (compose, manifest, docs)"
+        - "Compose file uses pre-built image from registry, not local build"
+        - "Separation of build vs deploy concerns"
+        - "Works for both local development (make docker) and production (docker compose pull)"
+      cons:
+        - "Users must build and tag the image before first compose up, or publish to a registry"
+        - "Two directories to understand"
+      score: "9/10"
+
+    - name: "Everything at repository root"
+      pros:
+        - "Maximum discoverability"
+        - "No directory navigation"
+      cons:
+        - "Pollutes root with deployment files"
+        - "Mixes concerns with Go source code"
+        - "Not idiomatic for Go projects"
+      score: "3/10"
+
+  selected_approach:
+    name: "Dockerfile in src/, deployment artifacts in deploy/"
+    justification: |
+      This approach respects the existing Makefile convention where
+      `make docker` runs `docker build` from the src/ directory. The
+      Dockerfile belongs with the Go source because it IS a build artifact.
+      The deploy/ directory contains runtime deployment descriptors (compose
+      file, application manifest, bootstrap docs) that are separate concerns.
+      The compose file references a pre-built image (either locally built via
+      `make docker` or pulled from a registry), which is the standard Docker
+      Compose pattern and avoids coupling the compose file to build context.
+
+  technical_design:
+    files_to_create:
+      - path: "src/Dockerfile"
+        purpose: "Multi-stage build for the dockercd binary"
+      - path: "deploy/docker-compose.yml"
+        purpose: "Production deployment descriptor for self-hosted dockercd"
+      - path: "deploy/dockercd-app.yaml"
+        purpose: "Application manifest for self-monitoring via GitOps"
+      - path: "deploy/README.md"
+        purpose: "Bootstrap documentation for first deploy"
+
+    dockerfile_design:
+      location: "src/Dockerfile"
+      stages:
+        - name: "builder"
+          base_image: "golang:1.24-alpine"
+          purpose: "Compile the Go binary with version metadata"
+          details: |
+            - Uses Alpine variant for smaller build cache
+            - Copies go.mod and go.sum first for layer caching
+            - Runs go mod download as separate layer
+            - Builds with -ldflags for version and commit injection
+            - Uses CGO_ENABLED=0 for fully static binary
+            - Targets linux/amd64 (primary) with buildx multi-arch support possible later
+        - name: "runtime"
+          base_image: "alpine:3.21"
+          purpose: "Minimal runtime with healthcheck"
+          details: |
+            - Alpine chosen over scratch/distroless because:
+              1. curl/wget needed for Docker Compose CLI healthcheck
+              2. ca-certificates needed for HTTPS git clone
+              3. git binary needed for git operations (go-git handles most but some edge cases need git CLI)
+              4. docker-compose-plugin or docker CLI is NOT needed in the container because
+                 dockercd uses the Docker SDK (Go client) to manage containers, and shells out
+                 to `docker compose` for deployments via the deployer module
+            - Installs: ca-certificates, curl, git, docker-cli, docker-cli-compose
+            - Creates non-root user (uid 1000) but runs as root for Docker socket access
+            - Docker socket access requires root or docker group membership; since this is
+              a single-container tool mounting the host socket, running as root inside the
+              container is the standard pattern (same as Watchtower, Portainer, Traefik)
+            - HEALTHCHECK uses curl against /healthz endpoint
+            - Exposes port 8080
+            - Default CMD: ["dockercd", "serve"]
+
+      healthcheck:
+        test: "curl -sf http://localhost:8080/healthz || exit 1"
+        interval: "30s"
+        timeout: "5s"
+        retries: 3
+        start_period: "10s"
+
+      build_args:
+        - name: "VERSION"
+          default: "dev"
+          purpose: "Semantic version injected at build time"
+        - name: "COMMIT"
+          default: "unknown"
+          purpose: "Git commit SHA injected at build time"
+
+      example_dockerfile: |
+        # Stage 1: Build
+        FROM golang:1.24-alpine AS builder
+        ARG VERSION=dev
+        ARG COMMIT=unknown
+        RUN apk add --no-cache git
+        WORKDIR /build
+        COPY go.mod go.sum ./
+        RUN go mod download
+        COPY . .
+        RUN CGO_ENABLED=0 GOOS=linux go build \
+            -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
+            -o /dockercd ./cmd/dockercd
+
+        # Stage 2: Runtime
+        FROM alpine:3.21
+        RUN apk add --no-cache ca-certificates curl git docker-cli docker-cli-compose \
+            && adduser -D -u 1000 dockercd
+        COPY --from=builder /dockercd /usr/local/bin/dockercd
+        RUN mkdir -p /data /config/applications && chown -R dockercd:dockercd /data
+        EXPOSE 8080
+        HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
+            CMD curl -sf http://localhost:8080/healthz || exit 1
+        ENTRYPOINT ["dockercd"]
+        CMD ["serve"]
+
+    compose_design:
+      location: "deploy/docker-compose.yml"
+      service_name: "dockercd"
+      image: "dockercd:latest"
+      configuration:
+        ports:
+          - "8080:8080"
+        volumes:
+          - name: "dockercd-state"
+            target: "/data"
+            purpose: "SQLite database persistence across restarts"
+          - name: "/var/run/docker.sock"
+            target: "/var/run/docker.sock"
+            purpose: "Docker socket for managing sibling containers"
+            read_only: false
+          - name: "./dockercd-app.yaml"
+            target: "/config/applications/dockercd-app.yaml"
+            read_only: true
+            purpose: "Self-referencing application manifest mounted into config directory"
+        environment:
+          DOCKERCD_DATA_DIR: "/data"
+          DOCKERCD_CONFIG_DIR: "/config/applications"
+          DOCKERCD_LOG_LEVEL: "info"
+          DOCKERCD_API_PORT: "8080"
+        restart_policy: "unless-stopped"
+        healthcheck:
+          test: "curl -sf http://localhost:8080/healthz || exit 1"
+          interval: "30s"
+          timeout: "5s"
+          retries: 3
+          start_period: "15s"
+      named_volumes:
+        dockercd-state:
+          driver: "local"
+
+      example_compose: |
+        services:
+          dockercd:
+            image: dockercd:latest
+            container_name: dockercd
+            restart: unless-stopped
+            ports:
+              - "8080:8080"
+            volumes:
+              - dockercd-state:/data
+              - /var/run/docker.sock:/var/run/docker.sock
+              - ./dockercd-app.yaml:/config/applications/dockercd-app.yaml:ro
+            environment:
+              DOCKERCD_DATA_DIR: /data
+              DOCKERCD_CONFIG_DIR: /config/applications
+              DOCKERCD_LOG_LEVEL: info
+              DOCKERCD_API_PORT: "8080"
+            healthcheck:
+              test: ["CMD", "curl", "-sf", "http://localhost:8080/healthz"]
+              interval: 30s
+              timeout: 5s
+              retries: 3
+              start_period: 15s
+
+        volumes:
+          dockercd-state:
+
+    application_manifest_design:
+      location: "deploy/dockercd-app.yaml"
+      purpose: "Self-referencing GitOps configuration for dockercd to manage itself"
+      schema_version: "dockercd/v1"
+      key_fields:
+        repoURL: "https://github.com/mkolb22/dockercd.git"
+        targetRevision: "main"
+        path: "deploy/"
+        composeFiles:
+          - "docker-compose.yml"
+        dockerHost: "unix:///var/run/docker.sock"
+        projectName: "dockercd"
+        automated: true
+        prune: true
+        selfHeal: true
+        pollInterval: "180s"
+
+      example_manifest: |
+        apiVersion: dockercd/v1
+        kind: Application
+        metadata:
+          name: dockercd
+        spec:
+          source:
+            repoURL: https://github.com/mkolb22/dockercd.git
+            targetRevision: main
+            path: deploy/
+            composeFiles:
+              - docker-compose.yml
+          destination:
+            dockerHost: unix:///var/run/docker.sock
+            projectName: dockercd
+          syncPolicy:
+            automated: true
+            prune: true
+            selfHeal: true
+            pollInterval: 180s
+
+    config_approach:
+      mechanism: "Environment variables with DOCKERCD_ prefix via viper"
+      loading_order:
+        - "Compiled defaults in config/defaults.go"
+        - "Config file at /etc/dockercd/config.yaml (optional)"
+        - "Environment variables with DOCKERCD_ prefix"
+      key_variables:
+        - env: "DOCKERCD_DATA_DIR"
+          default: "/data"
+          purpose: "Directory for SQLite database and git repo cache"
+          container_path: "/data (backed by named volume)"
+        - env: "DOCKERCD_CONFIG_DIR"
+          default: "/config/applications"
+          purpose: "Directory where application manifests are loaded from"
+          container_path: "/config/applications (bind-mount from deploy/)"
+        - env: "DOCKERCD_API_PORT"
+          default: "8080"
+          purpose: "HTTP API and web UI listen port"
+        - env: "DOCKERCD_LOG_LEVEL"
+          default: "info"
+          purpose: "Logging verbosity (debug/info/warn/error)"
+        - env: "DOCKERCD_WORKER_COUNT"
+          default: "4"
+          purpose: "Number of concurrent reconciliation workers"
+        - env: "DOCKERCD_DEFAULT_POLL_INTERVAL"
+          default: "180s"
+          purpose: "Default git poll interval for applications"
+        - env: "DOCKER_HOST"
+          default: "unix:///var/run/docker.sock"
+          purpose: "Docker daemon socket (standard Docker env var, no prefix)"
+
+    bootstrap_sequence:
+      title: "Two-Phase Bootstrap for Self-Deployment"
+      rationale: |
+        dockercd cannot deploy itself before it exists. The solution is a
+        two-phase bootstrap: Phase 1 is a manual docker compose up that
+        starts dockercd for the first time. Phase 2 is automatic -- once
+        running, dockercd loads its own application manifest, begins
+        monitoring its own repository, and takes over lifecycle management.
+        Subsequent deployments (image updates, config changes) are handled
+        by the reconciliation loop.
+      phases:
+        - phase: 1
+          name: "Manual First Deploy"
+          steps:
+            - "Clone the repository: git clone https://github.com/mkolb22/dockercd.git"
+            - "Build the Docker image: cd src && make docker"
+            - "Navigate to deploy directory: cd ../deploy"
+            - "Start dockercd: docker compose up -d"
+            - "Verify health: curl http://localhost:8080/healthz"
+            - "Access web UI: open http://localhost:8080/ui/ in Safari"
+          notes: |
+            The first deploy MUST be manual because dockercd needs to exist
+            before it can manage itself. The image must be built locally since
+            no registry image exists yet. Once a CI/CD pipeline pushes images
+            to a registry, new users can skip the build step.
+
+        - phase: 2
+          name: "Self-Management Takeover"
+          steps:
+            - "dockercd starts and reads application manifests from /config/applications/"
+            - "Finds dockercd-app.yaml, registers the application in SQLite"
+            - "Reconciliation loop begins: clones github.com/mkolb22/dockercd.git"
+            - "Compares desired state (deploy/docker-compose.yml from git) with live state"
+            - "Reports sync status in the web UI"
+            - "On git changes: automatically pulls, diffs, and redeploys"
+            - "Self-heal: if dockercd container is stopped externally, Docker restart policy recovers it"
+          notes: |
+            The self-heal policy combined with Docker restart: unless-stopped
+            provides two layers of recovery. The restart policy handles
+            container crashes. Self-heal handles configuration drift detected
+            by the reconciliation loop. Note that dockercd cannot recover from
+            its own image being deleted -- that requires manual intervention.
+
+    implementation_prerequisite:
+      title: "Application Manifest File Loader"
+      description: |
+        The current codebase loads applications exclusively from SQLite.
+        There is no file-based application loader that reads YAML manifests
+        from config_dir. The config_dir setting exists in the config but is
+        not wired to any loader in the serve command.
+
+        For self-deployment to work, the serve command needs to scan
+        config_dir on startup, parse any YAML files matching the Application
+        schema, and register them in the SQLite store (upsert pattern). This
+        is a small code change in the serve command:
+
+        1. After store initialization, scan config_dir for *.yaml files
+        2. For each file, parse as app.Application
+        3. Validate the manifest
+        4. Call store.CreateApplication (or update if exists)
+        5. Log the registered applications
+
+        This is the ONLY Go code change needed. All other artifacts
+        (Dockerfile, compose, manifest) are pure deployment files.
+      affected_files:
+        - "src/internal/cli/serve.go"
+      estimated_effort: "small (20-30 lines of code)"
+
+    data_flow:
+      startup:
+        - "Container starts with CMD dockercd serve"
+        - "Config loaded: DOCKERCD_DATA_DIR=/data, DOCKERCD_CONFIG_DIR=/config/applications"
+        - "SQLite database opened at /data/dockercd.db (created if missing, migrations run)"
+        - "Application manifests scanned from /config/applications/*.yaml"
+        - "dockercd-app.yaml parsed and registered in SQLite"
+        - "API server starts on :8080"
+        - "Health monitor starts"
+        - "Reconciler starts with worker pool"
+        - "First reconciliation triggers for dockercd application"
+
+      reconciliation_loop:
+        - "Git sync: clone/pull https://github.com/mkolb22/dockercd.git"
+        - "Change detection: compare HEAD SHA with last synced SHA"
+        - "Parse desired state: read deploy/docker-compose.yml from cloned repo"
+        - "Inspect live state: query Docker API for dockercd containers"
+        - "Compute diff: compare desired vs live"
+        - "If in sync: mark Synced, update UI"
+        - "If drift detected and automated: pull images, docker compose up -d, wait for healthy"
+        - "Update status in SQLite and web UI"
+
+      self_update:
+        - "Developer pushes change to main branch"
+        - "Next poll cycle (within 3 minutes) detects new commit SHA"
+        - "Reconciler parses updated docker-compose.yml"
+        - "Diffs against running state"
+        - "Executes docker compose up -d with new configuration"
+        - "Docker pulls new image if changed, recreates container"
+        - "Old dockercd container stops gracefully (SIGTERM, 15s timeout)"
+        - "New dockercd container starts, runs migrations, resumes monitoring"
+        - "Brief 10-15 second window where no reconciler is running (acceptable)"
+
+    security_considerations:
+      - title: "Docker Socket Access"
+        detail: |
+          Mounting /var/run/docker.sock gives dockercd full control over the
+          Docker daemon, equivalent to root access on the host. This is the
+          same trust model as Watchtower, Portainer, and Traefik. Users must
+          understand this before deploying. The socket is mounted read-write
+          because dockercd needs to create, stop, and remove containers.
+      - title: "Git Repository Access"
+        detail: |
+          The self-deployment manifest references a public GitHub repository.
+          For private repositories, users would need to configure git
+          credentials (SSH key or token) via environment variables or mounted
+          secrets. This is out of scope for the initial self-deployment.
+      - title: "No Authentication on Web UI"
+        detail: |
+          The web UI and API have no authentication. For production use
+          behind a network boundary this is acceptable. For internet-facing
+          deployments, a reverse proxy with authentication (Traefik,
+          Caddy, nginx) should be placed in front. Out of scope for this story.
+      - title: "SQLite File Permissions"
+        detail: |
+          The /data directory and dockercd.db file are created with 0750
+          permissions. The named volume is managed by Docker, which handles
+          ownership correctly. No special permission configuration needed.
+
+    risks:
+      - risk: "Self-update kills the reconciler mid-operation"
+        severity: "low"
+        mitigation: |
+          Docker sends SIGTERM before SIGKILL (default 10s grace).
+          The serve command already handles SIGTERM with graceful shutdown:
+          stops accepting new reconciliations, waits for in-flight ops
+          (up to 30s), then exits. SQLite WAL mode ensures no data corruption
+          even on ungraceful shutdown.
+
+      - risk: "Circular dependency: bad config in git breaks dockercd"
+        severity: "medium"
+        mitigation: |
+          If a bad docker-compose.yml is pushed to git, dockercd will
+          attempt to deploy it and may fail. The circuit breaker (3 failures,
+          5-minute backoff) prevents infinite retry loops. The previous
+          container continues running (Docker only stops the old container
+          after the new one starts successfully with restart policy). Manual
+          intervention: fix the git commit and push, or docker compose up -d
+          from a local copy.
+
+      - risk: "Volume data corruption on unclean shutdown"
+        severity: "low"
+        mitigation: |
+          SQLite WAL mode with busy_timeout=5000ms handles concurrent access
+          and crash recovery. The pure-Go SQLite driver (modernc.org/sqlite)
+          implements full crash recovery. Named volumes use the local driver
+          which provides filesystem-level durability.
+
+      - risk: "Docker socket not available"
+        severity: "low"
+        mitigation: |
+          The healthcheck and readyz probe will fail if Docker socket is not
+          mounted. Docker Compose will show the container as unhealthy. The
+          error is immediately visible in container logs. This is a
+          deployment configuration error, not a runtime failure.
+
+  metadata:
+    created_at: "2026-02-15T00:00:00Z"
+    concept: "architecture"
+    model: "opus"
+    workflow_id: "wf-mloomffh-ref7"
+    context_tokens_estimate: 3500
+    cost_estimate: 0.01
+    files_read:
+      - "src/Makefile"
+      - "src/go.mod"
+      - "src/cmd/dockercd/main.go"
+      - "src/internal/app/types.go"
+      - "src/internal/config/config.go"
+      - "src/internal/config/defaults.go"
+      - "src/internal/cli/serve.go"
+      - "src/internal/cli/root.go"
+      - "src/internal/store/store.go"
+      - "src/internal/api/server.go"
+      - "src/internal/api/handlers.go"
+      - "src/internal/reconciler/reconciler.go"

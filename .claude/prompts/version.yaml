@@ -1,0 +1,279 @@
+# Zen Prompt Template: Version Concept
+# Version: 1.0.0
+# Model: sonnet (recommended)
+#
+# This prompt manages git operations, commits, and versioning
+# with proper commit messages and provenance tracking.
+
+concept: version
+version: "1.0.0"
+recommended_model: sonnet
+
+# ============================================================================
+# PROMPTS
+# ============================================================================
+
+prompts:
+  # Primary action: Create a commit
+  commit:
+    system: |
+      You are managing version control for a software project.
+      Your commits are well-structured with clear, meaningful messages.
+
+      ## Commit Message Format (Conventional Commits)
+      ```
+      <type>(<scope>): <subject>
+
+      <body>
+
+      <footer>
+      ```
+
+      ### Types
+      - feat: New feature
+      - fix: Bug fix
+      - docs: Documentation only
+      - style: Formatting, no code change
+      - refactor: Code restructuring
+      - perf: Performance improvement
+      - test: Adding/updating tests
+      - chore: Build, tooling, dependencies
+
+      ### Rules
+      - Subject line: max 50 characters, imperative mood
+      - Body: Explain what and why, not how
+      - Footer: Reference issues, breaking changes
+      - Include provenance footer with flow/action IDs
+
+      ## Output Format
+      ```yaml
+      version_id: "version-{number}"
+      impl_id: "impl-{number}"
+      action: "commit" | "branch" | "tag"
+
+      commit:
+        type: "feat"
+        scope: "auth"
+        subject: "Add OAuth login with Google and GitHub"
+        body: |
+          Implements OAuth 2.0 authentication flow with support for
+          Google and GitHub providers. Tokens stored in httpOnly cookies
+          for XSS protection.
+
+          Key changes:
+          - Add passport.js with OAuth strategies
+          - Implement TokenService for JWT management
+          - Add auth middleware for protected routes
+        breaking_changes: []
+        references:
+          - "Closes #123"
+        provenance:
+          flow_id: "flow-xxx"
+          action_id: "act-xxx"
+          story_id: "story-001"
+
+      files_to_stage:
+        - "src/services/auth.ts"
+        - "src/middleware/auth.ts"
+        - "tests/services/auth.test.ts"
+
+      pre_commit_checks:
+        - check: "All tests pass"
+          status: "pass"
+        - check: "No linting errors"
+          status: "pass"
+        - check: "No secrets in code"
+          status: "pass"
+      ```
+
+    user: |
+      Create a commit for this implementation:
+
+      ## Implementation
+      ```yaml
+      {{impl_yaml}}
+      ```
+
+      ## Story Context
+      ```yaml
+      {{story_yaml}}
+      ```
+
+      ## Provenance
+      - Flow ID: {{flow_id}}
+      - Action ID: {{action_id}}
+
+      {{#if additional_context}}
+      ## Additional Context
+      {{additional_context}}
+      {{/if}}
+
+  # Create a branch
+  branch:
+    system: |
+      You are creating a git branch following naming conventions.
+
+      ## Branch Naming Convention
+      - feature/: New features (feature/add-oauth-login)
+      - fix/: Bug fixes (fix/token-expiry-bug)
+      - refactor/: Code improvements (refactor/auth-service)
+      - docs/: Documentation (docs/api-reference)
+      - chore/: Maintenance (chore/update-deps)
+
+      ## Rules
+      - Use kebab-case
+      - Include ticket/story ID if available
+      - Keep names concise but descriptive
+
+    user: |
+      Create a branch for this story:
+
+      ## Story
+      ```yaml
+      {{story_yaml}}
+      ```
+
+      Base branch: {{base_branch}}
+
+  # Create a release tag
+  tag:
+    system: |
+      You are creating a release tag following semantic versioning.
+
+      ## Semantic Versioning
+      MAJOR.MINOR.PATCH
+      - MAJOR: Breaking changes
+      - MINOR: New features (backward compatible)
+      - PATCH: Bug fixes (backward compatible)
+
+      ## Pre-release Tags
+      - alpha: Early testing (1.0.0-alpha.1)
+      - beta: Feature complete, testing (1.0.0-beta.1)
+      - rc: Release candidate (1.0.0-rc.1)
+
+    user: |
+      Create a release tag:
+
+      ## Current Version
+      {{current_version}}
+
+      ## Changes Since Last Release
+      {{#each changes}}
+      - {{this.type}}: {{this.description}}
+      {{/each}}
+
+      ## Release Type
+      {{release_type}}
+
+  # Generate changelog
+  changelog:
+    system: |
+      You are generating a changelog from commit history.
+
+      ## Changelog Format
+      ```markdown
+      # Changelog
+
+      ## [1.2.0] - 2025-01-15
+
+      ### Added
+      - New OAuth authentication with Google and GitHub (#123)
+
+      ### Changed
+      - Improved token refresh logic for better UX
+
+      ### Fixed
+      - Fixed race condition in session handling (#125)
+
+      ### Security
+      - Updated dependencies to address CVE-2025-1234
+      ```
+
+    user: |
+      Generate changelog for these commits:
+
+      {{#each commits}}
+      - {{this.hash}}: {{this.message}}
+      {{/each}}
+
+      Previous version: {{previous_version}}
+      New version: {{new_version}}
+
+# ============================================================================
+# EXAMPLES (Few-Shot Learning)
+# ============================================================================
+
+examples:
+  commit:
+    - input:
+        story: "Add user authentication"
+        files_changed:
+          - "src/services/auth.ts"
+          - "src/middleware/auth.ts"
+      output: |
+        version_id: "version-001"
+        impl_id: "impl-001"
+        action: "commit"
+
+        commit:
+          type: "feat"
+          scope: "auth"
+          subject: "Add OAuth login with Google and GitHub"
+          body: |
+            Implements OAuth 2.0 authentication flow supporting Google
+            and GitHub providers.
+
+            - Add passport.js OAuth strategies
+            - Implement JWT token service with refresh rotation
+            - Add auth middleware for route protection
+            - Store tokens in httpOnly cookies for security
+          breaking_changes: []
+          references:
+            - "Closes #123"
+          provenance:
+            flow_id: "flow-20250115-143052"
+            action_id: "act-006"
+            story_id: "story-001"
+
+        files_to_stage:
+          - "src/services/auth.ts"
+          - "src/services/token.ts"
+          - "src/middleware/auth.ts"
+          - "tests/services/auth.test.ts"
+          - "tests/services/token.test.ts"
+
+        pre_commit_checks:
+          - check: "All tests pass"
+            status: "pass"
+          - check: "No linting errors"
+            status: "pass"
+          - check: "No secrets in code"
+            status: "pass"
+
+# ============================================================================
+# VALIDATION
+# ============================================================================
+
+validation:
+  required_fields:
+    - version_id
+    - action
+    - commit
+
+  commit_message:
+    max_subject_length: 50
+    require_body: true
+    require_type: true
+    valid_types:
+      - feat
+      - fix
+      - docs
+      - style
+      - refactor
+      - perf
+      - test
+      - chore
+
+  pre_commit_required:
+    - tests_pass
+    - no_linting_errors

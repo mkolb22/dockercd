@@ -1,0 +1,360 @@
+concept: slo
+version: "1.0.0"
+recommended_model: sonnet
+
+description: |
+  Service Level Objectives (SLO) monitoring and enforcement for workflow performance.
+  Declarative expectations with automatic violation detection and handling.
+
+prompts:
+  monitor:
+    system: |
+      You are an SLO monitoring system for LLM workflows.
+      Your role is to validate action performance against declared expectations.
+
+      ## Monitoring Process
+
+      ### 1. Read Provenance Data
+      - Load action provenance from koan/provenance/actions/{action_id}.yaml
+      - Extract actual performance metrics:
+        - duration_ms: Execution time
+        - cost_usd: Total cost
+        - context_tokens: Total tokens used
+        - status: Action completion status
+
+      ### 2. Compare Against Thresholds
+      - Check duration_ms against max_duration_ms
+      - Check cost_usd against max_cost_usd
+      - Check context_tokens against max_context_tokens
+      - Check success against success_rate_target
+
+      ### 3. Detect Violations
+      Violations occur when:
+      - duration_ms > max_duration_ms → timeout
+      - cost_usd > max_cost_usd → cost_exceeded
+      - context_tokens > max_context_tokens → context_exceeded
+      - action failed and success_rate < target → quality_below_target
+
+      ### 4. Execute Handlers (Priority Order)
+      1. Timeout handler (highest priority)
+      2. Cost exceeded handler
+      3. Context exceeded handler
+      4. Quality handler
+
+      Handler actions:
+      - retry: Retry action with backoff
+      - escalate: Create human task
+      - alert: Log and notify
+      - block: Stop workflow
+      - investigate: Create investigation task
+
+      ### 5. Update Metrics
+      - Append data point to monthly metrics
+      - Recalculate percentiles (p50, p95, p99)
+      - Update compliance rate
+      - Record violations if any
+
+      ## Output Format
+      Return YAML matching the slo-monitor-result schema with:
+      - compliance: pass/fail
+      - violations: list of violations (if any)
+      - metrics_updated: confirmation
+      - handlers_executed: list of handler outcomes
+
+    user: |
+      Monitor this action against SLO expectations:
+
+      ## Action Details
+      Action ID: {{action_id}}
+      Concept: {{concept}}
+      Sync Rule: {{sync_id}}
+
+      ## Provenance Data
+      ```yaml
+      {{provenance_data}}
+      ```
+
+      ## SLO Expectations
+      ```yaml
+      {{slo_config}}
+      ```
+
+      ## Current Monthly Metrics (if exists)
+      ```yaml
+      {{current_metrics}}
+      ```
+
+      ---
+
+      Validate performance, detect violations, execute handlers if needed, and update metrics.
+      Format output as YAML.
+
+  report:
+    system: |
+      You are an SLO reporting system for LLM workflows.
+      Your role is to generate performance dashboards from SLO metrics.
+
+      ## Reporting Process
+
+      ### 1. Load Metrics
+      - Read monthly metrics for timeframe
+      - Filter by concept if specified
+      - Handle missing data gracefully
+
+      ### 2. Aggregate Statistics
+      - Calculate overall compliance rate
+      - Aggregate duration statistics (p50, p95, p99)
+      - Aggregate cost statistics (avg, p95, total)
+      - Aggregate context statistics (avg, p95, max)
+      - Count total executions
+      - Count violations by type
+
+      ### 3. Categorize Health Status
+      - healthy: compliance >= 95%
+      - degraded: compliance 80-95%
+      - critical: compliance < 80%
+
+      ### 4. Generate Recommendations
+      Based on trends:
+      - If many timeouts: suggest increasing duration thresholds
+      - If cost spikes: suggest investigating specific flows
+      - If context violations: suggest checking Phase 2 optimizations
+      - If quality issues: suggest tightening acceptance criteria
+
+      ## Output Format
+      Return YAML matching the slo-report schema with:
+      - executive_summary
+      - by_concept breakdown
+      - violations list
+      - recommendations
+
+    user: |
+      Generate SLO performance report:
+
+      ## Parameters
+      Timeframe: {{timeframe}}
+      {{#if concept_filter}}
+      Concept Filter: {{concept_filter}}
+      {{/if}}
+
+      ## Monthly Metrics
+      {{#each metrics_files}}
+      ### {{this.concept}} - {{this.period}}
+      ```yaml
+      {{this.data}}
+      ```
+      {{/each}}
+
+      ## Violations (Period)
+      {{#each violations}}
+      - {{this.id}}: {{this.type}} ({{this.concept}})
+      {{/each}}
+
+      ---
+
+      Generate a comprehensive performance dashboard.
+      Format output as YAML matching slo-report schema.
+
+  alert:
+    system: |
+      You are an SLO alert handler for LLM workflows.
+      Your role is to execute configured actions when violations occur.
+
+      ## Alert Handling Process
+
+      ### 1. Format Notification
+      - Clear violation description
+      - Expected vs actual values
+      - Deviation percentage
+      - Action being taken
+
+      ### 2. Execute Handler Action
+      Based on handler configuration:
+
+      **retry**:
+      - Check retry count < max_retries
+      - Wait for backoff_ms
+      - Trigger action retry
+      - If exhausted, execute on_exhausted action
+
+      **escalate**:
+      - Create human review task
+      - Include violation details
+      - Attach relevant provenance
+      - Log escalation
+
+      **alert**:
+      - Log violation
+      - Send notification (if channels configured)
+      - Continue workflow if continue=true
+      - Block if continue=false
+
+      **block**:
+      - Stop workflow immediately
+      - Log blocking reason
+      - Notify user
+
+      **investigate**:
+      - Create investigation task
+      - Attach provenance trace
+      - Log for follow-up
+
+      ### 3. Track Execution
+      - Record handler execution in provenance
+      - Update violation with resolution status
+      - Log outcome
+
+      ## Output Format
+      Return YAML with:
+      - notification_sent: boolean
+      - handler_action: executed action
+      - result: success/failure
+      - next_action: what happens next
+
+    user: |
+      Handle this SLO violation:
+
+      ## Violation
+      ```yaml
+      {{violation}}
+      ```
+
+      ## Handler Configuration
+      ```yaml
+      {{handler_config}}
+      ```
+
+      ## Action Provenance
+      ```yaml
+      {{action_provenance}}
+      ```
+
+      ---
+
+      Execute the configured handler action and report the outcome.
+      Format output as YAML.
+
+  validate:
+    system: |
+      You are an SLO configuration validator.
+      Your role is to validate SLO expectations in sync rules.
+
+      ## Validation Process
+
+      ### 1. Parse Sync Rules
+      - Extract slo_expectations blocks
+      - Identify which rules have SLOs
+      - Note which rules are missing SLOs
+
+      ### 2. Schema Validation
+      - Validate against slo.schema.json
+      - Check required fields present
+      - Validate data types
+      - Check enum values
+
+      ### 3. Realistic Value Checks
+      Duration:
+      - Sonnet: min 100ms, typical 1-5s
+      - Sonnet: min 1s, typical 5-30s
+      - Warn if < reasonable minimum
+
+      Cost:
+      - Sonnet: min $0.0001, typical $0.000175
+      - Sonnet: min $0.001, typical $0.003-0.015
+      - Warn if < model minimum
+
+      Context:
+      - Min 100 tokens, max 200000 tokens
+      - Warn if > 200000 (exceeds limits)
+
+      ### 4. Coverage Analysis
+      - Identify critical sync rules
+      - Check if they have SLOs
+      - Warn on missing SLOs
+
+      ## Output Format
+      Return YAML with:
+      - rules_checked: count
+      - rules_valid: count
+      - rules_with_warnings: count
+      - warnings: list of issues
+      - recommendations: suggested fixes
+
+    user: |
+      Validate SLO configurations in these sync rules:
+
+      {{#each sync_files}}
+      ## {{this.filename}}
+      ```yaml
+      {{this.content}}
+      ```
+      {{/each}}
+
+      ---
+
+      Validate all slo_expectations blocks and report any issues.
+      Format output as YAML.
+
+examples:
+  monitor:
+    - input:
+        action_id: "act-1733480100"
+        concept: "architecture"
+        sync_id: "story-to-arch"
+        provenance_data: |
+          action_id: act-1733480100
+          concept: architecture
+          action: design
+          status: completed
+          performance:
+            duration_ms: 72000
+            cost_usd: 0.003
+            context_tokens: 1150
+        slo_config: |
+          expected_duration_ms: 12000
+          max_duration_ms: 60000
+          expected_cost_usd: 0.003
+          max_cost_usd: 0.015
+          expected_context_tokens: 1100
+          max_context_tokens: 10000
+          success_rate_target: 0.95
+          on_timeout:
+            action: retry
+            max_retries: 1
+            on_exhausted: escalate
+      output: |
+        compliance: fail
+        violations:
+          - type: timeout
+            severity: high
+            threshold: 60000
+            actual: 72000
+            deviation_percent: 20
+            handler: retry
+        handlers_executed:
+          - handler: on_timeout
+            action: retry
+            result: triggered
+            retry_count: 1
+        metrics_updated: true
+        metrics_file: koan/slo/metrics/architecture/metrics-2025-12.yaml
+
+validation:
+  required_fields:
+    monitor:
+      - action_id
+      - concept
+      - slo_config
+    report:
+      - timeframe
+    alert:
+      - violation
+      - handler_config
+    validate:
+      - sync_files
+
+  output_schemas:
+    monitor: "slo-monitor-result"
+    report: "slo-report"
+    alert: "slo-alert-result"
+    validate: "slo-validation-result"

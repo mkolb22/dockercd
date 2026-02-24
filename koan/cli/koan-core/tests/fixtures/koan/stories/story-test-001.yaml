@@ -1,0 +1,9 @@
+story_id: story-test-001
+status: completed
+summary: Test story for unit tests
+created_at: "2024-01-15T10:00:00Z"
+requirements:
+  - Test requirement 1
+  - Test requirement 2
+acceptance_criteria:
+  - Test criterion 1

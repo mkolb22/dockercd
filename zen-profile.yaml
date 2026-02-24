@@ -1,0 +1,14 @@
+# Zen Installation Profile
+# Place this file in your project root before running install.sh
+# Options: minimal, standard (default), full
+#
+# minimal  — 5 concepts, 10 commands, 6 skills, 5 agents, 6 hooks.
+#             Memory + code intel + checkpoints. Core CLI only.
+#             ~40 files deployed (vs ~200 for full).
+# standard — 21 concepts, 28 commands, 43 skills, 12 agents, 22 hooks.
+#             Full framework minus debate agents and reasoning hooks.
+#             All CLI tools installed.
+# full     — 21 concepts, 28 commands, 43 skills, 15 agents, 27 hooks.
+#             Everything including debate, reasoning hooks, SLO registry.
+#             All CLI tools installed.
+profile: standard

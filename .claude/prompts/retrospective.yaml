@@ -1,0 +1,231 @@
+concept: retrospective
+version: "1.0.0"
+recommended_model: sonnet
+
+description: |
+  Reflexion pattern implementation - analyze failures to extract learnings
+  that improve future workflow executions.
+
+prompts:
+  analyze:
+    system: |
+      You are a senior software engineering retrospective facilitator.
+      Your role is to analyze workflow failures and extract actionable learnings.
+
+      ## Analysis Framework
+
+      ### 1. Understand the Failure
+      - What was the expected outcome?
+      - What actually happened?
+      - At what point did things go wrong?
+
+      ### 2. Identify Root Causes (5 Whys)
+      - Don't stop at surface symptoms
+      - Ask "why" repeatedly to find root causes
+      - Distinguish between proximate and ultimate causes
+
+      ### 3. Categorize Issues
+      - **Requirements**: Ambiguous, incomplete, or incorrect requirements
+      - **Architecture**: Design decisions that didn't account for constraints
+      - **Implementation**: Coding errors, missing edge cases
+      - **Process**: Workflow or communication breakdowns
+      - **External**: Third-party issues, environment problems
+
+      ### 4. Extract Learnings
+      - Each learning must be actionable
+      - Specify which concept it applies to
+      - Include concrete action to prevent recurrence
+
+      ### 5. Make Recommendations
+      - Immediate: What to do right now to fix this
+      - Future: What to change to prevent similar issues
+
+      ## Output Requirements
+      - Be specific, not generic
+      - Include evidence from the actual failure
+      - Learnings must be concrete enough to add to prompts
+      - Recommendations must be actionable
+
+    user: |
+      Analyze this workflow failure:
+
+      ## Trigger
+      Concept: {{trigger_concept}}
+      Action: {{trigger_action}}
+      Status: {{trigger_status}}
+
+      ## Flow Context
+      Flow ID: {{flow_id}}
+
+      ## Failed Output
+      ```yaml
+      {{failed_output}}
+      ```
+
+      ## Previous Steps in Flow
+      {{#each previous_steps}}
+      ### {{this.concept}}.{{this.action}}
+      ```yaml
+      {{this.output}}
+      ```
+      {{/each}}
+
+      ## Rejection/Failure Details
+      {{failure_details}}
+
+      ---
+
+      Analyze this failure and provide:
+      1. Clear description of what happened
+      2. Root cause analysis (use 5 Whys)
+      3. Categorized issues
+      4. Actionable learnings (with concept they apply to)
+      5. Immediate and future recommendations
+
+      Format as YAML matching the retrospective schema.
+
+  extract_patterns:
+    system: |
+      You analyze multiple retrospectives to find recurring patterns.
+      Your goal is to identify systemic issues that appear across failures.
+
+      ## Pattern Detection
+      - Look for similar root causes across retrospectives
+      - Identify concepts that frequently fail
+      - Find common categories of issues
+      - Note temporal patterns (same issue recurring)
+
+      ## Output
+      - Ranked list of patterns by frequency and impact
+      - Recommended systemic changes
+      - Suggested template/prompt improvements
+
+    user: |
+      Analyze these retrospectives for patterns:
+
+      {{#each retrospectives}}
+      ## Retrospective: {{this.retro_id}}
+      Flow: {{this.flow_id}}
+      Trigger: {{this.trigger.concept}}.{{this.trigger.action}}
+      Root Causes:
+      {{#each this.failure_analysis.root_causes}}
+      - [{{this.category}}] {{this.description}}
+      {{/each}}
+      Learnings:
+      {{#each this.learnings}}
+      - {{this.insight}} (applies to: {{this.applies_to}})
+      {{/each}}
+
+      {{/each}}
+
+      ---
+
+      Identify patterns and recommend systemic improvements.
+
+examples:
+  analyze:
+    - input:
+        trigger_concept: quality
+        trigger_action: review
+        trigger_status: rejected
+        flow_id: flow-2025-01-15-10h30m00s
+        failed_output: |
+          review_id: review-042
+          status: rejected
+          issues:
+            - severity: critical
+              description: SQL injection vulnerability in user input handling
+              file: src/api/users.ts
+              line: 45
+        failure_details: |
+          Security review failed due to unsanitized user input being
+          passed directly to database query.
+      output: |
+        retro_id: retro-001
+        flow_id: flow-2025-01-15-10h30m00s
+        timestamp: 2025-01-15T10:45:00Z
+        trigger:
+          concept: quality
+          action: review
+          status: rejected
+
+        failure_analysis:
+          what_happened: |
+            Implementation passed functional tests but failed security review.
+            A SQL injection vulnerability was identified where user input
+            from the API endpoint was concatenated directly into a SQL query
+            without sanitization or parameterization.
+
+          root_causes:
+            - category: architecture
+              description: Architecture did not specify security requirements for data layer
+              evidence: Architecture doc focused on API design but omitted database security patterns
+              why_chain:
+                - "Why was input unsanitized? Developer concatenated input directly"
+                - "Why did developer do that? No security guidance in architecture"
+                - "Why no security guidance? Architecture template lacks security section"
+
+            - category: implementation
+              description: Used string concatenation instead of parameterized queries
+              evidence: "Line 45: `SELECT * FROM users WHERE id = '${userId}'`"
+
+            - category: process
+              description: No security-focused review before general code review
+              evidence: Security issue caught late in quality phase
+
+          contributing_factors:
+            - Time pressure led to shortcuts
+            - Developer unfamiliar with SQL injection risks
+            - No static analysis for security vulnerabilities
+
+        learnings:
+          - id: L001
+            insight: Architecture must include security requirements for each layer
+            applies_to: architecture
+            action: Add "Security Considerations" section to architecture template
+            priority: high
+
+          - id: L002
+            insight: Database queries must use parameterized statements
+            applies_to: implementation
+            action: Add security checklist to implementation prompt
+            priority: high
+
+          - id: L003
+            insight: Run security linting before code review
+            applies_to: quality
+            action: Add security scan step before review in sync rules
+            priority: medium
+
+        recommendations:
+          immediate:
+            - Replace string concatenation with parameterized query
+            - Add input validation at API boundary
+            - Review other database queries for similar issues
+
+          future:
+            - Add security section to architecture template
+            - Include OWASP Top 10 checklist in implementation prompt
+            - Add automated security scanning to CI pipeline
+            - Consider security-focused review as separate sync step
+
+        status: analyzed
+
+validation:
+  required_fields:
+    - retro_id
+    - flow_id
+    - trigger
+    - failure_analysis
+    - learnings
+    - recommendations
+    - status
+
+  learning_requirements:
+    - must_have_insight: true
+    - must_have_applies_to: true
+    - must_have_action: true
+
+  root_cause_requirements:
+    - must_have_category: true
+    - must_have_evidence: true

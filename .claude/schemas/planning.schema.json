@@ -1,0 +1,243 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Planning",
+  "description": "Schema for Chain-of-Thought planning output",
+  "type": "object",
+  "required": [
+    "plan_id",
+    "objective",
+    "timestamp",
+    "step_1_decomposition",
+    "step_2_constraints",
+    "step_3_unknowns",
+    "step_4_options",
+    "step_5_evaluation",
+    "step_6_success_criteria",
+    "status"
+  ],
+  "properties": {
+    "plan_id": {
+      "type": "string",
+      "pattern": "^plan-[0-9]{3,}$",
+      "description": "Unique identifier for this plan"
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 10,
+      "description": "What this plan is for"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "step_1_decomposition": {
+      "type": "object",
+      "required": ["main_problem", "sub_problems"],
+      "properties": {
+        "main_problem": {
+          "type": "string",
+          "minLength": 10
+        },
+        "sub_problems": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "description"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "dependencies": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "scope_boundary": {
+          "type": "string",
+          "description": "What is in and out of scope"
+        }
+      }
+    },
+    "step_2_constraints": {
+      "type": "object",
+      "properties": {
+        "technical": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "performance": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cost": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "quality": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "business": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "step_3_unknowns": {
+      "type": "object",
+      "required": ["assumptions"],
+      "properties": {
+        "missing_information": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          },
+          "description": "Explicit assumptions being made"
+        },
+        "risks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "clarifications_needed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "step_4_options": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["name", "description", "trade_offs", "risk_level"],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "trade_offs": {
+            "type": "object",
+            "required": ["pros", "cons"],
+            "properties": {
+              "pros": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "cons": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "fit_with_constraints": {
+            "type": "string",
+            "enum": ["High", "Medium", "Low"]
+          },
+          "risk_level": {
+            "type": "string",
+            "enum": ["High", "Medium", "Low"]
+          }
+        }
+      }
+    },
+    "step_5_evaluation": {
+      "type": "object",
+      "required": ["recommendation", "rationale"],
+      "properties": {
+        "scoring": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object"
+          }
+        },
+        "recommendation": {
+          "type": "string",
+          "minLength": 3,
+          "description": "The recommended option"
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 50,
+          "description": "Why this option is recommended"
+        },
+        "would_change_if": {
+          "type": "string",
+          "description": "Conditions that would change the recommendation"
+        }
+      }
+    },
+    "step_6_success_criteria": {
+      "type": "object",
+      "required": ["acceptance_conditions"],
+      "properties": {
+        "metrics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "acceptance_conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "description": "Confidence level in this plan"
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Issues that must be resolved before proceeding"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "ready", "needs_clarification", "blocked"],
+      "description": "Current status of the plan"
+    }
+  }
+}

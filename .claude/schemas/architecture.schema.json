@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://zen.dev/schemas/architecture.schema.json",
+  "title": "Zen Architecture Schema",
+  "description": "Schema for architecture state files in koan/architecture/",
+  "type": "object",
+  "required": ["id", "status", "summary"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^arch-[0-9]{3,}$",
+      "description": "Unique architecture identifier"
+    },
+    "story_id": {
+      "type": "string",
+      "pattern": "^story-[0-9]{3,}$",
+      "description": "Reference to the story this architecture addresses"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["designing", "completed", "needs_revision", "approved", "blocked"],
+      "description": "Architecture status"
+    },
+    "estimated_risk": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "Overall risk assessment"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 10,
+      "description": "One-line summary of the selected approach"
+    },
+    "details": {
+      "type": "object",
+      "description": "Full architecture details (progressive disclosure)",
+      "properties": {
+        "approaches_evaluated": {
+          "type": "array",
+          "description": "Alternative approaches that were considered"
+        },
+        "selected_approach": {
+          "type": "object",
+          "description": "The chosen approach with justification"
+        },
+        "technical_design": {
+          "type": "object",
+          "description": "Component structure, data flow, interfaces"
+        },
+        "risks": {
+          "type": "array",
+          "description": "Risk assessment with mitigations"
+        },
+        "security_considerations": {
+          "type": "array",
+          "description": "Security considerations"
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "created_at": { "type": "string" },
+            "concept": { "type": "string" },
+            "model": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,526 @@
+# Zen Skills Manifest
+# Central registry of all skills and their usage across agents
+#
+# This file provides:
+# 1. Single source of truth for all available skills
+# 2. Mapping of skills to agents that use them
+# 3. Validation that all skill references are valid
+# 4. Priority classifications (P0-P3) for each skill
+#
+# Generated/Updated: install.sh
+# Location: .claude/skills-manifest.yaml
+
+version: "1.0.0"
+generated_at: "${INSTALL_DATE}"
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Skill Definitions
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+skills:
+  # ─────────────────────────────────────────────────
+  # P0 - Critical Skills (Used by multiple agents)
+  # ─────────────────────────────────────────────────
+
+  security-vulnerability-scanning:
+    priority: P0
+    category: security
+    file: "skills/security-vulnerability-scanning.md"
+    description: "Detects SQL injection, XSS, command injection, and other OWASP top 10 vulnerabilities"
+    used_by:
+      - quality-concept
+      - verification-concept
+      - implementation-concept
+
+  project-structure:
+    priority: P0
+    category: organization
+    file: "skills/project-structure.md"
+    description: "Validates file placement and prevents code in protected directories"
+    used_by:
+      - implementation-concept
+      - architecture-concept
+      - quality-concept
+      - code-analysis-concept
+
+  error-classification:
+    priority: P0
+    category: reliability
+    file: "skills/error-classification.md"
+    description: "Classifies errors by taxonomy (transient, permanent, degraded) for appropriate recovery"
+    used_by:
+      - quality-concept
+      - verification-concept
+      - implementation-concept
+
+  schema-validation:
+    priority: P0
+    category: validation
+    file: "skills/schema-validation.md"
+    description: "Validates YAML/JSON against schemas for data integrity"
+    used_by:
+      - story-concept
+      - architecture-concept
+
+  # ─────────────────────────────────────────────────
+  # P1 - Core Skills (Essential for specific concepts)
+  # ─────────────────────────────────────────────────
+
+  incremental-loading:
+    priority: P1
+    category: performance
+    file: "skills/incremental-loading.md"
+    description: "Loads context incrementally to optimize token usage"
+    used_by:
+      - architecture-concept
+      - code-analysis-concept
+
+  semantic-memory:
+    priority: P1
+    category: context
+    file: "skills/semantic-memory.md"
+    description: "Stores and retrieves semantic memories across sessions"
+    used_by:
+      - context-concept
+      - code-analysis-concept
+      - story-concept
+
+  dependency-impact-analysis:
+    priority: P1
+    category: analysis
+    file: "skills/dependency-impact-analysis.md"
+    description: "Analyzes impact of changes across codebase dependencies"
+    used_by:
+      - architecture-concept
+      - code-analysis-concept
+      - verification-concept
+
+  cross-project-knowledge:
+    priority: P1
+    category: knowledge
+    file: "skills/cross-project-knowledge.md"
+    description: "Applies patterns learned from other projects"
+    used_by:
+      - architecture-concept
+      - code-analysis-concept
+      - verification-concept
+
+  acceptance-criteria-generation:
+    priority: P1
+    category: requirements
+    file: "skills/acceptance-criteria-generation.md"
+    description: "Generates testable acceptance criteria from user stories"
+    used_by:
+      - story-concept
+
+  story-decomposition:
+    priority: P1
+    category: requirements
+    file: "skills/story-decomposition.md"
+    description: "Breaks down complex stories into implementable units"
+    used_by:
+      - story-concept
+
+  security-design-patterns:
+    priority: P1
+    category: security
+    file: "skills/security-design-patterns.md"
+    description: "Applies security patterns to architecture decisions"
+    used_by:
+      - architecture-concept
+
+  api-design-patterns:
+    priority: P1
+    category: design
+    file: "skills/api-design-patterns.md"
+    description: "REST, GraphQL, and API design best practices"
+    used_by:
+      - architecture-concept
+
+  code-template-patterns:
+    priority: P1
+    category: implementation
+    file: "skills/code-template-patterns.md"
+    description: "Generates code from architecture templates"
+    used_by:
+      - implementation-concept
+
+  refactoring-patterns:
+    priority: P1
+    category: implementation
+    file: "skills/refactoring-patterns.md"
+    description: "Safe refactoring techniques and patterns"
+    used_by:
+      - implementation-concept
+
+  test-generation-strategy:
+    priority: P1
+    category: testing
+    file: "skills/test-generation-strategy.md"
+    description: "Generates comprehensive test suites"
+    used_by:
+      - implementation-concept
+
+  branch-strategy:
+    priority: P1
+    category: git
+    file: "skills/branch-strategy.md"
+    description: "Git branching patterns and strategies"
+    used_by:
+      - version-concept
+
+  changelog-generation:
+    priority: P1
+    category: documentation
+    file: "skills/changelog-generation.md"
+    description: "Generates changelogs from git history"
+    used_by:
+      - version-concept
+
+  semantic-versioning:
+    priority: P1
+    category: versioning
+    file: "skills/semantic-versioning.md"
+    description: "Applies semantic versioning rules"
+    used_by:
+      - version-concept
+
+  smart-summarization:
+    priority: P1
+    category: context
+    file: "skills/smart-summarization.md"
+    description: "Creates intelligent summaries preserving key information"
+    used_by:
+      - context-concept
+
+  context-prioritization:
+    priority: P1
+    category: context
+    file: "skills/context-prioritization.md"
+    description: "Prioritizes context by relevance"
+    used_by:
+      - context-concept
+
+  documentation-generation:
+    priority: P1
+    category: documentation
+    file: "skills/documentation-generation.md"
+    description: "Generates comprehensive documentation"
+    used_by:
+      - documentation-concept
+
+  # ─────────────────────────────────────────────────
+  # P2 - Enhancement Skills (Improve quality)
+  # ─────────────────────────────────────────────────
+
+  code-coverage-analysis:
+    priority: P2
+    category: testing
+    file: "skills/code-coverage-analysis.md"
+    description: "Analyzes test coverage gaps and recommends tests"
+    used_by:
+      - quality-concept
+      - verification-concept
+
+  effort-estimation:
+    priority: P2
+    category: planning
+    file: "skills/effort-estimation.md"
+    description: "Estimates implementation effort"
+    used_by:
+      - architecture-concept
+      - story-concept
+
+  requirement-prioritization:
+    priority: P2
+    category: requirements
+    file: "skills/requirement-prioritization.md"
+    description: "Prioritizes requirements by value and effort"
+    used_by:
+      - story-concept
+
+  performance-estimation:
+    priority: P2
+    category: performance
+    file: "skills/performance-estimation.md"
+    description: "Estimates performance characteristics"
+    used_by:
+      - architecture-concept
+
+  code-style-enforcement:
+    priority: P2
+    category: quality
+    file: "skills/code-style-enforcement.md"
+    description: "Enforces code style consistency"
+    used_by:
+      - implementation-concept
+
+  release-management:
+    priority: P2
+    category: release
+    file: "skills/release-management.md"
+    description: "Manages release processes"
+    used_by:
+      - version-concept
+
+  # ─────────────────────────────────────────────────
+  # P3 - Additional Skills (Nice to have)
+  # ─────────────────────────────────────────────────
+
+  performance-testing-patterns:
+    priority: P3
+    category: testing
+    file: "skills/performance-testing-patterns.md"
+    description: "Load testing, stress testing, and benchmarking"
+    used_by:
+      - quality-concept
+
+  accessibility-checking:
+    priority: P3
+    category: quality
+    file: "skills/accessibility-checking.md"
+    description: "WCAG compliance and ARIA best practices"
+    used_by:
+      - quality-concept
+
+  batch-processing:
+    priority: P3
+    category: performance
+    file: "skills/batch-processing.md"
+    description: "Batches operations for efficiency"
+    used_by:
+      - context-concept
+
+  output-caching:
+    priority: P3
+    category: performance
+    file: "skills/output-caching.md"
+    description: "Caches concept outputs for reuse"
+    used_by:
+      - architecture-concept
+
+  # ─────────────────────────────────────────────────
+  # Operational Skills (Used across concepts)
+  # ─────────────────────────────────────────────────
+
+  smart-retry:
+    priority: P1
+    category: reliability
+    file: "skills/smart-retry.md"
+    description: "Intelligent retry with exponential backoff"
+    used_by:
+      - quality-concept
+      - verification-concept
+      - implementation-concept
+
+  workflow-replay:
+    priority: P1
+    category: recovery
+    file: "skills/workflow-replay.md"
+    description: "Replays failed workflow steps"
+    used_by:
+      - quality-concept
+      - verification-concept
+      - context-concept
+
+  provenance-analysis:
+    priority: P2
+    category: debugging
+    file: "skills/provenance-analysis.md"
+    description: "Analyzes provenance chains for debugging"
+    used_by:
+      - context-concept
+      - version-concept
+
+  cost-optimization:
+    priority: P2
+    category: efficiency
+    file: "skills/cost-optimization.md"
+    description: "Optimizes model usage for cost efficiency"
+    used_by:
+      - architecture-concept
+      - context-concept
+
+  # ─────────────────────────────────────────────────
+  # Meta Skills (For Zen development)
+  # ─────────────────────────────────────────────────
+
+  wysiwid-principles:
+    priority: P0
+    category: meta
+    file: "skills/wysiwid-principles.md"
+    description: "Core WYSIWID architecture principles"
+    used_by: []  # Reference skill, not directly used
+
+  concept-development:
+    priority: P2
+    category: meta
+    file: "skills/concept-development.md"
+    description: "Guidelines for developing new concepts"
+    used_by: []  # Reference skill
+
+  synchronization-patterns:
+    priority: P2
+    category: meta
+    file: "skills/synchronization-patterns.md"
+    description: "Patterns for sync rule development"
+    used_by: []  # Reference skill
+
+  phase2-optimizations-summary:
+    priority: P2
+    category: meta
+    file: "skills/phase2-optimizations-summary.md"
+    description: "Summary of Phase 2 optimization techniques"
+    used_by: []  # Reference skill
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Agent Skill Mappings
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+agents:
+  story-concept:
+    file: "agents/story-concept.md"
+    skills:
+      - acceptance-criteria-generation
+      - story-decomposition
+      - requirement-prioritization
+      - effort-estimation
+      - schema-validation
+      - semantic-memory
+
+  architecture-concept:
+    file: "agents/architecture-concept.md"
+    skills:
+      - project-structure
+      - security-design-patterns
+      - api-design-patterns
+      - dependency-impact-analysis
+      - cross-project-knowledge
+      - performance-estimation
+      - incremental-loading
+      - output-caching
+      - cost-optimization
+
+  code-analysis-concept:
+    file: "agents/code-analysis-concept.md"
+    skills:
+      - project-structure
+      - dependency-impact-analysis
+      - cross-project-knowledge
+      - incremental-loading
+      - semantic-memory
+
+  verification-concept:
+    file: "agents/verification-concept.md"
+    skills:
+      - security-vulnerability-scanning
+      - error-classification
+      - dependency-impact-analysis
+      - cross-project-knowledge
+      - code-coverage-analysis
+      - smart-retry
+      - workflow-replay
+
+  implementation-concept:
+    file: "agents/implementation-concept.md"
+    skills:
+      - project-structure
+      - security-vulnerability-scanning
+      - error-classification
+      - code-template-patterns
+      - refactoring-patterns
+      - test-generation-strategy
+      - code-style-enforcement
+      - smart-retry
+
+  quality-concept:
+    file: "agents/quality-concept.md"
+    skills:
+      - security-vulnerability-scanning
+      - project-structure
+      - documentation-generation
+      - error-classification
+      - code-coverage-analysis
+      - performance-testing-patterns
+      - accessibility-checking
+      - smart-retry
+      - workflow-replay
+
+  documentation-concept:
+    file: "agents/documentation-concept.md"
+    skills:
+      - documentation-generation
+      - project-structure
+
+  version-concept:
+    file: "agents/version-concept.md"
+    skills:
+      - branch-strategy
+      - changelog-generation
+      - semantic-versioning
+      - release-management
+      - provenance-analysis
+
+  context-concept:
+    file: "agents/context-concept.md"
+    skills:
+      - smart-summarization
+      - context-prioritization
+      - semantic-memory
+      - batch-processing
+      - provenance-analysis
+      - workflow-replay
+      - cost-optimization
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Validation Rules
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+validation:
+  # Every skill referenced by an agent must exist in skills section
+  all_references_valid: true
+
+  # Skills must have at least one user (except meta skills)
+  no_orphaned_skills: true
+
+  # P0 skills must be used by at least 2 agents
+  p0_multi_agent: true
+
+  # Validation errors will be logged during install
+  strict_mode: false  # Set to true to fail install on errors
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Statistics
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+statistics:
+  total_skills: 39
+  skills_by_priority:
+    P0: 4
+    P1: 19
+    P2: 8
+    P3: 4
+    meta: 4
+  total_agents: 9
+  average_skills_per_agent: 6.2
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Usage Notes
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#
+# To add a new skill:
+# 1. Create skill file in templates/skills/
+# 2. Add entry to this manifest under skills:
+# 3. Add skill to appropriate agents under agents:
+# 4. Run install.sh to validate and deploy
+#
+# To validate the manifest:
+# $ grep -h "^  - " templates/agents/*-concept.md | sort | uniq
+# Compare output with skills listed in this file
+#
+# Priority Guidelines:
+# - P0: Critical - Required for security/stability, used by 2+ agents
+# - P1: Core - Essential for specific concept functionality
+# - P2: Enhancement - Improves quality but not required
+# - P3: Additional - Nice to have, low priority
+# - Meta: Reference documentation, not directly used

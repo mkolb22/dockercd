@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "zen-server": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "mcp-servers/zen-server/dist/index.js"
+      ]
+    }
+  }
+}
