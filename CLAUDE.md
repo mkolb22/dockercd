@@ -6,10 +6,10 @@
 
 ### Before Writing Code
 
-1. **Run AST index** (`index_project`) on affected packages. Use the symbol graph to understand call chains, interfaces, and dependencies before changing anything.
-2. **Check existing specs** (`zen_spec_list`, `zen_spec_get`). If a spec covers the area you're modifying, use its contracts to validate your implementation. If no spec exists for a significant module, create one.
-3. **Run semantic search** (`semantic_search`) on the problem domain before implementing. Find similar patterns already in the codebase. Don't reinvent what exists.
-4. **Read before writing**. Never propose changes to code you haven't read. Understand the full call graph of what you're touching.
+1. **Index the codebase** (`index_project`) on affected packages. Then use `get_call_graph`, `find_references`, and `find_implementations` to understand call chains, blast radius, and interface contracts before changing anything.
+2. **Check existing specs** (`zen_spec_list`, `zen_spec_get`). If a spec covers the area you're modifying, use its contracts to validate your implementation. If no spec exists for a significant module, create one with `zen_spec_save`.
+3. **Search for patterns** (`semantic_search`, `find_similar_code`). Find related implementations already in the codebase. If semantic search returns nothing, run `embed_project` first. Don't reinvent what exists.
+4. **Read before writing**. Use `get_symbol_info` with `includeBody: true` to inspect specific symbols. Never propose changes to code you haven't read.
 
 ### While Writing Code
 
@@ -27,7 +27,7 @@ Apply these patterns in every module, on the first pass — not as a second-pass
 
 1. **Build and test** before declaring anything complete.
 2. **Save a checkpoint** (`zen_checkpoint_save`) after completing significant milestones — not just when asked.
-3. **Update memory** if you learned something stable about the project (architecture, gotchas, patterns).
+3. **Update memory** (`memory_store`) if you learned something stable about the project (architecture, gotchas, patterns).
 
 ### For Features and Multi-Step Work
 
@@ -35,17 +35,19 @@ Use zen workflow tools to structure work:
 - `zen_start_workflow` for new features — plans steps and assigns models
 - `zen_advance_workflow` to move through phases
 - `zen_get_concept` to load phase-specific instructions (story, architecture, implementation, quality)
+- `zen_story_save` / `zen_story_get` to capture and retrieve requirements
+- `zen_spec_save` / `zen_spec_generate` to define contracts and generate code from specs
 
 Don't skip phases. The story phase catches requirement gaps. The architecture phase catches design issues. The quality phase catches bugs. Each phase exists because skipping it has cost rework.
 
 ### What This Means in Practice
 
 If the user says "add feature X", the response is NOT to start writing code. It is:
-1. Index the codebase (`index_project`)
-2. Search for related patterns (`semantic_search`, `find_symbol`)
-3. Check/create specs (`zen_spec_list`)
-4. Plan the approach (understand the call graph, identify affected files)
-5. Then implement, applying the code quality standards above on the first pass
+1. Index the codebase (`index_project`, `embed_project`)
+2. Search for related patterns (`semantic_search`, `find_symbol`, `find_similar_code`)
+3. Understand the call graph (`get_call_graph`, `find_references`, `find_implementations`)
+4. Check/create specs (`zen_spec_list`, `zen_spec_save`)
+5. Plan the approach, then implement — applying the code quality standards above on the first pass
 
 The tools were built for you. Use them.
 
@@ -53,7 +55,8 @@ The tools were built for you. Use them.
 
 After context compression (auto-compact), always:
 - Read `CLAUDE.md` to restore project context
-- Check `zen_checkpoint_list` for the latest checkpoint with pending work
+- Run `zen_checkpoint_restore` with `latest: true` to reload pending work
+- Use `memory_recall` to retrieve relevant project knowledge
 
 ## Critical: .zen/ is Read-Only
 
