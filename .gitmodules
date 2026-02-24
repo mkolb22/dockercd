@@ -1,0 +1,4 @@
+[submodule ".zen"]
+	path = .zen
+	url = git@github.com:mkolb22/zen.git
+	branch = mcp
