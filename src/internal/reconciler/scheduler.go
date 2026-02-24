@@ -118,7 +118,9 @@ func (r *ReconcilerImpl) getAppPollInterval(appName string) time.Duration {
 		return override
 	}
 
-	appRec, err := r.deps.Store.GetApplication(context.Background(), appName)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	appRec, err := r.deps.Store.GetApplication(ctx, appName)
 	if err != nil || appRec == nil {
 		return defaultInterval
 	}

@@ -36,13 +36,13 @@ func runAppRollback(serverAddr, name, sha string) error {
 	body := fmt.Sprintf(`{"targetSHA":%q}`, sha)
 	url := serverAddr + "/api/v1/applications/" + name + "/rollback"
 
-	resp, err := http.Post(url, "application/json", strings.NewReader(body))
+	resp, err := apiClient.Post(url, "application/json", strings.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("connecting to server: %w", err)
 	}
 	defer resp.Body.Close()
 
-	data, _ := io.ReadAll(resp.Body)
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB max
 
 	if resp.StatusCode == http.StatusNotFound {
 		return fmt.Errorf("application %q not found", name)

@@ -151,10 +151,17 @@ type rawVolume struct {
 	External interface{} `yaml:"external,omitempty"`
 }
 
+// maxComposeFileSize is the maximum allowed compose file size (10 MiB).
+// Prevents unbounded memory allocation from malicious git repos.
+const maxComposeFileSize = 10 << 20
+
 func parseComposeFile(path string) (*rawCompose, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading file: %w", err)
+	}
+	if len(data) > maxComposeFileSize {
+		return nil, fmt.Errorf("compose file %s exceeds maximum size (%d bytes)", path, maxComposeFileSize)
 	}
 
 	var raw rawCompose
@@ -413,6 +420,9 @@ func parsePortString(s string) app.PortMapping {
 
 // splitPort splits a port string, handling IPv6 addresses in brackets.
 func splitPort(s string) []string {
+	if len(s) == 0 {
+		return []string{""}
+	}
 	// Simple case: no brackets
 	if s[0] != '[' {
 		return splitN(s, ':', 3)

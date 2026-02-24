@@ -83,8 +83,9 @@ type Monitor struct {
 	watched   map[string]*watchEntry
 	watchedMu sync.Mutex
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	cancelMu sync.Mutex
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
 }
 
 // SetBroadcaster sets the event broadcaster for health status change notifications.
@@ -117,7 +118,10 @@ func New(insp inspector.StateInspector, s *store.SQLiteStore, logger *slog.Logge
 
 // Start begins the health monitoring loop.
 func (m *Monitor) Start(ctx context.Context) error {
-	ctx, m.cancel = context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	m.cancelMu.Lock()
+	m.cancel = cancel
+	m.cancelMu.Unlock()
 
 	m.wg.Add(1)
 	go m.pollLoop(ctx)
@@ -132,8 +136,11 @@ func (m *Monitor) Start(ctx context.Context) error {
 
 // Stop cancels the health monitor.
 func (m *Monitor) Stop() {
-	if m.cancel != nil {
-		m.cancel()
+	m.cancelMu.Lock()
+	cancel := m.cancel
+	m.cancelMu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }
 
@@ -315,7 +322,7 @@ func (m *Monitor) checkWatchedApps(ctx context.Context) {
 			// Update status to reflect timeout
 			_ = m.store.UpdateApplicationStatus(ctx, entry.appName, store.StatusUpdate{
 				HealthStatus: string(health),
-				LastError:    "health check timeout: not all services healthy",
+				LastError:    store.StringPtr("health check timeout: not all services healthy"),
 			})
 			if m.Broadcaster != nil {
 				m.Broadcaster.Broadcast(eventbus.Event{

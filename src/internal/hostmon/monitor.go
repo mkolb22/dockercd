@@ -149,7 +149,8 @@ func (m *Monitor) checkHost(ctx context.Context, host store.DockerHostRecord) {
 	info, err := m.inspector.SystemInfo(checkCtx, host.URL)
 	if err != nil {
 		update.HealthStatus = "Unreachable"
-		update.LastError = err.Error()
+		errStr := err.Error()
+		update.LastError = &errStr
 		_ = m.store.UpdateDockerHostStatus(ctx, host.Name, update)
 
 		if oldStatus != "Unreachable" {
@@ -162,7 +163,7 @@ func (m *Monitor) checkHost(ctx context.Context, host store.DockerHostRecord) {
 	infoJSON, _ := json.Marshal(info)
 	update.HealthStatus = "Healthy"
 	update.InfoJSON = string(infoJSON)
-	update.LastError = " " // clear previous error
+	update.LastError = store.StringPtr("") // clear previous error
 
 	// Try host stats (best-effort)
 	stats, err := m.inspector.HostStats(checkCtx, host.URL)

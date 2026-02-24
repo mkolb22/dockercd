@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -33,7 +32,7 @@ func newAppDiffCmd() *cobra.Command {
 }
 
 func runAppDiff(serverAddr, name string, outputJSON bool) error {
-	resp, err := http.Get(serverAddr + "/api/v1/applications/" + name + "/diff")
+	resp, err := apiClient.Get(serverAddr + "/api/v1/applications/" + name + "/diff")
 	if err != nil {
 		return fmt.Errorf("connecting to server: %w", err)
 	}

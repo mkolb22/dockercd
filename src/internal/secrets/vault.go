@@ -62,7 +62,7 @@ func (p *VaultProvider) Decrypt(ctx context.Context, ref string) (map[string]str
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16)) // 64 KiB max error body
 		return nil, fmt.Errorf("vault returned %d: %s", resp.StatusCode, string(body))
 	}
 

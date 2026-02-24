@@ -156,6 +156,10 @@ func (r *ReconcilerImpl) Start(ctx context.Context) error {
 	r.wg.Add(1)
 	go r.schedulerLoop(ctx)
 
+	// Start retention cleanup (runs every 6 hours)
+	r.wg.Add(1)
+	go r.retentionLoop(ctx)
+
 	// Block until context is canceled
 	<-ctx.Done()
 
@@ -256,7 +260,7 @@ func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced
 	if err != nil {
 		r.updateStatus(ctx, appName, store.StatusUpdate{
 			HealthStatus: string(app.HealthStatusDegraded),
-			LastError:    fmt.Sprintf("git sync failed: %v", err),
+			LastError:    store.StringPtr(fmt.Sprintf("git sync failed: %v", err)),
 		})
 		return nil, nil, "", fmt.Errorf("git sync failed: %v", err)
 	}
@@ -288,7 +292,7 @@ func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced
 	if err != nil {
 		r.updateStatus(ctx, appName, store.StatusUpdate{
 			HealthStatus: string(app.HealthStatusDegraded),
-			LastError:    fmt.Sprintf("parse error: %v", err),
+			LastError:    store.StringPtr(fmt.Sprintf("parse error: %v", err)),
 		})
 		return nil, nil, headSHA, fmt.Errorf("parse error: %v", err)
 	}
@@ -300,7 +304,7 @@ func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced
 	if err := checkPortConflicts(ctx, r.deps.Store, appName, composeSpec.Services); err != nil {
 		r.updateStatus(ctx, appName, store.StatusUpdate{
 			HealthStatus: string(app.HealthStatusDegraded),
-			LastError:    fmt.Sprintf("port conflict: %v", err),
+			LastError:    store.StringPtr(fmt.Sprintf("port conflict: %v", err)),
 		})
 		return nil, nil, headSHA, fmt.Errorf("port conflict: %v", err)
 	}
@@ -398,7 +402,7 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 		r.updateStatus(ctx, appName, store.StatusUpdate{
 			SyncStatus:    string(app.SyncStatusSynced),
 			LastSyncedSHA: headSHA,
-			LastError:     " ", // clear error (space to trigger update)
+			LastError:     store.StringPtr(""), // clear error
 		})
 		return r.finishResult(ctx, result, app.SyncResultSkipped, "", logger)
 	}
@@ -479,7 +483,7 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 			breaker.RecordFailure()
 			r.updateStatus(ctx, appName, store.StatusUpdate{
 				HealthStatus: string(app.HealthStatusDegraded),
-				LastError:    fmt.Sprintf("deploy error: %v", err),
+				LastError:    store.StringPtr(fmt.Sprintf("deploy error: %v", err)),
 			})
 			return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("deploy error: %v", err), logger)
 		}
@@ -496,7 +500,7 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 				breaker.RecordFailure()
 				r.updateStatus(ctx, appName, store.StatusUpdate{
 					HealthStatus: string(app.HealthStatusDegraded),
-					LastError:    fmt.Sprintf("wave %d deploy error: %v", wave.Wave, err),
+					LastError:    store.StringPtr(fmt.Sprintf("wave %d deploy error: %v", wave.Wave, err)),
 				})
 				return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("wave %d deploy error: %v", wave.Wave, err), logger)
 			}
@@ -511,7 +515,7 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 					breaker.RecordFailure()
 					r.updateStatus(ctx, appName, store.StatusUpdate{
 						HealthStatus: string(app.HealthStatusDegraded),
-						LastError:    fmt.Sprintf("wave %d health gate failed: %v", wave.Wave, err),
+						LastError:    store.StringPtr(fmt.Sprintf("wave %d health gate failed: %v", wave.Wave, err)),
 					})
 					return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("wave %d health gate failed: %v", wave.Wave, err), logger)
 				}
@@ -539,7 +543,7 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 		HealthStatus:  string(app.HealthStatusProgressing),
 		LastSyncedSHA: headSHA,
 		LastSyncTime:  &now,
-		LastError:     " ", // clear
+		LastError:     store.StringPtr(""), // clear
 	})
 
 	// Register with health monitor to transition from Progressing → Healthy
@@ -646,6 +650,39 @@ func (r *ReconcilerImpl) updateStatus(ctx context.Context, appName string, updat
 }
 
 // getAppLock returns a per-app mutex for serializing reconciliation.
+// retentionLoop periodically prunes old events and sync history.
+func (r *ReconcilerImpl) retentionLoop(ctx context.Context) {
+	defer r.wg.Done()
+
+	const (
+		retentionInterval = 6 * time.Hour
+		eventMaxAge       = 30 * 24 * time.Hour // 30 days
+		syncMaxPerApp     = 100
+	)
+
+	ticker := time.NewTicker(retentionInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if events, err := r.deps.Store.PruneOldEvents(ctx, eventMaxAge); err != nil {
+				r.logger.Error("event retention cleanup failed", "error", err)
+			} else if events > 0 {
+				r.logger.Info("pruned old events", "deleted", events)
+			}
+
+			if syncs, err := r.deps.Store.PruneSyncHistory(ctx, syncMaxPerApp); err != nil {
+				r.logger.Error("sync history retention cleanup failed", "error", err)
+			} else if syncs > 0 {
+				r.logger.Info("pruned sync history", "deleted", syncs)
+			}
+		}
+	}
+}
+
 func (r *ReconcilerImpl) getAppLock(appName string) *sync.Mutex {
 	val, _ := r.appLocks.LoadOrStore(appName, &sync.Mutex{})
 	return val.(*sync.Mutex)
@@ -747,7 +784,7 @@ func (r *ReconcilerImpl) Rollback(ctx context.Context, appName string, targetSHA
 	if err := r.deps.Deployer.Deploy(ctx, deployReq); err != nil {
 		r.updateStatus(ctx, appName, store.StatusUpdate{
 			HealthStatus: string(app.HealthStatusDegraded),
-			LastError:    fmt.Sprintf("rollback deploy error: %v", err),
+			LastError:    store.StringPtr(fmt.Sprintf("rollback deploy error: %v", err)),
 		})
 		return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("deploy error: %v", err), logger)
 	}
@@ -758,7 +795,7 @@ func (r *ReconcilerImpl) Rollback(ctx context.Context, appName string, targetSHA
 		HealthStatus:  string(app.HealthStatusProgressing),
 		LastSyncedSHA: targetSHA,
 		LastSyncTime:  &now,
-		LastError:     " ",
+		LastError:     store.StringPtr(""),
 	})
 
 	// Carry the stored compose spec snapshot forward into the new sync record.

@@ -131,9 +131,9 @@ func (s *SQLiteStore) UpdateApplicationStatus(ctx context.Context, name string, 
 		sets = append(sets, "last_sync_time = ?")
 		args = append(args, *update.LastSyncTime)
 	}
-	if update.LastError != "" {
+	if update.LastError != nil {
 		sets = append(sets, "last_error = ?")
-		args = append(args, update.LastError)
+		args = append(args, *update.LastError)
 	}
 	if update.ServicesJSON != "" {
 		sets = append(sets, "services_json = ?")
@@ -430,9 +430,9 @@ func (s *SQLiteStore) UpdateDockerHostStatus(ctx context.Context, name string, u
 		sets = append(sets, "last_check = ?")
 		args = append(args, *update.LastCheck)
 	}
-	if update.LastError != "" {
+	if update.LastError != nil {
 		sets = append(sets, "last_error = ?")
-		args = append(args, update.LastError)
+		args = append(args, *update.LastError)
 	}
 	if update.InfoJSON != "" {
 		sets = append(sets, "info_json = ?")
@@ -509,4 +509,35 @@ func scanDockerHost(row *sql.Row) (*DockerHostRecord, error) {
 
 func joinStrings(strs []string, sep string) string {
 	return strings.Join(strs, sep)
+}
+
+// PruneOldEvents deletes events older than the given duration.
+// Returns the number of deleted rows.
+func (s *SQLiteStore) PruneOldEvents(ctx context.Context, maxAge time.Duration) (int64, error) {
+	cutoff := time.Now().UTC().Add(-maxAge)
+	result, err := s.db.ExecContext(ctx,
+		"DELETE FROM events WHERE created_at < ?", cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("pruning old events: %w", err)
+	}
+	return result.RowsAffected()
+}
+
+// PruneSyncHistory keeps only the most recent maxPerApp sync records per app.
+// Returns the number of deleted rows.
+func (s *SQLiteStore) PruneSyncHistory(ctx context.Context, maxPerApp int) (int64, error) {
+	// Delete sync records that are not in the top N per app.
+	result, err := s.db.ExecContext(ctx, `
+		DELETE FROM sync_history
+		WHERE id NOT IN (
+			SELECT id FROM (
+				SELECT id, ROW_NUMBER() OVER (PARTITION BY app_name ORDER BY started_at DESC) AS rn
+				FROM sync_history
+			) ranked
+			WHERE rn <= ?
+		)`, maxPerApp)
+	if err != nil {
+		return 0, fmt.Errorf("pruning sync history: %w", err)
+	}
+	return result.RowsAffected()
 }

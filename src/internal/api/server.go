@@ -133,6 +133,11 @@ func NewServer(addr string, deps ServerDeps) *Server {
 			Addr:              addr,
 			Handler:           router,
 			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			// WriteTimeout is intentionally omitted: SSE streams are long-lived
+			// connections. Per-request write deadlines are handled by the
+			// middleware.Timeout(30s) applied to non-SSE routes.
 		},
 		handler: h,
 		logger:  deps.Logger,

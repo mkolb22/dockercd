@@ -83,8 +83,9 @@ type Watcher struct {
 	hostWatchers   map[string]context.CancelFunc
 	hostWatchersMu sync.Mutex
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	cancelMu sync.Mutex
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
 }
 
 // SetBroadcaster sets the event broadcaster for container event notifications.
@@ -128,7 +129,10 @@ func NewWatcher(
 
 // Start begins watching Docker events. Blocks until ctx is canceled.
 func (w *Watcher) Start(ctx context.Context) error {
-	ctx, w.cancel = context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	w.cancelMu.Lock()
+	w.cancel = cancel
+	w.cancelMu.Unlock()
 
 	// Build initial project name → app name mapping
 	if err := w.refreshProjectMap(ctx); err != nil {
@@ -155,8 +159,11 @@ func (w *Watcher) Stop() {
 	}
 	w.hostWatchersMu.Unlock()
 
-	if w.cancel != nil {
-		w.cancel()
+	w.cancelMu.Lock()
+	cancel := w.cancel
+	w.cancelMu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }
 
@@ -430,7 +437,9 @@ func (w *Watcher) recordEvent(appName string, msg events.Message, serviceName st
 		Message:  "Container " + string(msg.Action) + ": " + serviceName,
 		Severity: "warning",
 	}
-	if err := w.store.RecordEvent(context.Background(), event); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := w.store.RecordEvent(ctx, event); err != nil {
 		w.logger.Error("failed to record event", "error", err)
 	}
 }

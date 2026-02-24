@@ -183,11 +183,12 @@ func (h *Handler) CheckHost(w http.ResponseWriter, r *http.Request) {
 	info, err := h.inspector.SystemInfo(r.Context(), host.URL)
 	if err != nil {
 		update.HealthStatus = "Unreachable"
-		update.LastError = err.Error()
+		errStr := err.Error()
+		update.LastError = &errStr
 		_ = h.store.UpdateDockerHostStatus(r.Context(), name, update)
 
 		host.HealthStatus = update.HealthStatus
-		host.LastError = update.LastError
+		host.LastError = *update.LastError
 		host.LastCheck = &now
 		writeJSON(w, http.StatusOK, buildHostResponse(*host))
 		return
@@ -196,7 +197,7 @@ func (h *Handler) CheckHost(w http.ResponseWriter, r *http.Request) {
 	infoJSON, _ := json.Marshal(info)
 	update.HealthStatus = "Healthy"
 	update.InfoJSON = string(infoJSON)
-	update.LastError = " " // clear previous error
+	update.LastError = store.StringPtr("") // clear previous error
 
 	// Try host stats (best-effort)
 	stats, err := h.inspector.HostStats(r.Context(), host.URL)

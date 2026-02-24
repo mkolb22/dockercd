@@ -53,7 +53,7 @@ func (c *DockerHubChecker) ListTags(ctx context.Context, image string) ([]string
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16)) // 64 KiB max error body
 		return nil, fmt.Errorf("docker hub returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -102,7 +102,7 @@ func (c *GenericRegistryChecker) ListTags(ctx context.Context, image string) ([]
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16)) // 64 KiB max error body
 		return nil, fmt.Errorf("registry returned %d: %s", resp.StatusCode, string(body))
 	}
 

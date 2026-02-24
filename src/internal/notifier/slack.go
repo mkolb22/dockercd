@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -60,7 +61,10 @@ func (s *SlackNotifier) Notify(ctx context.Context, event NotificationEvent) err
 	if err != nil {
 		return fmt.Errorf("sending slack notification: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+		resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("slack returned HTTP %d", resp.StatusCode)

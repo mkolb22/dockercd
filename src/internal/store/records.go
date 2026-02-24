@@ -20,17 +20,21 @@ type ApplicationRecord struct {
 }
 
 // StatusUpdate holds fields to update on an application's status.
-// Only non-zero/non-empty fields are applied.
+// Only non-zero/non-empty fields are applied. Pointer fields use nil
+// to mean "don't update" and a non-nil value to set (including empty string to clear).
 type StatusUpdate struct {
 	SyncStatus     string
 	HealthStatus   string
 	LastSyncedSHA  string
 	HeadSHA        string
 	LastSyncTime   *time.Time
-	LastError      string
+	LastError      *string
 	ServicesJSON   string
 	ConditionsJSON string
 }
+
+// StringPtr returns a pointer to s. Used for StatusUpdate pointer fields.
+func StringPtr(s string) *string { return &s }
 
 // SyncRecord is the database representation of a sync attempt.
 type SyncRecord struct {
@@ -79,7 +83,7 @@ type DockerHostRecord struct {
 type HostStatusUpdate struct {
 	HealthStatus string
 	LastCheck    *time.Time
-	LastError    string
+	LastError    *string
 	InfoJSON     string
 	StatsJSON    string
 }

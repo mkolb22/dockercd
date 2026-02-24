@@ -2,8 +2,14 @@
 package cli
 
 import (
+	"net/http"
+	"time"
+
 	"github.com/spf13/cobra"
 )
+
+// apiClient is a shared HTTP client for CLI commands with a sensible timeout.
+var apiClient = &http.Client{Timeout: 30 * time.Second}
 
 var (
 	version = "dev"

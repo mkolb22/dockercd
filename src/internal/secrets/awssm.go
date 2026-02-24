@@ -71,7 +71,7 @@ func (p *AWSSecretsManagerProvider) Decrypt(ctx context.Context, ref string) (ma
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16)) // 64 KiB max error body
 		return nil, fmt.Errorf("aws returned %d: %s", resp.StatusCode, string(respBody))
 	}
 

@@ -78,8 +78,10 @@ func (h *Handler) CreateApplication(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if application.Metadata.Name == "" {
-		writeError(w, http.StatusBadRequest, "metadata.name is required", CodeBadRequest)
+	application.ApplyDefaults()
+
+	if err := application.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), CodeBadRequest)
 		return
 	}
 
@@ -497,7 +499,7 @@ func (h *Handler) AdoptApplication(w http.ResponseWriter, r *http.Request) {
 		SyncStatus:   string(app.SyncStatusSynced),
 		LastSyncTime: &now,
 		ServicesJSON: string(servicesJSON),
-		LastError:    " ",
+		LastError:    store.StringPtr(""),
 	})
 
 	h.logger.Info("application adopted", "name", name, "services", len(liveStates))
