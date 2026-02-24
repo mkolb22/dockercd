@@ -606,15 +606,16 @@
   }
 
   function updateBreadcrumb(items) {
-    var nav = document.getElementById('breadcrumb');
-    if (!nav) return;
-    nav.innerHTML = items.map(function(item, i) {
-      var sep = i > 0 ? '<span class="sep">/</span>' : '';
-      if (item.href) {
-        return sep + '<a href="' + item.href + '">' + Components.esc(item.label) + '</a>';
-      }
-      return sep + '<span>' + Components.esc(item.label) + '</span>';
-    }).join('');
+    var detail = document.getElementById('nav-detail-name');
+    if (!detail) return;
+    // Show detail name only on detail pages (items with 2+ parts)
+    if (items.length > 1) {
+      detail.textContent = '/ ' + items[items.length - 1].label;
+      detail.style.display = '';
+    } else {
+      detail.textContent = '';
+      detail.style.display = 'none';
+    }
   }
 
   // --- Init ---

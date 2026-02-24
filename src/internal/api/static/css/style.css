@@ -72,18 +72,6 @@ a:hover { text-decoration: underline; }
 
 .header-logo img { width: 24px; height: 24px; }
 
-.header-nav {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
-.header-nav a { color: var(--text-secondary); }
-.header-nav a:hover { color: var(--text-primary); }
-.header-nav .sep { margin: 0 0.25rem; color: var(--text-muted); }
-
 .header-status {
   margin-left: auto;
   font-size: 0.8rem;
@@ -1107,6 +1095,12 @@ td.muted { color: var(--text-secondary); }
 .header-nav-links .nav-link.active {
   color: var(--color-accent);
   background: rgba(96, 165, 250, 0.1);
+}
+
+.nav-detail-name {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  padding: 0.35rem 0.25rem;
 }
 
 /* TLS badge */
