@@ -42,6 +42,9 @@ type Config struct {
 	AWSRegion string `mapstructure:"aws_region"`
 	// AWSEndpoint is an optional custom AWS endpoint (e.g., for LocalStack).
 	AWSEndpoint string `mapstructure:"aws_endpoint"`
+	// APIToken is the bearer token for API authentication.
+	// If empty, the API is unauthenticated (for backward compatibility).
+	APIToken string `mapstructure:"api_token"`
 	// ImagePollInterval is how often to check registries for new image tags.
 	// Set to 0 to disable image update automation.
 	ImagePollInterval time.Duration `mapstructure:"image_poll_interval"`

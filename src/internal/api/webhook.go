@@ -12,9 +12,15 @@ import (
 	"github.com/mkolb22/dockercd/internal/app"
 )
 
+// maxWebhookBodySize is the maximum allowed webhook payload size (1 MiB).
+const maxWebhookBodySize = 1 << 20
+
 // HandleGitWebhook accepts GitHub/Gitea push events and triggers reconciliation
 // for any application whose repo URL matches the pushed repository.
 func (h *Handler) HandleGitWebhook(w http.ResponseWriter, r *http.Request) {
+	// Limit body size to prevent unbounded reads from untrusted input.
+	r.Body = http.MaxBytesReader(w, r.Body, maxWebhookBodySize)
+
 	// Read body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {

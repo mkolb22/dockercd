@@ -7,12 +7,14 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // VaultProvider retrieves secrets from HashiCorp Vault using the HTTP API.
 type VaultProvider struct {
-	addr  string // Vault server address (e.g., "http://vault:8200")
-	token string // Vault token for authentication
+	addr   string // Vault server address (e.g., "http://vault:8200")
+	token  string // Vault token for authentication
+	client *http.Client
 }
 
 // NewVault creates a VaultProvider.
@@ -20,6 +22,9 @@ func NewVault(addr, token string) *VaultProvider {
 	return &VaultProvider{
 		addr:  strings.TrimRight(addr, "/"),
 		token: token,
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 
@@ -50,7 +55,7 @@ func (p *VaultProvider) Decrypt(ctx context.Context, ref string) (map[string]str
 	}
 	req.Header.Set("X-Vault-Token", p.token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("vault request failed: %w", err)
 	}

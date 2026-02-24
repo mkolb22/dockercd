@@ -2,12 +2,14 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"embed"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -31,6 +33,7 @@ type ServerDeps struct {
 	SSEHub        eventbus.Broadcaster
 	EventWatcher  *events.Watcher
 	WebhookSecret string
+	APIToken      string // If non-empty, require Bearer token on API routes
 }
 
 // Server is the HTTP API server.
@@ -68,6 +71,9 @@ func NewServer(addr string, deps ServerDeps) *Server {
 	// API routes
 	router.Route("/api/v1", func(r chi.Router) {
 		r.Use(contentTypeJSON)
+		if deps.APIToken != "" {
+			r.Use(bearerAuth(deps.APIToken))
+		}
 		r.Get("/system", h.GetSystemInfo)
 		r.Get("/system/stats", h.GetHostStats)
 		r.Get("/settings/poll-interval", h.GetPollInterval)
@@ -100,7 +106,11 @@ func NewServer(addr string, deps ServerDeps) *Server {
 	})
 
 	// SSE event stream (outside JSON middleware — uses text/event-stream)
-	router.Get("/api/v1/events/stream", h.StreamEvents)
+	if deps.APIToken != "" {
+		router.With(bearerAuth(deps.APIToken)).Get("/api/v1/events/stream", h.StreamEvents)
+	} else {
+		router.Get("/api/v1/events/stream", h.StreamEvents)
+	}
 
 	// Git webhook (outside JSON middleware — accepts arbitrary push payloads)
 	router.Post("/api/v1/webhooks/git", h.HandleGitWebhook)
@@ -205,6 +215,26 @@ func serveIndex(w http.ResponseWriter, r *http.Request, fileServer http.Handler)
 	*r2.URL = *r.URL
 	r2.URL.Path = "/"
 	fileServer.ServeHTTP(w, r2)
+}
+
+// bearerAuth returns middleware that validates a Bearer token in the Authorization header.
+// Uses constant-time comparison to prevent timing attacks.
+func bearerAuth(token string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			auth := r.Header.Get("Authorization")
+			if !strings.HasPrefix(auth, "Bearer ") {
+				http.Error(w, `{"error":"missing or invalid Authorization header"}`, http.StatusUnauthorized)
+				return
+			}
+			provided := strings.TrimPrefix(auth, "Bearer ")
+			if subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
+				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // slogRequestLogger returns middleware that logs HTTP requests using slog.

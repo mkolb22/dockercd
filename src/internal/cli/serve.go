@@ -277,6 +277,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		WebhookSecret: cfg.WebhookSecret,
 		SSEHub:        sseHub,
 		EventWatcher:  eventWatcher,
+		APIToken:      cfg.APIToken,
 	})
 	if err := apiServer.Start(); err != nil {
 		return fmt.Errorf("starting API server: %w", err)

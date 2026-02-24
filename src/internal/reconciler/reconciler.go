@@ -710,6 +710,11 @@ func (r *ReconcilerImpl) Rollback(ctx context.Context, appName string, targetSHA
 		return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("git sync failed: %v", err), logger)
 	}
 
+	// Check out the target SHA so compose files reflect the rollback revision.
+	if err := r.deps.GitSyncer.CheckoutSHA(ctx, application.Spec.Source.RepoURL, targetSHA); err != nil {
+		return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("checkout target SHA failed: %v", err), logger)
+	}
+
 	// Build compose file paths using the cached repo.
 	repoPath := r.deps.GitSyncer.RepoPath(application.Spec.Source.RepoURL)
 	composePath := repoPath

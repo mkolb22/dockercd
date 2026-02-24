@@ -28,7 +28,8 @@ func (m *mockGitSyncer) Sync(_ context.Context, _ app.SourceSpec) (string, error
 	m.synced = true
 	return m.sha, m.err
 }
-func (m *mockGitSyncer) RepoPath(_ string) string { return m.path }
+func (m *mockGitSyncer) CheckoutSHA(_ context.Context, _ string, _ string) error { return m.err }
+func (m *mockGitSyncer) RepoPath(_ string) string                               { return m.path }
 func (m *mockGitSyncer) Commit(_ context.Context, _ string, _ string, _ []string) error {
 	return nil
 }

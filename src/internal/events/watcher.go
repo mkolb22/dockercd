@@ -379,11 +379,16 @@ func (w *Watcher) handleEvent(msg events.Message) {
 		return
 	}
 
+	containerID := msg.Actor.ID
+	if len(containerID) > 12 {
+		containerID = containerID[:12]
+	}
+
 	w.logger.Info("container event detected",
 		"app", appName,
 		"event", msg.Action,
 		"service", serviceName,
-		"container", msg.Actor.ID[:12],
+		"container", containerID,
 	)
 
 	// Record event in store

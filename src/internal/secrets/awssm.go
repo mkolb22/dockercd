@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // AWSSecretsManagerProvider retrieves secrets from AWS Secrets Manager.
@@ -17,6 +18,7 @@ import (
 type AWSSecretsManagerProvider struct {
 	region   string
 	endpoint string // Optional custom endpoint (for LocalStack, etc.)
+	client   *http.Client
 }
 
 // NewAWSSecretsManager creates an AWSSecretsManagerProvider.
@@ -28,6 +30,9 @@ func NewAWSSecretsManager(region, endpoint string) *AWSSecretsManagerProvider {
 	return &AWSSecretsManagerProvider{
 		region:   region,
 		endpoint: strings.TrimRight(endpoint, "/"),
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 
@@ -59,7 +64,7 @@ func (p *AWSSecretsManagerProvider) Decrypt(ctx context.Context, ref string) (ma
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	req.Header.Set("X-Amz-Target", "secretsmanager.GetSecretValue")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("aws request failed: %w", err)
 	}

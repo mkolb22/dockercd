@@ -23,6 +23,10 @@ type GitSyncer interface {
 	// If the repository is not yet cloned, it performs an initial clone.
 	Sync(ctx context.Context, source app.SourceSpec) (commitSHA string, err error)
 
+	// CheckoutSHA checks out a specific commit in the local clone. It fetches
+	// full history if necessary (the clone may be shallow). Used by rollback.
+	CheckoutSHA(ctx context.Context, repoURL string, sha string) error
+
 	// RepoPath returns the local filesystem path to the cloned repository
 	// for the given repo URL. Returns empty string if not yet cloned.
 	RepoPath(repoURL string) string
@@ -133,6 +137,55 @@ func (g *GoGitSyncer) Sync(ctx context.Context, source app.SourceSpec) (string, 
 	)
 
 	return sha, nil
+}
+
+// CheckoutSHA checks out a specific commit SHA in the local clone.
+// Because normal syncs use Depth: 1, the target SHA may not exist locally.
+// If so, we fetch full history first (unshallow), then checkout.
+func (g *GoGitSyncer) CheckoutSHA(ctx context.Context, repoURL string, sha string) error {
+	mu := g.repoMutex(repoURL)
+	mu.Lock()
+	defer mu.Unlock()
+
+	repoPath := g.cache.PathFor(repoURL)
+	repo, err := g.getOrOpenRepo(repoPath)
+	if err != nil {
+		return fmt.Errorf("opening repo at %q: %w", repoPath, err)
+	}
+
+	hash := plumbing.NewHash(sha)
+
+	// Try to resolve the commit first — it may already be available.
+	_, err = repo.CommitObject(hash)
+	if err != nil {
+		// Commit not available locally — fetch full history.
+		g.logger.Info("fetching full history for rollback", "repo", repoURL, "sha", sha)
+		err = repo.FetchContext(ctx, &git.FetchOptions{
+			RemoteName: "origin",
+			Depth:      0, // unshallow
+			Auth:       g.auth,
+		})
+		if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
+			return fmt.Errorf("fetching full history: %w", err)
+		}
+
+		// Verify the commit is now available.
+		if _, err := repo.CommitObject(hash); err != nil {
+			return fmt.Errorf("commit %s not found after fetch: %w", sha, err)
+		}
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("getting worktree: %w", err)
+	}
+
+	if err := wt.Checkout(&git.CheckoutOptions{Hash: hash, Force: true}); err != nil {
+		return fmt.Errorf("checking out %s: %w", sha, err)
+	}
+
+	g.logger.Info("checked out commit", "repo", repoURL, "sha", sha)
+	return nil
 }
 
 // RepoPath returns the local filesystem path to the cached clone for the given repo URL.
