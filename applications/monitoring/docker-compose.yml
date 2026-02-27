@@ -37,22 +37,6 @@ services:
     networks:
       - dockercd-net
 
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:latest
-    container_name: cadvisor
-    restart: unless-stopped
-    ports:
-      - "8081:8080"
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    privileged: true
-    networks:
-      - dockercd-net
-
 configs:
   prometheus-config:
     content: |
@@ -63,9 +47,6 @@ configs:
         - job_name: prometheus
           static_configs:
             - targets: ['localhost:9090']
-        - job_name: cadvisor
-          static_configs:
-            - targets: ['cadvisor:8080']
         - job_name: gitea
           static_configs:
             - targets: ['gitea:3000']
