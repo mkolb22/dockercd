@@ -1,0 +1,18 @@
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: uptime-kuma
+    restart: unless-stopped
+    ports:
+      - "3002:3001"
+    volumes:
+      - uptime-kuma-data:/app/data
+    networks:
+      - dockercd-net
+
+volumes:
+  uptime-kuma-data:
+
+networks:
+  dockercd-net:
+    external: true
