@@ -75,6 +75,7 @@ type Deps struct {
 	TLSLookup     func(host string) string // returns TLS cert path for a Docker host URL
 
 	WorkerCount int
+	ConfigDir   string // path to application manifest directory (watched for changes)
 }
 
 // ReconcilerImpl implements Reconciler with a worker pool and scheduler.

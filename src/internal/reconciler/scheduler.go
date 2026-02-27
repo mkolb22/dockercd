@@ -48,6 +48,8 @@ func (r *ReconcilerImpl) schedulerLoop(ctx context.Context) {
 			r.enqueue(appName)
 
 		case <-timer.C:
+			// Sync config directory: register new manifests, remove deleted ones
+			r.syncConfigManifests(ctx)
 			// Check for due apps
 			r.enqueueDueApps()
 		}

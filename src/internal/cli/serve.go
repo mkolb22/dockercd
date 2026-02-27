@@ -217,6 +217,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 		Broadcaster:   sseHub,
 		Notifier:      appNotifier,
 		TLSLookup:     tlsLookup,
+		ConfigDir:     cfg.ConfigDir,
 	})
 
 	// Initialize event watcher for self-healing
@@ -391,7 +392,12 @@ func loadApplicationManifests(ctx context.Context, configDir string, st *store.S
 			continue
 		}
 		if existing != nil {
-			logger.Debug("application already registered", "name", application.Metadata.Name)
+			// Ensure existing apps with manifest files are tagged as manifest-sourced
+			if existing.Source != "manifest" {
+				if err := st.SetApplicationSource(ctx, application.Metadata.Name, "manifest"); err != nil {
+					logger.Warn("updating application source", "name", application.Metadata.Name, "error", err)
+				}
+			}
 			continue
 		}
 
@@ -405,6 +411,7 @@ func loadApplicationManifests(ctx context.Context, configDir string, st *store.S
 		rec := &store.ApplicationRecord{
 			Name:         application.Metadata.Name,
 			Manifest:     string(manifestJSON),
+			Source:       "manifest",
 			SyncStatus:   string(app.SyncStatusUnknown),
 			HealthStatus: string(app.HealthStatusUnknown),
 		}

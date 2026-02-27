@@ -7,6 +7,7 @@ type ApplicationRecord struct {
 	ID             string     `json:"id"`
 	Name           string     `json:"name"`
 	Manifest       string     `json:"manifest"`
+	Source         string     `json:"source"` // "manifest" or "api"
 	SyncStatus     string     `json:"syncStatus"`
 	HealthStatus   string     `json:"healthStatus"`
 	LastSyncedSHA  string     `json:"lastSyncedSHA,omitempty"`

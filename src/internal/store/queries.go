@@ -19,10 +19,13 @@ func (s *SQLiteStore) CreateApplication(ctx context.Context, app *ApplicationRec
 	app.CreatedAt = now
 	app.UpdatedAt = now
 
+	if app.Source == "" {
+		app.Source = "api"
+	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO applications (id, name, manifest, sync_status, health_status, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		app.ID, app.Name, app.Manifest, app.SyncStatus, app.HealthStatus, app.CreatedAt, app.UpdatedAt,
+		`INSERT INTO applications (id, name, manifest, source, sync_status, health_status, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		app.ID, app.Name, app.Manifest, app.Source, app.SyncStatus, app.HealthStatus, app.CreatedAt, app.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("creating application %q: %w", app.Name, err)
@@ -33,7 +36,7 @@ func (s *SQLiteStore) CreateApplication(ctx context.Context, app *ApplicationRec
 // GetApplication retrieves an application by name.
 func (s *SQLiteStore) GetApplication(ctx context.Context, name string) (*ApplicationRecord, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, manifest, sync_status, health_status, last_synced_sha, head_sha,
+		`SELECT id, name, manifest, source, sync_status, health_status, last_synced_sha, head_sha,
 		        last_sync_time, last_error, services_json, conditions_json, created_at, updated_at
 		 FROM applications WHERE name = ?`, name,
 	)
@@ -43,7 +46,7 @@ func (s *SQLiteStore) GetApplication(ctx context.Context, name string) (*Applica
 	var lastSyncTime sql.NullTime
 
 	err := row.Scan(
-		&app.ID, &app.Name, &app.Manifest, &app.SyncStatus, &app.HealthStatus,
+		&app.ID, &app.Name, &app.Manifest, &app.Source, &app.SyncStatus, &app.HealthStatus,
 		&lastSyncedSHA, &headSHA, &lastSyncTime, &lastError,
 		&servicesJSON, &conditionsJSON, &app.CreatedAt, &app.UpdatedAt,
 	)
@@ -69,7 +72,7 @@ func (s *SQLiteStore) GetApplication(ctx context.Context, name string) (*Applica
 // ListApplications returns all application records.
 func (s *SQLiteStore) ListApplications(ctx context.Context) ([]ApplicationRecord, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, manifest, sync_status, health_status, last_synced_sha, head_sha,
+		`SELECT id, name, manifest, source, sync_status, health_status, last_synced_sha, head_sha,
 		        last_sync_time, last_error, services_json, conditions_json, created_at, updated_at
 		 FROM applications ORDER BY CASE WHEN name = 'dockercd' THEN 0 ELSE 1 END, name`,
 	)
@@ -85,7 +88,7 @@ func (s *SQLiteStore) ListApplications(ctx context.Context) ([]ApplicationRecord
 		var lastSyncTime sql.NullTime
 
 		if err := rows.Scan(
-			&app.ID, &app.Name, &app.Manifest, &app.SyncStatus, &app.HealthStatus,
+			&app.ID, &app.Name, &app.Manifest, &app.Source, &app.SyncStatus, &app.HealthStatus,
 			&lastSyncedSHA, &headSHA, &lastSyncTime, &lastError,
 			&servicesJSON, &conditionsJSON, &app.CreatedAt, &app.UpdatedAt,
 		); err != nil {
@@ -163,6 +166,15 @@ func (s *SQLiteStore) UpdateApplicationStatus(ctx context.Context, name string, 
 		return fmt.Errorf("application %q not found", name)
 	}
 	return nil
+}
+
+// SetApplicationSource updates the source field for an application.
+func (s *SQLiteStore) SetApplicationSource(ctx context.Context, name string, source string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE applications SET source = ?, updated_at = ? WHERE name = ?`,
+		source, time.Now().UTC(), name,
+	)
+	return err
 }
 
 // DeleteApplication removes an application and cascades to sync_history and events.
