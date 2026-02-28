@@ -259,9 +259,12 @@ export class ASTIndexer {
     }
 
     // Incremental: only index changed files
+    // Non-incremental: clear old index first to remove stale entries
     if (options.incremental) {
       const metadata = this.store.getMetadata();
       files = await this.getChangedFiles(files, metadata.fileHashes || {});
+    } else {
+      this.store.clearIndex();
     }
 
     // Index each file
@@ -368,7 +371,7 @@ export class ASTIndexer {
         }
       }
 
-      if (node.type === "class_declaration" || node.type === "class_definition") {
+      if (node.type === "class_declaration" || node.type === "class_definition" || node.type === "abstract_class_declaration") {
         const sym = extractSymbols(node, "class", parent);
         if (sym) {
           for (let i = 0; i < node.childCount; i++) {
@@ -539,6 +542,21 @@ export class ASTIndexer {
 
       if (node.type === "variable_declarator" || node.type === "assignment") {
         extractSymbols(node, "variable", parent);
+      }
+
+      // TypeScript/JavaScript: interface declarations
+      if (node.type === "interface_declaration") {
+        extractSymbols(node, "interface", parent);
+      }
+
+      // TypeScript: type alias declarations
+      if (node.type === "type_alias_declaration") {
+        extractSymbols(node, "type", parent);
+      }
+
+      // TypeScript/JavaScript: enum declarations
+      if (node.type === "enum_declaration") {
+        extractSymbols(node, "type", parent);
       }
 
       // Swift: property declarations

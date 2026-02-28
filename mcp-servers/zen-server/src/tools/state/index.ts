@@ -1,7 +1,7 @@
 /**
  * State Module
- * SQLite-backed operational state for health, events, checkpoints, and stories.
- * Provides 10 MCP tools including structured checkpoint save/restore.
+ * SQLite-backed operational state for health, events, checkpoints, stories, and migration.
+ * Provides 11 MCP tools including structured checkpoint save/restore and YAML→SQLite migration.
  */
 
 import { Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -11,6 +11,7 @@ import { createLazyLoader } from "../../utils/lazy.js";
 import { requireState } from "../../utils/guards.js";
 import { config } from "../../core/config.js";
 import { StateStore } from "./store.js";
+import { migrate, exportToYaml } from "./migrate.js";
 import type { HealthZone, CheckpointType, StoryStatus } from "./types.js";
 
 const dispatcher = createDispatcher();
@@ -265,6 +266,38 @@ export const tools: Tool[] = [
       },
     },
   },
+  {
+    name: "zen_migrate",
+    description:
+      "Migrate legacy YAML state files to SQLite, or export SQLite state back to YAML for debugging. One-time utility for transitioning from YAML-based koan/ state to SQLite.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["migrate", "export", "status"],
+          description: "Action: 'migrate' YAML→SQLite, 'export' SQLite→YAML for debugging, 'status' check migration state",
+        },
+        koan_dir: {
+          type: "string",
+          description: "Path to koan/ directory containing YAML state files (default: auto-detected from config)",
+        },
+        dry_run: {
+          type: "boolean",
+          description: "Preview what would be migrated without making changes (default: false)",
+        },
+        no_archive: {
+          type: "boolean",
+          description: "Skip archiving migrated YAML files (default: false)",
+        },
+        output_dir: {
+          type: "string",
+          description: "Output directory for YAML export (default: koan/.export/)",
+        },
+      },
+      required: ["action"],
+    },
+  },
 ];
 
 // Register handlers
@@ -497,6 +530,59 @@ dispatcher
         count: stories.length,
         stories,
       });
+    }),
+  )
+  .register(
+    "zen_migrate",
+    requireState(async (args) => {
+      const action = a.string(args, "action");
+      if (!action) return errorResponse("action is required");
+
+      const cfg = config();
+      const stateDbPath = cfg.stateDbPath;
+
+      // Derive koan dir from stateDbPath: koan/state/state.db → koan/
+      const defaultKoanDir = stateDbPath
+        ? stateDbPath.replace(/[/\\]state[/\\]state\.db$/, "")
+        : "";
+
+      if (action === "status") {
+        const store = getStore();
+        const health = store.getHealth();
+        const checkpoints = store.listCheckpoints({ limit: 1 });
+        return successResponse({
+          stateDbPath,
+          hasHealth: !!health,
+          checkpointCount: checkpoints.length > 0 ? "1+" : "0",
+          koanDir: defaultKoanDir,
+        });
+      }
+
+      if (action === "migrate") {
+        const koanDir = a.string(args, "koan_dir", defaultKoanDir);
+        if (!koanDir) return errorResponse("koan_dir is required (could not auto-detect)");
+        const dryRun = a.boolean(args, "dry_run", false);
+        const noArchive = a.boolean(args, "no_archive", false);
+
+        const result = migrate(stateDbPath, koanDir, { dryRun, noArchive });
+        return successResponse({
+          ...result,
+          dryRun,
+          message: dryRun
+            ? "Dry run complete — no changes made"
+            : `Migration complete: ${result.health.migrated + result.events.migrated + result.checkpoints.migrated} items migrated`,
+        });
+      }
+
+      if (action === "export") {
+        const outputDir = a.string(args, "output_dir", defaultKoanDir ? defaultKoanDir + "/.export" : "");
+        if (!outputDir) return errorResponse("output_dir is required (could not auto-detect)");
+
+        const result = exportToYaml(stateDbPath, outputDir);
+        return successResponse(result);
+      }
+
+      return errorResponse(`Unknown action: ${action}. Use 'migrate', 'export', or 'status'.`);
     }),
   );
 

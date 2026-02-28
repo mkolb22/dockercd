@@ -317,6 +317,48 @@ export class IndexStore extends BaseStore {
     });
   }
 
+  /**
+   * Get all symbols (for bulk operations like KG ingestion)
+   */
+  getAllSymbols(kind?: string): Symbol[] {
+    if (kind) {
+      return this.query<Record<string, unknown>>(
+        `SELECT * FROM symbols WHERE kind = ? ORDER BY file, line`,
+        [kind]
+      ).map(this.mapSymbol);
+    }
+    return this.query<Record<string, unknown>>(
+      `SELECT * FROM symbols ORDER BY file, line`,
+      []
+    ).map(this.mapSymbol);
+  }
+
+  /**
+   * Get all call relations (for bulk operations like KG ingestion)
+   */
+  getAllCalls(): CallRelation[] {
+    return this.query<Record<string, unknown>>(
+      `SELECT * FROM calls ORDER BY caller_file, line`,
+      []
+    ).map(row => ({
+      caller: row.caller as string,
+      callerFile: row.caller_file as string,
+      callee: row.callee as string,
+      line: row.line as number,
+      column: row.column as number,
+    }));
+  }
+
+  /**
+   * Get all unique files in the index
+   */
+  getIndexedFiles(): string[] {
+    return this.query<{ file: string }>(
+      `SELECT DISTINCT file FROM symbols ORDER BY file`,
+      []
+    ).map(row => row.file);
+  }
+
   clearIndex(): void {
     this.db.exec(`
       DELETE FROM symbols;

@@ -143,3 +143,15 @@ export interface SearchResult {
   };
 }
 
+/**
+ * Result from executing a command or code snippet
+ */
+export interface ExecutionResult {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  duration: number;
+  error?: string;
+}
+

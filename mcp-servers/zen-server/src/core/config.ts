@@ -85,6 +85,38 @@ export interface ZenConfig {
   // Spec
   specEnabled: boolean;
 
+  // Compete
+  competeEnabled: boolean;
+
+  // Repair
+  repairEnabled: boolean;
+  repairMaxIterations: number;
+  repairTimeout: number;
+  repairHistoryLimit: number;
+
+  // Knowledge Graph
+  kgEnabled: boolean;
+  kgSemanticWeight: number;
+  kgKeywordWeight: number;
+  kgGraphWeight: number;
+  kgCommunityWeight: number;
+
+  // Agent Evolution
+  agentEvolutionEnabled: boolean;
+
+  // Analytics
+  analyticsEnabled: boolean;
+
+  // Fitness
+  fitnessEnabled: boolean;
+
+  // Pipeline
+  pipelineEnabled: boolean;
+
+  // Bridge
+  bridgeEnabled: boolean;
+  bridgeGlobalMemoryPath: string;
+
   // Feature Flags
   debugMode: boolean;
   verboseLogging: boolean;
@@ -150,6 +182,41 @@ export function getConfig(): ZenConfig {
 
     // Spec
     specEnabled: envBool("ZEN_SPEC_ENABLED", true),
+
+    // Compete
+    competeEnabled: envBool("ZEN_COMPETE_ENABLED", true),
+
+    // Repair
+    repairEnabled: envBool("ZEN_REPAIR_ENABLED", true),
+    repairMaxIterations: envInt("ZEN_REPAIR_MAX_ITER", 5),
+    repairTimeout: envInt("ZEN_REPAIR_TIMEOUT", 120000),
+    repairHistoryLimit: envInt("ZEN_REPAIR_HISTORY", 100),
+
+    // Knowledge Graph
+    kgEnabled: envBool("ZEN_KG_ENABLED", true),
+    kgSemanticWeight: envFloat("ZEN_KG_SEMANTIC_WEIGHT", 0.4),
+    kgKeywordWeight: envFloat("ZEN_KG_KEYWORD_WEIGHT", 0.3),
+    kgGraphWeight: envFloat("ZEN_KG_GRAPH_WEIGHT", 0.2),
+    kgCommunityWeight: envFloat("ZEN_KG_COMMUNITY_WEIGHT", 0.1),
+
+    // Agent Evolution
+    agentEvolutionEnabled: envBool("ZEN_AGENT_EVOLUTION_ENABLED", true),
+
+    // Analytics
+    analyticsEnabled: envBool("ZEN_ANALYTICS_ENABLED", true),
+
+    // Fitness
+    fitnessEnabled: envBool("ZEN_FITNESS_ENABLED", true),
+
+    // Pipeline
+    pipelineEnabled: envBool("ZEN_PIPELINE_ENABLED", true),
+
+    // Bridge
+    bridgeEnabled: envBool("ZEN_BRIDGE_ENABLED", true),
+    bridgeGlobalMemoryPath: envOr(
+      "ZEN_BRIDGE_GLOBAL_MEMORY_PATH",
+      `${process.env.HOME || "/tmp"}/.zen/global-memory`,
+    ),
 
     // Feature Flags
     debugMode: envBool("ZEN_DEBUG", false),

@@ -36,7 +36,10 @@ export class CodeChunker {
 
     // Build glob patterns
     const patterns = extensions.map((ext) => `**/*${ext}`);
-    const searchPaths = options.paths || [this.projectRoot];
+    const searchPaths =
+      options.paths && options.paths.length > 0
+        ? options.paths
+        : [this.projectRoot];
 
     // Find files
     let files: string[] = [];

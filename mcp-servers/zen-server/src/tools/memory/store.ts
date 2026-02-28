@@ -3,7 +3,7 @@
  * SQLite-backed storage for memories with embeddings and links
  */
 
-import { BaseStore } from "../../core/store.js";
+import { BaseStore, type FieldMapping, jsonSerialize } from "../../core/store.js";
 import { cosineSimilarity, numberArrayToBytes, bytesToNumberArray } from "../../utils/vectors.js";
 import { bfsTraverse } from "../../utils/graph.js";
 import { generateId } from "../../utils/ids.js";
@@ -165,44 +165,19 @@ export class MemoryStore extends BaseStore {
     return this.rowToMemory(row);
   }
 
+  private static readonly memoryFields: FieldMapping[] = [
+    { key: "content", column: "content" },
+    { key: "summary", column: "summary" },
+    { key: "confidence", column: "confidence" },
+    { key: "category", column: "category" },
+    { key: "tags", column: "tags", serialize: jsonSerialize },
+  ];
+
   /**
    * Update memory fields
    */
   updateMemory(id: string, updates: Partial<Pick<Memory, "content" | "summary" | "confidence" | "category" | "tags">>): void {
-    const sets: string[] = [];
-    const params: unknown[] = [];
-
-    if (updates.content !== undefined) {
-      sets.push("content = ?");
-      params.push(updates.content);
-    }
-    if (updates.summary !== undefined) {
-      sets.push("summary = ?");
-      params.push(updates.summary);
-    }
-    if (updates.confidence !== undefined) {
-      sets.push("confidence = ?");
-      params.push(updates.confidence);
-    }
-    if (updates.category !== undefined) {
-      sets.push("category = ?");
-      params.push(updates.category);
-    }
-    if (updates.tags !== undefined) {
-      sets.push("tags = ?");
-      params.push(JSON.stringify(updates.tags));
-    }
-
-    if (sets.length === 0) return;
-
-    sets.push("updated_at = ?");
-    params.push(new Date().toISOString());
-    params.push(id);
-
-    this.execute(
-      `UPDATE memories SET ${sets.join(", ")} WHERE id = ?`,
-      params
-    );
+    this.partialUpdate("memories", "id = ?", [id], updates, MemoryStore.memoryFields);
   }
 
   /**

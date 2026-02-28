@@ -7,6 +7,23 @@ import Database from "better-sqlite3";
 import * as path from "path";
 import * as fs from "fs";
 
+/** Maps a JS property key to a SQL column with optional serialization. */
+export interface FieldMapping {
+  /** JS property key on the updates object. */
+  key: string;
+  /** SQL column name. */
+  column: string;
+  /** Optional serializer (e.g. JSON.stringify for object/array columns). */
+  serialize?: (val: unknown) => unknown;
+}
+
+/** Serialize non-null values as JSON; pass null through. */
+export const jsonOrNull = (val: unknown): unknown =>
+  val !== null && val !== undefined ? JSON.stringify(val) : null;
+
+/** Always serialize as JSON. */
+export const jsonSerialize = (val: unknown): unknown => JSON.stringify(val);
+
 /**
  * Abstract base class for SQLite-backed stores
  * Provides common CRUD operations and database management
@@ -27,6 +44,7 @@ export abstract class BaseStore {
     // Initialize database with WAL mode for better concurrency
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
+    this.db.pragma("busy_timeout = 5000");
   }
 
   /**
@@ -125,6 +143,46 @@ export abstract class BaseStore {
    */
   protected clearTable(tableName: string): void {
     this.execute(`DELETE FROM ${tableName}`);
+  }
+
+  /**
+   * Build and execute a partial UPDATE from non-undefined fields.
+   *
+   * Each entry in `fields` maps a JS property key to its SQL column name and
+   * an optional serializer (e.g. JSON.stringify for object/array columns).
+   * Fields whose value is `undefined` are skipped. If no fields are set, the
+   * update is a no-op and returns false.
+   *
+   * Automatically appends `updated_at = <now>` unless `skipTimestamp` is true.
+   */
+  protected partialUpdate(
+    table: string,
+    whereClause: string,
+    whereParams: unknown[],
+    updates: Record<string, unknown>,
+    fields: FieldMapping[],
+    skipTimestamp = false,
+  ): boolean {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+
+    for (const f of fields) {
+      const val = updates[f.key];
+      if (val === undefined) continue;
+      sets.push(`${f.column} = ?`);
+      params.push(f.serialize ? f.serialize(val) : val);
+    }
+
+    if (sets.length === 0) return false;
+
+    if (!skipTimestamp) {
+      sets.push("updated_at = ?");
+      params.push(new Date().toISOString());
+    }
+
+    params.push(...whereParams);
+    this.execute(`UPDATE ${table} SET ${sets.join(", ")} WHERE ${whereClause}`, params);
+    return true;
   }
 
   /**

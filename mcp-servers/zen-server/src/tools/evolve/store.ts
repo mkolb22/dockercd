@@ -4,7 +4,7 @@
  * Uses the existing state.db via shared stateDbPath config.
  */
 
-import { BaseStore } from "../../core/store.js";
+import { BaseStore, type FieldMapping } from "../../core/store.js";
 import { generateId } from "../../utils/ids.js";
 import type {
   EvolutionSession,
@@ -120,38 +120,18 @@ export class EvolveStore extends BaseStore {
     return row ? this.rowToSession(row) : null;
   }
 
+  private static readonly sessionFields: FieldMapping[] = [
+    { key: "currentGeneration", column: "current_generation" },
+    { key: "status", column: "status" },
+    { key: "bestFitness", column: "best_fitness" },
+    { key: "bestVariantId", column: "best_variant_id" },
+  ];
+
   updateSession(
     id: string,
     updates: Partial<Pick<EvolutionSession, "currentGeneration" | "status" | "bestFitness" | "bestVariantId">>,
   ): void {
-    const sets: string[] = [];
-    const params: unknown[] = [];
-
-    if (updates.currentGeneration !== undefined) {
-      sets.push("current_generation = ?");
-      params.push(updates.currentGeneration);
-    }
-    if (updates.status !== undefined) {
-      sets.push("status = ?");
-      params.push(updates.status);
-    }
-    if (updates.bestFitness !== undefined) {
-      sets.push("best_fitness = ?");
-      params.push(updates.bestFitness);
-    }
-    if (updates.bestVariantId !== undefined) {
-      sets.push("best_variant_id = ?");
-      params.push(updates.bestVariantId);
-    }
-
-    sets.push("updated_at = ?");
-    params.push(new Date().toISOString());
-    params.push(id);
-
-    this.execute(
-      `UPDATE evolution_sessions SET ${sets.join(", ")} WHERE id = ?`,
-      params,
-    );
+    this.partialUpdate("evolution_sessions", "id = ?", [id], updates, EvolveStore.sessionFields);
   }
 
   // ─── Variants ──────────────────────────────────────────

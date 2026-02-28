@@ -9,9 +9,18 @@
  * - Semantic RAG (4 tools) - Semantic search with embeddings
  * - Memory (7 tools) - Persistent semantic memory
  * - Framework (11 tools) - Workflow orchestration
- * - State (10 tools) - Health, checkpoints, stories
+ * - State (11 tools) - Health, checkpoints, stories, migration
  * - Evolution (4 tools) - Prompt optimization
  * - Spec (6 tools) - Specification DSL for code generation
+ * - Compete (6 tools) - Competitive evaluation and tool ablation
+ * - Testing (7 tools) - Test generation, execution, and coverage
+ * - Repair (6 tools) - Self-repair and iterative refinement
+ * - Knowledge Graph (7 tools) - Entity/relation management with hybrid search + AST bridge
+ * - Agent Evolution (15 tools) - Genome evolution, topology co-evolution, workflow execution
+ * - Analytics (7 tools) - Costs, benchmarks, drift, learning, observability
+ * - Fitness (8 tools) - Evolutionary fitness, mutation, routing, budget, debate
+ * - Pipeline (2 tools) - Composition DSL parsing and execution planning
+ * - Bridge (4 tools) - Cross-project memory export, import, search
  */
 
 import { createServer, runServer } from "./core/server.js";
@@ -25,6 +34,15 @@ import { frameworkModule } from "./tools/framework/index.js";
 import { stateModule } from "./tools/state/index.js";
 import { evolveModule } from "./tools/evolve/index.js";
 import { specModule } from "./tools/spec/index.js";
+import { competeModule } from "./tools/compete/index.js";
+import { testingModule } from "./tools/testing/index.js";
+import { repairModule } from "./tools/repair/index.js";
+import { knowledgeModule } from "./tools/knowledge/index.js";
+import { agentEvolutionModule } from "./tools/agent-evolution/index.js";
+import { analyticsModule } from "./tools/analytics/index.js";
+import { fitnessModule } from "./tools/fitness/index.js";
+import { pipelineModule } from "./tools/pipeline/index.js";
+import { bridgeModule } from "./tools/bridge/index.js";
 
 // All modules
 const modules: ToolModule[] = [
@@ -35,6 +53,15 @@ const modules: ToolModule[] = [
   stateModule,
   evolveModule,
   specModule,
+  competeModule,
+  testingModule,
+  repairModule,
+  knowledgeModule,
+  agentEvolutionModule,
+  analyticsModule,
+  fitnessModule,
+  pipelineModule,
+  bridgeModule,
 ];
 
 // Aggregate all tools and build O(1) lookup map

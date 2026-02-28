@@ -29,6 +29,36 @@ Apply these patterns in every module, on the first pass — not as a second-pass
 2. **Save a checkpoint** (`zen_checkpoint_save`) after completing significant milestones — not just when asked.
 3. **Update memory** (`memory_store`) if you learned something stable about the project (architecture, gotchas, patterns).
 
+### Testing & Quality (use these tools — don't rely on manual test writing alone)
+
+- **Generate tests first** (`generate_unit_tests`, `suggest_tests`). Before writing tests manually, use these tools to get a baseline, then refine.
+- **Run tests through the tool** (`run_tests`). Use this instead of raw shell commands — it provides structured pass/fail/skip counts and failure details.
+- **Check coverage** (`analyze_coverage`, `find_untested_files`). After tests pass, verify coverage. Don't declare done until untested paths are addressed.
+- **Auto-repair on failure** (`run_tests_with_repair`, `self_debug`, `iterative_refine`). When tests fail, use repair tools to diagnose and fix — they track what worked for similar errors.
+
+### Knowledge Graph (build understanding as you work)
+
+- **Bridge AST into KG** (`kg_ingest_ast`) after `index_project`. This creates entities for every symbol, file, and module with structural relations (calls, contains, defined_in). Use `scope` to limit to a subtree.
+- **Ingest from text** (`kg_ingest`) when exploring prose, docs, or unfamiliar code. Extracts entities and relations via pattern matching.
+- **Query relationships** (`kg_query`, `kg_traverse`) to understand how components connect before making cross-cutting changes. Use `kg_query` for natural language, `kg_traverse` for graph walking.
+- **Build the graph incrementally** (`kg_entity`, `kg_relate`). Add architectural relationships not captured by auto-extraction: which tools use which stores, which configs guard which modules, which tests cover which functions.
+- **Detect communities** (`kg_community` with action `detect`) after populating the graph. Connected components reveal actual module boundaries and coupling.
+
+### Agent Evolution (optimize agent prompts and workflow topologies)
+
+- **Parse agent prompts** (`agent_parse`) to decompose markdown agent files into structured genomes (frontmatter + sections).
+- **Mutate agents** (`agent_mutate`) to test variations: ablate sections, change models, add/remove skills, replace content.
+- **Compare variants** (`agent_compare`) with Welch's t-test and Cohen's d effect size to determine if differences are statistically significant.
+- **Browse benchmarks** (`agent_benchmark`) to list built-in evaluation tasks organized by agent type, category, and difficulty.
+- **Evolve with MAP-Elites** (`agent_evolve_start`, `agent_evolve_step`) for quality-diversity optimization across cost/quality trade-offs.
+- **Reassemble** (`agent_assemble`) modified genomes back to deployable markdown.
+- **Classify task complexity** (`topology_classify`) to route tasks to appropriately-sized topologies. Supports feedback for accuracy improvement.
+- **Evolve topologies** (`topology_evolve`) with NEAT-inspired co-evolution — discovers optimal multi-agent workflow structures via MAP-Elites.
+- **Select topologies** (`topology_select`) to pick the best evolved topology for a given complexity level.
+- **Ablation analysis** (`topology_ablation`) to measure which topology sections contribute most to fitness.
+- **Skill impact analysis** (`topology_skills`) to evaluate which agent skills improve workflow performance.
+- **Execute workflows** (`topology_execute_start`, `topology_execute_node`) — the MCP server acts as a passive message bus, tracking DAG execution state and routing outputs between agents.
+
 ### For Features and Multi-Step Work
 
 Use zen workflow tools to structure work:
