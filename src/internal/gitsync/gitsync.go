@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"sync"
 
@@ -81,6 +82,33 @@ func New(cacheDir string, logger *slog.Logger, gitToken string) (*GoGitSyncer, e
 	}, nil
 }
 
+// authFor returns the auth method to use for the given URL. Credentials
+// embedded in the URL (http://user:pass@host/path) take precedence over
+// the global token, allowing per-repo auth (e.g. Gitea vs GitHub).
+func (g *GoGitSyncer) authFor(repoURL string) transport.AuthMethod {
+	parsed, err := url.Parse(repoURL)
+	if err == nil && parsed.User != nil {
+		password, _ := parsed.User.Password()
+		if parsed.User.Username() != "" || password != "" {
+			return &http.BasicAuth{
+				Username: parsed.User.Username(),
+				Password: password,
+			}
+		}
+	}
+	return g.auth
+}
+
+// cleanURL strips embedded credentials from a URL for logging/cache purposes.
+func cleanURL(repoURL string) string {
+	parsed, err := url.Parse(repoURL)
+	if err != nil || parsed.User == nil {
+		return repoURL
+	}
+	parsed.User = nil
+	return parsed.String()
+}
+
 // Sync clones or pulls the repository and returns the HEAD SHA.
 func (g *GoGitSyncer) Sync(ctx context.Context, source app.SourceSpec) (string, error) {
 	// Serialize access per repo URL
@@ -99,7 +127,7 @@ func (g *GoGitSyncer) Sync(ctx context.Context, source app.SourceSpec) (string, 
 	var err error
 
 	if g.cache.Exists(source.RepoURL) {
-		repo, err = g.pull(ctx, repoPath, refName)
+		repo, err = g.pull(ctx, repoPath, refName, source.RepoURL)
 		if err != nil {
 			// If pull fails (corrupted repo, etc.), wipe and re-clone
 			g.logger.Warn("pull failed, re-cloning",
@@ -159,11 +187,11 @@ func (g *GoGitSyncer) CheckoutSHA(ctx context.Context, repoURL string, sha strin
 	_, err = repo.CommitObject(hash)
 	if err != nil {
 		// Commit not available locally — fetch full history.
-		g.logger.Info("fetching full history for rollback", "repo", repoURL, "sha", sha)
+		g.logger.Info("fetching full history for rollback", "repo", cleanURL(repoURL), "sha", sha)
 		err = repo.FetchContext(ctx, &git.FetchOptions{
 			RemoteName: "origin",
 			Depth:      0, // unshallow
-			Auth:       g.auth,
+			Auth:       g.authFor(repoURL),
 		})
 		if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
 			return fmt.Errorf("fetching full history: %w", err)
@@ -236,27 +264,27 @@ func (g *GoGitSyncer) evictRepo(path string) {
 	g.reposMu.Unlock()
 }
 
-func (g *GoGitSyncer) clone(ctx context.Context, url, path string, ref plumbing.ReferenceName) (*git.Repository, error) {
+func (g *GoGitSyncer) clone(ctx context.Context, repoURL, path string, ref plumbing.ReferenceName) (*git.Repository, error) {
 	g.logger.Info("cloning repository",
-		"repo", url,
+		"repo", cleanURL(repoURL),
 		"branch", ref.Short(),
 		"path", path,
 	)
 
 	repo, err := git.PlainCloneContext(ctx, path, false, &git.CloneOptions{
-		URL:           url,
+		URL:           repoURL,
 		ReferenceName: ref,
 		Depth:         1,
 		SingleBranch:  true,
-		Auth:          g.auth,
+		Auth:          g.authFor(repoURL),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("cloning %q: %w", url, err)
+		return nil, fmt.Errorf("cloning %q: %w", cleanURL(repoURL), err)
 	}
 	return repo, nil
 }
 
-func (g *GoGitSyncer) pull(ctx context.Context, path string, ref plumbing.ReferenceName) (*git.Repository, error) {
+func (g *GoGitSyncer) pull(ctx context.Context, path string, ref plumbing.ReferenceName, repoURL string) (*git.Repository, error) {
 	repo, err := g.getOrOpenRepo(path)
 	if err != nil {
 		return nil, fmt.Errorf("opening repo at %q: %w", path, err)
@@ -272,7 +300,7 @@ func (g *GoGitSyncer) pull(ctx context.Context, path string, ref plumbing.Refere
 		ReferenceName: ref,
 		Depth:         1,
 		Force:         true,
-		Auth:          g.auth,
+		Auth:          g.authFor(repoURL),
 	})
 	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
 		return nil, fmt.Errorf("pulling %q: %w", ref.Short(), err)
@@ -327,7 +355,7 @@ func (g *GoGitSyncer) Push(ctx context.Context, repoURL string) error {
 
 	err = repo.PushContext(ctx, &git.PushOptions{
 		RemoteName: "origin",
-		Auth:       g.auth,
+		Auth:       g.authFor(repoURL),
 	})
 	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
 		return fmt.Errorf("pushing to origin: %w", err)

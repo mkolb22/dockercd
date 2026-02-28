@@ -3,6 +3,7 @@ package gitsync
 import (
 	"crypto/sha256"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 )
@@ -41,8 +42,13 @@ func (c *RepoCache) Remove(repoURL string) error {
 }
 
 // urlHash returns a deterministic, filesystem-safe hash of a URL.
-// Uses the first 16 chars of the SHA-256 hex digest.
-func urlHash(url string) string {
-	h := sha256.Sum256([]byte(url))
+// Strips embedded credentials so the same repo with/without auth maps
+// to the same cache path. Uses the first 16 chars of the SHA-256 hex digest.
+func urlHash(raw string) string {
+	if parsed, err := url.Parse(raw); err == nil && parsed.User != nil {
+		parsed.User = nil
+		raw = parsed.String()
+	}
+	h := sha256.Sum256([]byte(raw))
 	return fmt.Sprintf("%x", h[:8])
 }
