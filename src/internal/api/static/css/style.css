@@ -1167,6 +1167,63 @@ td.muted { color: var(--text-secondary); }
   white-space: nowrap;
 }
 
+/* Log viewer */
+.log-viewer {
+  background: #0d1117;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 1rem;
+  max-height: 600px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.log-line {
+  padding: 1px 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log-line:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Clickable tree nodes */
+.resource-node-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.resource-node-link:hover {
+  text-decoration: none;
+}
+
+.resource-node-link:hover .resource-node {
+  border-color: var(--color-accent);
+  background: var(--bg-hover);
+}
+
+/* Environment/labels collapsible */
+.env-toggle {
+  cursor: pointer;
+  color: var(--color-accent);
+  font-size: 0.85rem;
+}
+
+.env-toggle:hover {
+  text-decoration: underline;
+}
+
+.env-list {
+  display: none;
+}
+
+.env-list.open {
+  display: block;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .app-grid { grid-template-columns: 1fr; }

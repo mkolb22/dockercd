@@ -418,6 +418,151 @@ var Components = (function() {
     return html;
   }
 
+  // --- Service Detail Tabs ---
+
+  function serviceOverviewTab(detail) {
+    var html = '<div class="meta-grid">';
+
+    // Identity card
+    html += '<div class="meta-card">';
+    html += '<h3>Container</h3>';
+    html += metaItem('Image', detail.image || '-');
+    html += metaItem('Container ID', detail.containerId ? detail.containerId.substring(0, 12) : '-', true);
+    html += metaItem('Container Name', detail.containerName || '-');
+    html += metaItem('Status', detail.status || '-');
+    html += metaItem('Health', detail.health || 'Unknown');
+    html += '</div>';
+
+    // Config card
+    html += '<div class="meta-card">';
+    html += '<h3>Configuration</h3>';
+    html += metaItem('Restart Policy', detail.restartPolicy || '-');
+    if (detail.command && detail.command.length > 0) {
+      html += metaItem('Command', detail.command.join(' '));
+    }
+    if (detail.entrypoint && detail.entrypoint.length > 0) {
+      html += metaItem('Entrypoint', detail.entrypoint.join(' '));
+    }
+    html += '</div>';
+
+    // Ports card
+    if (detail.ports && detail.ports.length > 0) {
+      html += '<div class="meta-card">';
+      html += '<h3>Ports</h3>';
+      detail.ports.forEach(function(p) {
+        var mapping = p.hostPort ? p.hostPort + ' \u2192 ' + p.containerPort : p.containerPort;
+        html += metaItem(p.protocol || 'tcp', mapping);
+      });
+      html += '</div>';
+    }
+
+    // Volumes card
+    if (detail.volumes && detail.volumes.length > 0) {
+      html += '<div class="meta-card">';
+      html += '<h3>Volumes</h3>';
+      detail.volumes.forEach(function(v) {
+        var ro = v.readOnly ? ' (ro)' : '';
+        html += metaItem(v.target, esc(v.source) + ro);
+      });
+      html += '</div>';
+    }
+
+    html += '</div>';
+
+    // Networks
+    if (detail.networks && detail.networks.length > 0) {
+      html += '<div class="meta-card" style="margin-bottom:1rem">';
+      html += '<h3>Networks</h3>';
+      html += '<div style="padding:0.3rem 0;font-size:0.85rem;color:var(--text-primary)">' + detail.networks.map(function(n) { return esc(n); }).join(', ') + '</div>';
+      html += '</div>';
+    }
+
+    // Environment (collapsible)
+    if (detail.environment && Object.keys(detail.environment).length > 0) {
+      var envKeys = Object.keys(detail.environment).sort();
+      html += '<div class="meta-card" style="margin-bottom:1rem">';
+      html += '<h3>Environment</h3>';
+      html += '<span class="env-toggle" data-target="env-list">Show ' + envKeys.length + ' variables</span>';
+      html += '<div id="env-list" class="env-list">';
+      html += '<div class="table-wrap" style="margin-top:0.5rem"><table>';
+      envKeys.forEach(function(k) {
+        html += '<tr><td class="mono" style="font-size:0.75rem;color:var(--text-secondary)">' + esc(k) + '</td><td class="mono" style="font-size:0.75rem">' + esc(detail.environment[k]) + '</td></tr>';
+      });
+      html += '</table></div></div></div>';
+    }
+
+    // Labels (collapsible)
+    if (detail.labels && Object.keys(detail.labels).length > 0) {
+      var labelKeys = Object.keys(detail.labels).sort();
+      html += '<div class="meta-card" style="margin-bottom:1rem">';
+      html += '<h3>Labels</h3>';
+      html += '<span class="env-toggle" data-target="label-list">Show ' + labelKeys.length + ' labels</span>';
+      html += '<div id="label-list" class="env-list">';
+      html += '<div class="table-wrap" style="margin-top:0.5rem"><table>';
+      labelKeys.forEach(function(k) {
+        html += '<tr><td class="mono" style="font-size:0.75rem;color:var(--text-secondary)">' + esc(k) + '</td><td class="mono" style="font-size:0.75rem">' + esc(detail.labels[k]) + '</td></tr>';
+      });
+      html += '</table></div></div></div>';
+    }
+
+    return html;
+  }
+
+  function serviceMetricsTab(detail) {
+    if (!detail.metrics) {
+      return '<div class="empty-state"><p>No metrics available — container may not be running</p></div>';
+    }
+
+    var m = detail.metrics;
+    var html = '<div style="max-width:600px">';
+    html += '<div style="margin-bottom:1rem">';
+    html += resourceBar('CPU', m.cpuPercent, 100, '%');
+    html += '</div>';
+    html += '<div style="margin-bottom:1.5rem">';
+    html += resourceBar('MEM', m.memoryUsageMB, m.memoryLimitMB, 'MB');
+    html += '</div>';
+    html += '</div>';
+
+    html += '<div class="meta-grid">';
+    html += '<div class="meta-card">';
+    html += '<h3>Stats</h3>';
+    if (m.uptime) html += metaItem('Uptime', m.uptime);
+    html += metaItem('PIDs', String(m.pids || 0));
+    html += metaItem('CPU', m.cpuPercent.toFixed(1) + '%');
+    html += metaItem('Memory', m.memoryUsageMB.toFixed(1) + ' / ' + m.memoryLimitMB.toFixed(0) + ' MB');
+    html += '</div>';
+    html += '<div class="meta-card">';
+    html += '<h3>I/O</h3>';
+    html += metaItem('Network Rx', m.networkRxMB.toFixed(2) + ' MB');
+    html += metaItem('Network Tx', m.networkTxMB.toFixed(2) + ' MB');
+    html += metaItem('Block Read', m.blockReadMB.toFixed(2) + ' MB');
+    html += metaItem('Block Write', m.blockWriteMB.toFixed(2) + ' MB');
+    html += '</div>';
+    html += '</div>';
+
+    return html;
+  }
+
+  function serviceLogsTab(lines, appName, svcName) {
+    var html = '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem">';
+    html += '<button class="btn" id="log-refresh-btn">Refresh</button>';
+    html += '<span style="font-size:0.8rem;color:var(--text-muted)">' + (lines ? lines.length : 0) + ' lines</span>';
+    html += '</div>';
+    html += '<div class="log-viewer" id="log-viewer">';
+    html += renderLogLines(lines);
+    html += '</div>';
+    return html;
+  }
+
+  function renderLogLines(lines) {
+    if (!lines || lines.length === 0) {
+      return '<div style="color:var(--text-muted);padding:1rem">No logs available</div>';
+    }
+    return lines.map(function(line) {
+      return '<div class="log-line">' + esc(line) + '</div>';
+    }).join('');
+  }
+
   // --- Resource Tree (ArgoCD-style 3-column graph) ---
 
   function healthDot(status) {
@@ -433,6 +578,7 @@ var Components = (function() {
 
   function deploymentTree(app, services) {
     var st = app.status;
+    var appName = app.metadata.name;
     var appHealth = (st.healthStatus || 'unknown').toLowerCase();
     var appSync = (st.syncStatus || 'unknown').toLowerCase();
     var svcs = (services && services.length > 0) ? services :
@@ -447,7 +593,7 @@ var Components = (function() {
     html += '<div class="resource-node node-app status-' + appHealth + '" data-node-id="app">';
     html += '<div class="resource-node-icon">\u2388</div>';
     html += '<div class="resource-node-body">';
-    html += '<div class="resource-node-name">' + esc(app.metadata.name) + '</div>';
+    html += '<div class="resource-node-name">' + esc(appName) + '</div>';
     html += '<div class="resource-node-detail">' + esc(repoShort(app.spec.source.repoURL)) + '</div>';
     if (st.lastSyncedSHA) {
       html += '<div class="resource-node-detail mono">' + esc(shortSHA(st.lastSyncedSHA)) + '</div>';
@@ -462,6 +608,8 @@ var Components = (function() {
     if (svcs.length > 0) {
       svcs.forEach(function(svc) {
         var h = (svc.health || 'unknown').toLowerCase();
+        var svcLink = '#/apps/' + encodeURIComponent(appName) + '/services/' + encodeURIComponent(svc.name);
+        html += '<a href="' + svcLink + '" class="resource-node-link">';
         html += '<div class="resource-node node-svc health-' + h + '" data-node-id="svc-' + esc(svc.name) + '" data-connect-from="app">';
         html += '<div class="resource-node-icon">\u2699</div>';
         html += '<div class="resource-node-body">';
@@ -471,6 +619,7 @@ var Components = (function() {
         if (svcPorts) html += '<div class="resource-node-detail">' + svcPorts + '</div>';
         html += resourceNodeHealth(svc.health);
         html += '</div></div>';
+        html += '</a>';
       });
     } else {
       html += '<div class="resource-node node-svc health-unknown" data-node-id="svc-none" data-connect-from="app">';
@@ -486,6 +635,8 @@ var Components = (function() {
       svcs.forEach(function(svc) {
         var h = (svc.health || 'unknown').toLowerCase();
         var stateText = svc.state || (h === 'healthy' ? 'running' : '-');
+        var ctrLink = '#/apps/' + encodeURIComponent(appName) + '/services/' + encodeURIComponent(svc.name);
+        html += '<a href="' + ctrLink + '" class="resource-node-link">';
         html += '<div class="resource-node node-ctr health-' + h + '" data-node-id="ctr-' + esc(svc.name) + '" data-connect-from="svc-' + esc(svc.name) + '">';
         html += '<div class="resource-node-icon">\u25A3</div>';
         html += '<div class="resource-node-body">';
@@ -493,6 +644,7 @@ var Components = (function() {
         html += '<div class="resource-node-detail">' + esc(stateText) + '</div>';
         html += resourceNodeHealth(svc.health);
         html += '</div></div>';
+        html += '</a>';
       });
     } else {
       html += '<div class="resource-node node-ctr health-unknown" data-node-id="ctr-none" data-connect-from="svc-none">';
@@ -843,6 +995,10 @@ var Components = (function() {
     hostGrid: hostGrid,
     addHostForm: addHostForm,
     hostInfoSection: hostInfoSection,
-    hostAppsTable: hostAppsTable
+    hostAppsTable: hostAppsTable,
+    serviceOverviewTab: serviceOverviewTab,
+    serviceMetricsTab: serviceMetricsTab,
+    serviceLogsTab: serviceLogsTab,
+    renderLogLines: renderLogLines
   };
 })();

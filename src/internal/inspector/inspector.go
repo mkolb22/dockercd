@@ -3,11 +3,14 @@
 package inspector
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	gohttp "net/http"
 	"os"
@@ -21,6 +24,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/system"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/mkolb22/dockercd/internal/app"
 )
 
@@ -79,6 +83,12 @@ type StateInspector interface {
 	// HostStats returns aggregated resource usage across all running containers.
 	HostStats(ctx context.Context, dockerHost string) (*app.HostStats, error)
 
+	// InspectServiceDetail returns full service state with metrics for a single service.
+	InspectServiceDetail(ctx context.Context, dest app.DestinationSpec, serviceName string) (*app.ServiceDetail, error)
+
+	// GetServiceLogs returns the last N log lines for a service's container.
+	GetServiceLogs(ctx context.Context, dest app.DestinationSpec, serviceName string, tail int) ([]string, error)
+
 	// RegisterTLS adds or updates TLS configuration for a remote Docker host.
 	RegisterTLS(host string, cfg TLSConfig)
 
@@ -114,6 +124,7 @@ type DockerClient interface {
 	ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
 	ContainerInspect(ctx context.Context, containerID string) (container.InspectResponse, error)
 	ContainerStatsOneShot(ctx context.Context, containerID string) (container.StatsResponseReader, error)
+	ContainerLogs(ctx context.Context, containerID string, options container.LogsOptions) (io.ReadCloser, error)
 	Info(ctx context.Context) (system.Info, error)
 	DiskUsage(ctx context.Context, options types.DiskUsageOptions) (types.DiskUsage, error)
 	Close() error
@@ -425,6 +436,116 @@ func extractPorts(detail container.InspectResponse) []app.PortMapping {
 		}
 	}
 	return ports
+}
+
+// InspectServiceDetail returns full service state with container ID and metrics.
+func (d *DockerInspector) InspectServiceDetail(ctx context.Context, dest app.DestinationSpec, serviceName string) (*app.ServiceDetail, error) {
+	cli, err := d.getClient(dest.DockerHost)
+	if err != nil {
+		return nil, fmt.Errorf("creating docker client: %w", err)
+	}
+
+	f := filters.NewArgs()
+	f.Add("label", fmt.Sprintf("com.docker.compose.project=%s", dest.ProjectName))
+	f.Add("label", fmt.Sprintf("com.docker.compose.service=%s", serviceName))
+
+	containers, err := cli.ContainerList(ctx, container.ListOptions{
+		All:     true,
+		Filters: f,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing containers for service %q: %w", serviceName, err)
+	}
+
+	if len(containers) == 0 {
+		return nil, nil
+	}
+
+	c := containers[0]
+	detail, err := cli.ContainerInspect(ctx, c.ID)
+	if err != nil {
+		return nil, fmt.Errorf("inspecting container %q: %w", c.ID, err)
+	}
+
+	state := mapContainerToState(c, detail)
+	result := &app.ServiceDetail{
+		ServiceState: state,
+		ContainerID:  c.ID,
+	}
+
+	if c.State == "running" {
+		result.Metrics = collectMetrics(ctx, cli, c.ID, detail)
+	}
+
+	return result, nil
+}
+
+// GetServiceLogs returns the last N log lines for a service's container.
+func (d *DockerInspector) GetServiceLogs(ctx context.Context, dest app.DestinationSpec, serviceName string, tail int) ([]string, error) {
+	cli, err := d.getClient(dest.DockerHost)
+	if err != nil {
+		return nil, fmt.Errorf("creating docker client: %w", err)
+	}
+
+	f := filters.NewArgs()
+	f.Add("label", fmt.Sprintf("com.docker.compose.project=%s", dest.ProjectName))
+	f.Add("label", fmt.Sprintf("com.docker.compose.service=%s", serviceName))
+
+	containers, err := cli.ContainerList(ctx, container.ListOptions{
+		All:     true,
+		Filters: f,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing containers for service %q: %w", serviceName, err)
+	}
+
+	if len(containers) == 0 {
+		return nil, nil
+	}
+
+	tailStr := fmt.Sprintf("%d", tail)
+	rc, err := cli.ContainerLogs(ctx, containers[0].ID, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Tail:       tailStr,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("getting logs for service %q: %w", serviceName, err)
+	}
+	defer rc.Close()
+
+	// Demultiplex Docker log stream (8-byte header per frame)
+	var stdout, stderr bytes.Buffer
+	_, err = stdcopy.StdCopy(&stdout, &stderr, rc)
+	if err != nil {
+		// Fallback: some containers (e.g. TTY mode) don't use multiplexed stream
+		// Re-read as raw
+		rc2, err2 := cli.ContainerLogs(ctx, containers[0].ID, container.LogsOptions{
+			ShowStdout: true,
+			ShowStderr: true,
+			Tail:       tailStr,
+		})
+		if err2 != nil {
+			return nil, fmt.Errorf("getting logs (fallback): %w", err2)
+		}
+		defer rc2.Close()
+		raw, _ := io.ReadAll(io.LimitReader(rc2, 1<<20)) // 1MB limit
+		return splitLines(raw), nil
+	}
+
+	// Merge stdout and stderr
+	merged := append(stdout.Bytes(), stderr.Bytes()...)
+	return splitLines(merged), nil
+}
+
+// splitLines splits raw bytes into trimmed lines, dropping empty trailing lines.
+func splitLines(data []byte) []string {
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	var lines []string
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	return lines
 }
 
 // InspectWithMetrics returns per-service status with resource usage metrics.

@@ -50,6 +50,8 @@
 
   function getRoute() {
     var hash = location.hash || '#/apps';
+    var svcMatch = hash.match(/^#\/apps\/([^/]+)\/services\/(.+)$/);
+    if (svcMatch) return { page: 'serviceDetail', appName: decodeURIComponent(svcMatch[1]), svcName: decodeURIComponent(svcMatch[2]) };
     var match = hash.match(/^#\/apps\/(.+)$/);
     if (match) return { page: 'detail', name: decodeURIComponent(match[1]) };
     var hostMatch = hash.match(/^#\/hosts\/(.+)$/);
@@ -63,7 +65,9 @@
     stopStatsPoll();
     var route = getRoute();
     updateNavLinks(route);
-    if (route.page === 'detail') {
+    if (route.page === 'serviceDetail') {
+      loadServiceDetail(route.appName, route.svcName);
+    } else if (route.page === 'detail') {
       loadDetail(route.name);
     } else if (route.page === 'hosts') {
       loadHosts();
@@ -77,7 +81,7 @@
   function updateNavLinks(route) {
     var appsLink = document.getElementById('nav-apps');
     var hostsLink = document.getElementById('nav-hosts');
-    if (appsLink) appsLink.classList.toggle('active', route.page === 'dashboard' || route.page === 'detail');
+    if (appsLink) appsLink.classList.toggle('active', route.page === 'dashboard' || route.page === 'detail' || route.page === 'serviceDetail');
     if (hostsLink) hostsLink.classList.toggle('active', route.page === 'hosts' || route.page === 'hostDetail');
   }
 
@@ -448,6 +452,117 @@
     }).catch(function() {});
   }
 
+  // --- Service Detail ---
+
+  function loadServiceDetail(appName, svcName) {
+    state.currentApp = null;
+    state.currentTab = 'overview';
+    updateBreadcrumb([
+      { label: 'Applications', href: '#/apps' },
+      { label: appName, href: '#/apps/' + encodeURIComponent(appName) },
+      { label: svcName }
+    ]);
+    setContent('<div class="loading"><div class="spinner"></div>Loading...</div>');
+
+    Promise.all([
+      API.getServiceDetail(appName, svcName),
+      API.getServiceLogs(appName, svcName, 200).catch(function() { return { lines: [] }; })
+    ]).then(function(results) {
+      state.currentApp = {
+        serviceDetail: results[0],
+        serviceLogs: results[1].lines || []
+      };
+      renderServiceDetail(appName, svcName);
+      startRefresh(function() { refreshServiceDetail(appName, svcName); });
+    }).catch(function(err) {
+      setContent('<div class="empty-state"><h2>Error</h2><p>' + Components.esc(err.message) + '</p></div>');
+    });
+  }
+
+  function renderServiceDetail(appName, svcName) {
+    var d = state.currentApp;
+    if (!d || !d.serviceDetail) return;
+    var detail = d.serviceDetail;
+
+    var healthCls = (detail.health || 'unknown').toLowerCase();
+
+    var html =
+      '<div class="detail-header">' +
+        '<span class="detail-name">' + Components.esc(svcName) + '</span>' +
+        Components.healthBadge(detail.health) +
+        '<span class="badge badge-unknown" style="font-family:var(--font-mono);font-size:0.7rem">' + Components.esc(detail.status || '-') + '</span>' +
+      '</div>' +
+      '<div class="tabs">' +
+        tabBtn('overview', 'Overview') +
+        tabBtn('metrics', 'Metrics') +
+        tabBtn('logs', 'Logs') +
+      '</div>' +
+      '<div id="tab-overview" class="tab-content' + (state.currentTab === 'overview' ? ' active' : '') + '">' +
+        Components.serviceOverviewTab(detail) +
+      '</div>' +
+      '<div id="tab-metrics" class="tab-content' + (state.currentTab === 'metrics' ? ' active' : '') + '">' +
+        Components.serviceMetricsTab(detail) +
+      '</div>' +
+      '<div id="tab-logs" class="tab-content' + (state.currentTab === 'logs' ? ' active' : '') + '">' +
+        Components.serviceLogsTab(d.serviceLogs, appName, svcName) +
+      '</div>';
+
+    setContent(html);
+
+    // Bind tabs
+    document.querySelectorAll('.tab').forEach(function(tab) {
+      tab.addEventListener('click', function() {
+        switchTab(this.getAttribute('data-tab'));
+      });
+    });
+
+    // Bind log refresh button
+    var logRefreshBtn = document.getElementById('log-refresh-btn');
+    if (logRefreshBtn) {
+      logRefreshBtn.addEventListener('click', function() {
+        logRefreshBtn.disabled = true;
+        logRefreshBtn.textContent = 'Loading...';
+        API.getServiceLogs(appName, svcName, 500).then(function(data) {
+          state.currentApp.serviceLogs = data.lines || [];
+          var viewer = document.getElementById('log-viewer');
+          if (viewer) {
+            viewer.innerHTML = Components.renderLogLines(state.currentApp.serviceLogs);
+            viewer.scrollTop = viewer.scrollHeight;
+          }
+          logRefreshBtn.disabled = false;
+          logRefreshBtn.textContent = 'Refresh';
+        }).catch(function() {
+          logRefreshBtn.disabled = false;
+          logRefreshBtn.textContent = 'Refresh';
+        });
+      });
+    }
+
+    // Auto-scroll logs to bottom
+    var viewer = document.getElementById('log-viewer');
+    if (viewer) viewer.scrollTop = viewer.scrollHeight;
+
+    // Bind env/label toggles
+    document.querySelectorAll('.env-toggle').forEach(function(toggle) {
+      toggle.addEventListener('click', function() {
+        var target = document.getElementById(this.getAttribute('data-target'));
+        if (target) target.classList.toggle('open');
+      });
+    });
+  }
+
+  function refreshServiceDetail(appName, svcName) {
+    if (document.hidden) return;
+    API.getServiceDetail(appName, svcName).then(function(detail) {
+      if (!state.currentApp) return;
+      state.currentApp.serviceDetail = detail;
+      var route = getRoute();
+      if (route.page === 'serviceDetail' && route.appName === appName && route.svcName === svcName) {
+        renderServiceDetail(appName, svcName);
+      }
+    }).catch(function() {});
+  }
+
   // --- Sync ---
 
   function triggerSync(name) {
@@ -608,9 +723,17 @@
   function updateBreadcrumb(items) {
     var detail = document.getElementById('nav-detail-name');
     if (!detail) return;
-    // Show detail name only on detail pages (items with 2+ parts)
     if (items.length > 1) {
-      detail.textContent = '/ ' + items[items.length - 1].label;
+      var parts = [];
+      for (var i = 1; i < items.length; i++) {
+        var item = items[i];
+        if (item.href) {
+          parts.push('<a href="' + item.href + '" style="color:var(--text-muted);text-decoration:none">' + Components.esc(item.label) + '</a>');
+        } else {
+          parts.push(Components.esc(item.label));
+        }
+      }
+      detail.innerHTML = '/ ' + parts.join(' / ');
       detail.style.display = '';
     } else {
       detail.textContent = '';

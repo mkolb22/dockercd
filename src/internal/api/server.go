@@ -101,6 +101,11 @@ func NewServer(addr string, deps ServerDeps) *Server {
 				r.Get("/events", h.GetEvents)
 				r.Get("/history", h.GetHistory)
 				r.Get("/metrics", h.GetAppMetrics)
+				r.Route("/services/{service}", func(r chi.Router) {
+					r.Get("/", h.GetServiceDetail)
+					r.Get("/metrics", h.GetServiceMetrics)
+					r.Get("/logs", h.GetServiceLogs)
+				})
 			})
 		})
 	})

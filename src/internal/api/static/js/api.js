@@ -98,6 +98,14 @@ var API = (function() {
 
     getRemoteHostStats: function(name) {
       return request('GET', '/hosts/' + encodeURIComponent(name) + '/stats');
+    },
+
+    getServiceDetail: function(appName, svcName) {
+      return request('GET', '/applications/' + encodeURIComponent(appName) + '/services/' + encodeURIComponent(svcName));
+    },
+
+    getServiceLogs: function(appName, svcName, tail) {
+      return request('GET', '/applications/' + encodeURIComponent(appName) + '/services/' + encodeURIComponent(svcName) + '/logs?tail=' + (tail || 200));
     }
   };
 })();

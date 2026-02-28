@@ -183,6 +183,14 @@ type VolumeMount struct {
 	ReadOnly bool  `json:"readOnly"`
 }
 
+// ServiceDetail combines full ServiceState with container ID and resource metrics.
+// Used for the service drill-down API endpoint.
+type ServiceDetail struct {
+	ServiceState
+	ContainerID string            `json:"containerId"`
+	Metrics     *ContainerMetrics `json:"metrics,omitempty"`
+}
+
 // ServiceStatus is a summary for API responses.
 type ServiceStatus struct {
 	Name    string            `json:"name"`

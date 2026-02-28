@@ -376,6 +376,91 @@ func (h *Handler) GetAppMetrics(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetServiceDetail returns full detail for a single service within an application.
+func (h *Handler) GetServiceDetail(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	service := chi.URLParam(r, "service")
+
+	if h.inspector == nil {
+		writeError(w, http.StatusServiceUnavailable, "inspector not available", CodeUnavailable)
+		return
+	}
+
+	appRec, err := h.store.GetApplication(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "getting application: "+err.Error(), CodeInternalError)
+		return
+	}
+	if appRec == nil {
+		writeError(w, http.StatusNotFound, "application not found: "+name, CodeNotFound)
+		return
+	}
+
+	var application app.Application
+	if err := json.Unmarshal([]byte(appRec.Manifest), &application); err != nil {
+		writeError(w, http.StatusInternalServerError, "parsing manifest: "+err.Error(), CodeInternalError)
+		return
+	}
+
+	detail, err := h.inspector.InspectServiceDetail(r.Context(), application.Spec.Destination, service)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "inspecting service: "+err.Error(), CodeInternalError)
+		return
+	}
+	if detail == nil {
+		writeError(w, http.StatusNotFound, "service not found: "+service, CodeNotFound)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, detail)
+}
+
+// GetServiceMetrics returns refreshed metrics for a single service.
+func (h *Handler) GetServiceMetrics(w http.ResponseWriter, r *http.Request) {
+	// Reuses GetServiceDetail — same data, caller uses it for metrics refresh
+	h.GetServiceDetail(w, r)
+}
+
+// GetServiceLogs returns the last N log lines for a service.
+func (h *Handler) GetServiceLogs(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	service := chi.URLParam(r, "service")
+	tail := queryInt(r, "tail", 200)
+
+	if tail > 5000 {
+		tail = 5000
+	}
+
+	if h.inspector == nil {
+		writeError(w, http.StatusServiceUnavailable, "inspector not available", CodeUnavailable)
+		return
+	}
+
+	appRec, err := h.store.GetApplication(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "getting application: "+err.Error(), CodeInternalError)
+		return
+	}
+	if appRec == nil {
+		writeError(w, http.StatusNotFound, "application not found: "+name, CodeNotFound)
+		return
+	}
+
+	var application app.Application
+	if err := json.Unmarshal([]byte(appRec.Manifest), &application); err != nil {
+		writeError(w, http.StatusInternalServerError, "parsing manifest: "+err.Error(), CodeInternalError)
+		return
+	}
+
+	lines, err := h.inspector.GetServiceLogs(r.Context(), application.Spec.Destination, service, tail)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "getting logs: "+err.Error(), CodeInternalError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"lines": lines})
+}
+
 // RollbackApplication re-deploys an application from a stored commit SHA snapshot.
 func (h *Handler) RollbackApplication(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")

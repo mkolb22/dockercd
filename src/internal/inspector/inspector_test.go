@@ -2,7 +2,9 @@ package inspector
 
 import (
 	"context"
+	"io"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/docker/docker/api/types"
@@ -59,6 +61,10 @@ func (m *mockDockerClient) ContainerInspect(_ context.Context, containerID strin
 		return detail, nil
 	}
 	return container.InspectResponse{}, nil
+}
+
+func (m *mockDockerClient) ContainerLogs(_ context.Context, _ string, _ container.LogsOptions) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("")), nil
 }
 
 func (m *mockDockerClient) ContainerStatsOneShot(_ context.Context, _ string) (container.StatsResponseReader, error) {

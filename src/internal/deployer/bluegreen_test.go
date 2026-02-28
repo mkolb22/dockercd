@@ -121,6 +121,12 @@ func (m *mockInspector) SystemInfo(ctx context.Context, dockerHost string) (*app
 func (m *mockInspector) HostStats(ctx context.Context, dockerHost string) (*app.HostStats, error) {
 	return nil, nil
 }
+func (m *mockInspector) InspectServiceDetail(_ context.Context, _ app.DestinationSpec, _ string) (*app.ServiceDetail, error) {
+	return nil, nil
+}
+func (m *mockInspector) GetServiceLogs(_ context.Context, _ app.DestinationSpec, _ string, _ int) ([]string, error) {
+	return nil, nil
+}
 func (m *mockInspector) RegisterTLS(_ string, _ inspector.TLSConfig)   {}
 func (m *mockInspector) UnregisterTLS(_ string)                        {}
 func (m *mockInspector) GetTLSCertPath(_ string) string                { return "" }
