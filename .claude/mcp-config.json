@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "zen-server": {
-      "command": "node",
-      "args": ["mcp-servers/zen-server/dist/index.js"],
-      "cwd": "${PROJECT_ROOT}"
-    }
-  }
-}

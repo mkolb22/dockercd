@@ -1,10 +1,12 @@
 {
   "mcpServers": {
-    "zen-server": {
+    "dragonfly": {
       "type": "stdio",
       "command": "node",
       "args": [
-        "mcp-servers/zen-server/dist/index.js"
+        "--no-wasm-tier-up",
+        "--liftoff-only",
+        "node_modules/@dragonfly/plugin/dist/index.js"
       ]
     }
   }

@@ -1,0 +1,9 @@
+{
+  "devDependencies": {
+    "@dragonfly/plugin": "file:../dragonfly-plugin"
+  },
+  "type": "module",
+  "dependencies": {
+    "better-sqlite3": "^12.6.2"
+  }
+}
