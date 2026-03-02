@@ -1,0 +1,19 @@
+apiVersion: dockercd/v1
+kind: Application
+metadata:
+  name: infra
+spec:
+  source:
+    repoURL: http://dockercd:dockercd123@gitea:3000/dockercd/dockercd.git
+    targetRevision: main
+    path: applications/infra/
+    composeFiles:
+      - docker-compose.yml
+  destination:
+    dockerHost: unix:///var/run/docker.sock
+    projectName: infra
+  syncPolicy:
+    automated: true
+    prune: false
+    selfHeal: true
+    pollInterval: 300s

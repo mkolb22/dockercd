@@ -1,6 +1,3 @@
-# Default self-monitoring manifest (standalone mode, GitHub source, manual sync).
-# For bundle mode (Gitea source, automated sync) use: dockercd-app.bundle.yaml
-# install.sh selects the correct manifest automatically based on --mode.
 apiVersion: dockercd/v1
 kind: Application
 metadata:

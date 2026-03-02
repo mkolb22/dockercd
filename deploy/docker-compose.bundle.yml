@@ -1,0 +1,137 @@
+# =============================================================================
+# dockercd Bundle Compose
+#
+# Brings up the full self-hosted GitOps stack in a single file:
+#   postgres → gitea → registry → dockercd
+#
+# PURPOSE: Cold-start / disaster recovery only. Once Gitea is running and
+# the dockercd repo is pushed there, dockercd takes over GitOps management
+# of all services via the applications/*.yaml manifests.
+#
+# USAGE (via install.sh):
+#   ./install.sh --mode bundle
+#
+# MANUAL USAGE:
+#   docker compose -p dockercd-bundle -f deploy/docker-compose.bundle.yml up -d
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — Gitea database backend
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gitea
+      POSTGRES_PASSWORD: gitea
+      POSTGRES_DB: gitea
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gitea"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - dockercd-net
+
+  # ---------------------------------------------------------------------------
+  # Gitea — self-hosted Git server (GitOps source)
+  # ---------------------------------------------------------------------------
+  gitea:
+    image: gitea/gitea:latest
+    container_name: gitea
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3003:3000"
+      - "2222:22"
+    volumes:
+      - gitea-data:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      GITEA__database__DB_TYPE: postgres
+      GITEA__database__HOST: postgres:5432
+      GITEA__database__NAME: gitea
+      GITEA__database__USER: gitea
+      GITEA__database__PASSWD: gitea
+      GITEA__server__ROOT_URL: http://localhost:3003
+      GITEA__server__SSH_PORT: 2222
+      GITEA__server__SSH_LISTEN_PORT: 22
+      GITEA__metrics__ENABLED: "true"
+      GITEA__service__DISABLE_REGISTRATION: "false"
+      GITEA__service__REQUIRE_SIGNIN_VIEW: "false"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/api/v1/version"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+    networks:
+      - dockercd-net
+
+  # ---------------------------------------------------------------------------
+  # Docker Registry — local image store
+  # ---------------------------------------------------------------------------
+  registry:
+    image: registry:2
+    container_name: registry
+    restart: unless-stopped
+    ports:
+      - "5050:5000"
+    volumes:
+      - registry-data:/var/lib/registry
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    networks:
+      - dockercd-net
+
+  # ---------------------------------------------------------------------------
+  # dockercd — GitOps controller
+  # Bootstrap overlay: mounts applications/ so manifests are read on startup.
+  # After first sync completes, Gitea becomes the source of truth.
+  # ---------------------------------------------------------------------------
+  dockercd:
+    image: dockercd:latest
+    pull_policy: never
+    container_name: dockercd
+    restart: unless-stopped
+    depends_on:
+      gitea:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    volumes:
+      - dockercd-state:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../applications:/config/applications:ro
+    environment:
+      DOCKERCD_DATA_DIR: /data
+      DOCKERCD_CONFIG_DIR: /config/applications
+      DOCKERCD_LOG_LEVEL: info
+      DOCKERCD_API_PORT: "8080"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - dockercd-net
+
+volumes:
+  postgres-data:
+  gitea-data:
+  registry-data:
+  dockercd-state:
+
+networks:
+  dockercd-net:
+    external: true
