@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Zen Post-Concept-Action Hook
+#
+# This hook runs after any concept completes an action.
+# It logs provenance to SQLite events and can trigger synchronizations.
+#
+# Hook Contract:
+# - Receives action data via environment variables
+# - Creates provenance event in SQLite
+# - Must complete quickly (<100ms)
+#
+# Environment Variables (set by Claude Code):
+# - ZEN_CONCEPT: Which concept performed the action
+# - ZEN_ACTION: Which action was performed
+# - ZEN_ACTION_ID: Unique action identifier
+# - ZEN_STATUS: Action status (completed/blocked/failed)
+# - ZEN_FLOW_ID: Parent flow identifier (if part of workflow)
+# - ZEN_TRIGGERED_BY: Parent action ID (if triggered by sync)
+# - ZEN_SYNC_ID: Synchronization rule ID (if triggered by sync)
+# - ZEN_MODEL: Which model was used (haiku/sonnet)
+# - ZEN_COST_USD: Estimated cost in USD
+
+set -e
+
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+source "$PROJECT_ROOT/.claude/hooks/lib/common.sh"
+
+# Generate action ID if not provided
+ACTION_ID="${ZEN_ACTION_ID:-act-$(date +%s)}"
+GIT_BRANCH="$(zen_git_branch)"
+GIT_COMMIT="$(zen_git_short_hash)"
+
+# Log provenance event to SQLite
+if zen_state_available; then
+  zen_event_log "$ACTION_ID" "concept_action" "{\"concept\":\"${ZEN_CONCEPT:-unknown}\",\"action\":\"${ZEN_ACTION:-unknown}\",\"status\":\"${ZEN_STATUS:-unknown}\",\"flow_id\":\"${ZEN_FLOW_ID:-null}\",\"triggered_by\":\"${ZEN_TRIGGERED_BY:-null}\",\"sync_id\":\"${ZEN_SYNC_ID:-null}\",\"model\":\"${ZEN_MODEL:-unknown}\",\"cost_usd\":${ZEN_COST_USD:-0.0},\"git_branch\":\"$GIT_BRANCH\",\"git_commit\":\"$GIT_COMMIT\"}" || true
+fi
+
+# Success
+exit 0
