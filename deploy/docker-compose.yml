@@ -15,7 +15,6 @@ services:
       DOCKERCD_LOG_LEVEL: info
       DOCKERCD_API_PORT: "8080"
       DOCKERCD_GIT_TOKEN: ${DOCKERCD_GIT_TOKEN:-}
-      DOCKERCD_E2E_TEST: "1"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/healthz"]
       interval: 30s
