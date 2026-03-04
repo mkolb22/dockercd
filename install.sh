@@ -129,7 +129,7 @@ EOF
     -d "$payload")
 
   local body code
-  body=$(echo "$resp" | head -n -1)
+  body=$(echo "$resp" | sed '$d')
   code=$(echo "$resp" | tail -n 1)
 
   if [ "$code" = "201" ]; then
