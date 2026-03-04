@@ -9,6 +9,7 @@ services:
       - registry-data:/var/lib/registry
     environment:
       REGISTRY_STORAGE_DELETE_ENABLED: "true"
+      REGISTRY_LOG_LEVEL: warn
     networks:
       - dockercd-net
 
