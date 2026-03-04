@@ -1,3 +1,6 @@
+# Reference copy of the bundle-mode self-monitoring manifest.
+# The canonical version used by the bootstrap overlay is: applications/dockercd.yaml
+# Do not mount both — they define the same app and would conflict on registration.
 apiVersion: dockercd/v1
 kind: Application
 metadata:

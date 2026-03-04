@@ -414,25 +414,19 @@ if [ "$INSTALL_MODE" = "bundle" ] || [ "$INSTALL_MODE" = "full" ]; then
   # --- Step 3: Start dockercd with bootstrap overlay ------------------------
   #
   # The bootstrap overlay mounts applications/ into /config/applications.
-  # dockercd reads these YAML manifests on startup:
+  # dockercd reads all YAML manifests on startup — all already reference Gitea:
+  #   - applications/dockercd.yaml  → repoURL: gitea:3000/... ✓ (self-monitor)
+  #   - applications/infra.yaml     → repoURL: gitea:3000/... ✓
   #   - applications/gitea.yaml     → repoURL: gitea:3000/... ✓
   #   - applications/registry.yaml  → repoURL: gitea:3000/... ✓
-  #   - applications/infra.yaml (if present)
-  # Plus we mount the bundle self-monitoring manifest (Gitea source, automated).
 
   log_step "Deploying dockercd (bundle mode)"
-
-  # Temporarily place the bundle self-monitoring manifest where bootstrap can find it
-  cp deploy/dockercd-app.bundle.yaml applications/dockercd-app.yaml
 
   docker compose \
     -p dockercd \
     -f deploy/docker-compose.yml \
     -f deploy/docker-compose.bootstrap.yml \
     up -d
-
-  # Clean up temp manifest (it's registered in SQLite now)
-  rm -f applications/dockercd-app.yaml
 
   log_info "Waiting for dockercd to become healthy..."
   wait_healthy "http://localhost:${DOCKERCD_PORT}/healthz" 90
