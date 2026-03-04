@@ -76,30 +76,6 @@ var API = (function() {
       return request('PUT', '/settings/poll-interval', { intervalMs: intervalMs });
     },
 
-    listHosts: function() {
-      return request('GET', '/hosts');
-    },
-
-    getHost: function(name) {
-      return request('GET', '/hosts/' + encodeURIComponent(name));
-    },
-
-    createHost: function(data) {
-      return request('POST', '/hosts', data);
-    },
-
-    deleteHost: function(name) {
-      return request('DELETE', '/hosts/' + encodeURIComponent(name));
-    },
-
-    checkHost: function(name) {
-      return request('POST', '/hosts/' + encodeURIComponent(name) + '/check');
-    },
-
-    getRemoteHostStats: function(name) {
-      return request('GET', '/hosts/' + encodeURIComponent(name) + '/stats');
-    },
-
     getServiceDetail: function(appName, svcName) {
       return request('GET', '/applications/' + encodeURIComponent(appName) + '/services/' + encodeURIComponent(svcName));
     },

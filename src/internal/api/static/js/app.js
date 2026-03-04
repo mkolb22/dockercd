@@ -6,11 +6,9 @@
   // --- State ---
   var state = {
     apps: [],
-    hosts: [],
     systemInfo: null,
     hostStats: null,
     currentApp: null,
-    currentHost: null,
     currentTab: 'overview',
     refreshTimer: null,
     statsTimer: null,
@@ -54,9 +52,6 @@
     if (svcMatch) return { page: 'serviceDetail', appName: decodeURIComponent(svcMatch[1]), svcName: decodeURIComponent(svcMatch[2]) };
     var match = hash.match(/^#\/apps\/(.+)$/);
     if (match) return { page: 'detail', name: decodeURIComponent(match[1]) };
-    var hostMatch = hash.match(/^#\/hosts\/(.+)$/);
-    if (hostMatch) return { page: 'hostDetail', name: decodeURIComponent(hostMatch[1]) };
-    if (hash === '#/hosts') return { page: 'hosts' };
     return { page: 'dashboard' };
   }
 
@@ -69,10 +64,6 @@
       loadServiceDetail(route.appName, route.svcName);
     } else if (route.page === 'detail') {
       loadDetail(route.name);
-    } else if (route.page === 'hosts') {
-      loadHosts();
-    } else if (route.page === 'hostDetail') {
-      loadHostDetail(route.name);
     } else {
       loadDashboard();
     }
@@ -80,9 +71,7 @@
 
   function updateNavLinks(route) {
     var appsLink = document.getElementById('nav-apps');
-    var hostsLink = document.getElementById('nav-hosts');
     if (appsLink) appsLink.classList.toggle('active', route.page === 'dashboard' || route.page === 'detail' || route.page === 'serviceDetail');
-    if (hostsLink) hostsLink.classList.toggle('active', route.page === 'hosts' || route.page === 'hostDetail');
   }
 
   // --- Dashboard ---
@@ -303,153 +292,6 @@
     }).catch(function() {
       // Silently skip refresh errors
     });
-  }
-
-  // --- Hosts ---
-
-  function loadHosts() {
-    updateBreadcrumb([{ label: 'Hosts' }]);
-    setContent('<div class="loading"><div class="spinner"></div>Loading...</div>');
-
-    API.listHosts().then(function(result) {
-      state.hosts = result.items || [];
-      renderHosts();
-    }).catch(function(err) {
-      setContent('<div class="empty-state"><h2>Error loading hosts</h2><p>' + Components.esc(err.message) + '</p></div>');
-    });
-  }
-
-  function renderHosts() {
-    var html = Components.addHostForm();
-    html += Components.hostGrid(state.hosts);
-    setContent(html);
-    bindAddHostForm();
-  }
-
-  function bindAddHostForm() {
-    var form = document.getElementById('add-host-form');
-    if (!form) return;
-    form.addEventListener('submit', function(e) {
-      e.preventDefault();
-      var name = document.getElementById('host-name').value.trim();
-      var url = document.getElementById('host-url').value.trim();
-      var tlsCertPath = document.getElementById('host-tls-cert').value.trim();
-      var tlsVerify = document.getElementById('host-tls-verify').checked;
-
-      if (!name || !url) {
-        Components.toast('Name and URL are required', 'error');
-        return;
-      }
-
-      var data = { name: name, url: url, tlsVerify: tlsVerify };
-      if (tlsCertPath) data.tlsCertPath = tlsCertPath;
-
-      API.createHost(data).then(function() {
-        Components.toast('Host "' + name + '" registered', 'success');
-        loadHosts();
-      }).catch(function(err) {
-        Components.toast('Error: ' + err.message, 'error');
-      });
-    });
-  }
-
-  function loadHostDetail(name) {
-    state.currentHost = null;
-    updateBreadcrumb([
-      { label: 'Hosts', href: '#/hosts' },
-      { label: name }
-    ]);
-    setContent('<div class="loading"><div class="spinner"></div>Loading...</div>');
-
-    Promise.all([
-      API.getHost(name),
-      API.listApps()
-    ]).then(function(results) {
-      var host = results[0];
-      var apps = (results[1].items || []).filter(function(a) {
-        return a.spec.destination.dockerHost === host.url;
-      });
-      state.currentHost = { host: host, apps: apps };
-      renderHostDetail(name);
-      startRefresh(function() { refreshHostDetail(name); });
-    }).catch(function(err) {
-      setContent('<div class="empty-state"><h2>Error</h2><p>' + Components.esc(err.message) + '</p></div>');
-    });
-  }
-
-  function renderHostDetail(name) {
-    var d = state.currentHost;
-    if (!d) return;
-    var host = d.host;
-    var apps = d.apps;
-
-    var html = '<div class="detail-header">' +
-      '<span class="detail-name">' + Components.esc(name) + '</span>' +
-      Components.hostHealthBadge(host.healthStatus) +
-      (host.tlsCertPath ? ' <span class="tls-badge">TLS</span>' : '') +
-      '<div class="detail-actions">' +
-        '<button class="btn" id="check-host-btn">Check</button>' +
-        '<button class="btn" id="delete-host-btn" style="margin-left:0.5rem;color:var(--color-degraded)">Delete</button>' +
-      '</div>' +
-    '</div>';
-
-    html += '<div style="margin-bottom:1rem;color:var(--text-secondary);font-family:var(--font-mono);font-size:0.85rem">' +
-      Components.esc(host.url) + '</div>';
-
-    html += Components.hostInfoSection(host);
-    html += Components.hostAppsTable(apps);
-
-    setContent(html);
-
-    // Bind check button
-    var checkBtn = document.getElementById('check-host-btn');
-    if (checkBtn) {
-      checkBtn.addEventListener('click', function() {
-        checkBtn.disabled = true;
-        checkBtn.innerHTML = '<div class="spinner"></div>Checking...';
-        API.checkHost(name).then(function(result) {
-          Components.toast('Host check: ' + (result.healthStatus || 'unknown'),
-            result.healthStatus === 'Healthy' ? 'success' : 'error');
-          refreshHostDetail(name);
-        }).catch(function(err) {
-          Components.toast('Check failed: ' + err.message, 'error');
-          checkBtn.disabled = false;
-          checkBtn.textContent = 'Check';
-        });
-      });
-    }
-
-    // Bind delete button
-    var deleteBtn = document.getElementById('delete-host-btn');
-    if (deleteBtn) {
-      deleteBtn.addEventListener('click', function() {
-        if (!confirm('Delete host "' + name + '"?')) return;
-        API.deleteHost(name).then(function() {
-          Components.toast('Host deleted', 'success');
-          location.hash = '#/hosts';
-        }).catch(function(err) {
-          Components.toast('Delete failed: ' + err.message, 'error');
-        });
-      });
-    }
-  }
-
-  function refreshHostDetail(name) {
-    if (document.hidden) return;
-    Promise.all([
-      API.getHost(name),
-      API.listApps()
-    ]).then(function(results) {
-      var host = results[0];
-      var apps = (results[1].items || []).filter(function(a) {
-        return a.spec.destination.dockerHost === host.url;
-      });
-      state.currentHost = { host: host, apps: apps };
-      var route = getRoute();
-      if (route.page === 'hostDetail' && route.name === name) {
-        renderHostDetail(name);
-      }
-    }).catch(function() {});
   }
 
   // --- Service Detail ---

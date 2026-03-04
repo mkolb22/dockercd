@@ -78,16 +78,6 @@ func NewServer(addr string, deps ServerDeps) *Server {
 		r.Get("/system/stats", h.GetHostStats)
 		r.Get("/settings/poll-interval", h.GetPollInterval)
 		r.Put("/settings/poll-interval", h.SetPollInterval)
-		r.Route("/hosts", func(r chi.Router) {
-			r.Get("/", h.ListHosts)
-			r.Post("/", h.CreateHost)
-			r.Route("/{name}", func(r chi.Router) {
-				r.Get("/", h.GetHost)
-				r.Delete("/", h.DeleteHost)
-				r.Post("/check", h.CheckHost)
-				r.Get("/stats", h.GetHostLiveStats)
-			})
-		})
 		r.Route("/applications", func(r chi.Router) {
 			r.Get("/", h.ListApplications)
 			r.Post("/", h.CreateApplication)
