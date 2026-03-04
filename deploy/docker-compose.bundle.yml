@@ -1,18 +1,18 @@
 # =============================================================================
-# dockercd Bundle Compose
+# dockercd Bundle Compose — COLD START / DISASTER RECOVERY ONLY
 #
 # Brings up the full self-hosted GitOps stack in a single file:
 #   postgres → gitea → registry → dockercd
 #
-# PURPOSE: Cold-start / disaster recovery only. Once Gitea is running and
-# the dockercd repo is pushed there, dockercd takes over GitOps management
-# of all services via the applications/*.yaml manifests.
-#
-# USAGE (via install.sh):
-#   ./install.sh --mode bundle
+# NOT USED BY install.sh (which starts each service under its correct GitOps
+# project name for reconciler compatibility). This file is for situations
+# where you need everything running before Gitea is available as GitOps source,
+# such as a bare-metal restore or a first-time manual setup.
 #
 # MANUAL USAGE:
 #   docker compose -p dockercd-bundle -f deploy/docker-compose.bundle.yml up -d
+#
+# After recovery, push to Gitea and trigger a sync to hand back to GitOps.
 # =============================================================================
 
 services:

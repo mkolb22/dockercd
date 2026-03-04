@@ -71,6 +71,77 @@ log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 log_step()  { echo -e "\n${BOLD}${CYAN}=> $*${NC}"; }
 
+# Register an application via the dockercd API
+# Usage: register_app NAME REPO_URL REVISION PATH PROJECT [AUTOMATED]
+register_app() {
+  local name="$1"
+  local repo_url="$2"
+  local revision="$3"
+  local path="$4"
+  local project="$5"
+  local automated="${6:-true}"
+
+  local status_code
+  status_code=$(curl -s -o /dev/null -w "%{http_code}" "${DOCKERCD_API}/applications/${name}")
+  if [ "$status_code" = "200" ]; then
+    log_ok "Application '${name}' already registered"
+    return 0
+  fi
+
+  local prune="true"
+  local selfheal="true"
+  if [ "$automated" = "false" ]; then
+    prune="false"
+    selfheal="false"
+  fi
+
+  local payload
+  payload=$(cat <<EOF
+{
+  "apiVersion": "dockercd/v1",
+  "kind": "Application",
+  "metadata": { "name": "${name}" },
+  "spec": {
+    "source": {
+      "repoURL": "${repo_url}",
+      "targetRevision": "${revision}",
+      "path": "${path}",
+      "composeFiles": ["docker-compose.yml"]
+    },
+    "destination": {
+      "dockerHost": "unix:///var/run/docker.sock",
+      "projectName": "${project}"
+    },
+    "syncPolicy": {
+      "automated": ${automated},
+      "prune": ${prune},
+      "selfHeal": ${selfheal},
+      "pollInterval": "180s"
+    }
+  }
+}
+EOF
+)
+
+  local resp
+  resp=$(curl -s -w "\n%{http_code}" -X POST "${DOCKERCD_API}/applications" \
+    -H "Content-Type: application/json" \
+    -d "$payload")
+
+  local body code
+  body=$(echo "$resp" | head -n -1)
+  code=$(echo "$resp" | tail -n 1)
+
+  if [ "$code" = "201" ]; then
+    log_ok "Registered application '${name}'"
+  elif [ "$code" = "409" ]; then
+    log_ok "Application '${name}' already exists"
+  else
+    log_error "Failed to register '${name}' (HTTP ${code}): ${body}"
+    return 1
+  fi
+}
+
 # Wait for an HTTP endpoint to return 200
 # Usage: wait_healthy URL [timeout_seconds]
 wait_healthy() {
@@ -214,24 +285,23 @@ log_ok "Built and tagged dockercd:latest"
 # =============================================================================
 # STANDALONE MODE
 # Deploy dockercd alone. GitOps source is GitHub.
-# Bootstrap overlay mounts deploy/dockercd-app.standalone.yaml so dockercd
-# registers itself on startup pointing to GitHub with manual sync.
+# No bootstrap overlay — applications/ contains bundle-only Gitea manifests
+# that must not be loaded here (Gitea isn't running). Self-monitoring app is
+# registered via API after dockercd starts.
 # =============================================================================
 
 if [ "$INSTALL_MODE" = "standalone" ]; then
 
   log_step "Deploying dockercd (standalone)"
 
-  # Mount the standalone self-monitoring manifest via bootstrap overlay
-  docker compose \
-    -p dockercd \
-    -f deploy/docker-compose.yml \
-    -f deploy/docker-compose.bootstrap.yml \
-    up -d
+  docker compose -p dockercd -f deploy/docker-compose.yml up -d
 
   log_info "Waiting for dockercd to become healthy..."
   wait_healthy "http://localhost:${DOCKERCD_PORT}/healthz" 90
   log_ok "dockercd is healthy at http://localhost:${DOCKERCD_PORT}"
+
+  # Register self-monitoring: GitHub source, manual sync only
+  register_app "dockercd" "$GITHUB_REPO_URL" "main" "deploy/" "dockercd" "false"
 
 fi
 
@@ -249,14 +319,15 @@ fi
 if [ "$INSTALL_MODE" = "bundle" ] || [ "$INSTALL_MODE" = "full" ]; then
 
   # --- Step 1: Bring up infra (postgres, gitea, registry) -------------------
+  #
+  # IMPORTANT: Start each service using the SAME project name that GitOps will
+  # use later (-p infra, -p gitea, -p registry). This ensures the reconciler
+  # sees these containers as already in-sync and skips a redundant redeploy.
 
   log_step "Deploying infrastructure (PostgreSQL, Gitea, Registry)"
 
-  # Start postgres, gitea, registry from bundle compose (without dockercd yet)
-  docker compose \
-    -p dockercd-bundle \
-    -f deploy/docker-compose.bundle.yml \
-    up -d postgres gitea registry
+  # PostgreSQL — project: infra
+  docker compose -p infra -f applications/infra/docker-compose.yml up -d
 
   # Wait for postgres
   log_info "Waiting for PostgreSQL..."
@@ -277,11 +348,17 @@ if [ "$INSTALL_MODE" = "bundle" ] || [ "$INSTALL_MODE" = "full" ]; then
     log_warn "PostgreSQL health check timed out (status: ${pg_status}) — continuing"
   fi
 
+  # Gitea — project: gitea (depends on postgres being healthy first)
+  docker compose -p gitea -f applications/gitea/docker-compose.yml up -d
+
   # Wait for gitea
   log_info "Waiting for Gitea..."
   wait_healthy "http://localhost:${GITEA_PORT}/api/v1/version" 120 && \
     log_ok "Gitea is ready at http://localhost:${GITEA_PORT}" || \
     log_warn "Gitea may still be starting — some steps may fail"
+
+  # Registry — project: registry
+  docker compose -p registry -f applications/registry/docker-compose.yml up -d
 
   # Wait for registry
   log_info "Waiting for Registry..."
