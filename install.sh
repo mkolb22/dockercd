@@ -320,13 +320,13 @@ if [ "$INSTALL_MODE" = "bundle" ] || [ "$INSTALL_MODE" = "full" ]; then
 
   # --- Step 1: Bring up infra (postgres, gitea, registry) -------------------
   #
-  # IMPORTANT: Start each service using the SAME project name that GitOps will
-  # use later (-p infra, -p gitea, -p registry). This ensures the reconciler
-  # sees these containers as already in-sync and skips a redundant redeploy.
+  # IMPORTANT: Start using the SAME project name that GitOps will use later
+  # (-p infra). This ensures the reconciler sees the containers as in-sync
+  # and skips a redundant redeploy.
+  # Docker Compose handles startup ordering: gitea depends_on postgres healthy.
 
   log_step "Deploying infrastructure (PostgreSQL, Gitea, Registry)"
 
-  # PostgreSQL — project: infra
   docker compose -p infra -f applications/infra/docker-compose.yml up -d
 
   # Wait for postgres
@@ -348,17 +348,11 @@ if [ "$INSTALL_MODE" = "bundle" ] || [ "$INSTALL_MODE" = "full" ]; then
     log_warn "PostgreSQL health check timed out (status: ${pg_status}) — continuing"
   fi
 
-  # Gitea — project: gitea (depends on postgres being healthy first)
-  docker compose -p gitea -f applications/gitea/docker-compose.yml up -d
-
   # Wait for gitea
   log_info "Waiting for Gitea..."
   wait_healthy "http://localhost:${GITEA_PORT}/api/v1/version" 120 && \
     log_ok "Gitea is ready at http://localhost:${GITEA_PORT}" || \
     log_warn "Gitea may still be starting — some steps may fail"
-
-  # Registry — project: registry
-  docker compose -p registry -f applications/registry/docker-compose.yml up -d
 
   # Wait for registry
   log_info "Waiting for Registry..."
@@ -416,9 +410,7 @@ if [ "$INSTALL_MODE" = "bundle" ] || [ "$INSTALL_MODE" = "full" ]; then
   # The bootstrap overlay mounts applications/ into /config/applications.
   # dockercd reads all YAML manifests on startup — all already reference Gitea:
   #   - applications/dockercd.yaml  → repoURL: gitea:3000/... ✓ (self-monitor)
-  #   - applications/infra.yaml     → repoURL: gitea:3000/... ✓
-  #   - applications/gitea.yaml     → repoURL: gitea:3000/... ✓
-  #   - applications/registry.yaml  → repoURL: gitea:3000/... ✓
+  #   - applications/infra.yaml     → repoURL: gitea:3000/... ✓ (postgres+gitea+registry)
 
   log_step "Deploying dockercd (bundle mode)"
 
@@ -439,7 +431,7 @@ if [ "$INSTALL_MODE" = "bundle" ] || [ "$INSTALL_MODE" = "full" ]; then
   # Give dockercd a moment to read manifests and register apps
   sleep 5
 
-  for app in dockercd infra gitea registry; do
+  for app in dockercd infra; do
     sync_app "$app" || true
   done
 
