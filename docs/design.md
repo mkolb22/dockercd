@@ -4,11 +4,10 @@
 
 | Field | Value |
 |-------|-------|
-| **Document** | Engineering Architecture for dockercd PoC |
-| **Status** | Draft |
-| **Date** | 2026-02-15 |
-| **Scope** | PoC -- 18 acceptance criteria covering core GitOps reconciliation |
-| **Story** | story-20260215-dockercd-poc |
+| **Document** | Engineering Architecture for dockercd |
+| **Status** | Current |
+| **Date** | 2026-03-04 |
+| **Scope** | Production implementation — full GitOps reconciliation engine |
 
 ---
 
@@ -28,7 +27,7 @@
 12. [Configuration](#12-configuration)
 13. [Logging Strategy](#13-logging-strategy)
 14. [Security Considerations](#14-security-considerations)
-15. [Development Plan](#15-development-plan)
+15. [Implementation Status](#15-implementation-status)
 16. [Appendix A: Alternatives Evaluated](#appendix-a-alternatives-evaluated)
 17. [Appendix B: Risk Register](#appendix-b-risk-register)
 
@@ -86,24 +85,34 @@ dockercd is a single-container GitOps continuous deployment tool that brings Arg
      |  REST endpoints  |          |  (core loop)    |
      +--------+---------+          +--------+--------+
               |                             |
-              |            +----------------+----------------+
-              |            |                |                |
-              |   +--------+------+  +------+-------+ +-----+------+
-              |   |   gitsync     |  |   parser     | |  inspector |
-              |   | (go-git)      |  | (compose)    | | (docker)   |
-              |   +---------------+  +--------------+ +-----+------+
-              |                                             |
-              |            +----------------+----------------+
+              |            +----------------+---------------------------+
+              |            |                |                           |
+              |   +--------+------+  +------+-------+ +---------+  +--+--------+
+              |   |   gitsync     |  |   parser     | | inspector|  | configsync|
+              |   | (go-git)      |  | (compose)    | | (docker) |  | (yaml dir)|
+              |   +---------------+  +--------------+ +----+-----+  +-----------+
+              |                                            |
+              |            +----------------+--------------+
               |            |                |
-              |   +--------+------+  +------+-------+
-              |   |   differ      |  |   deployer   |
-              |   | (state diff)  |  | (compose up) |
-              |   +---------------+  +--------------+
+              |   +--------+------+  +------+-------+  +------------+
+              |   |   differ      |  |   deployer   |  |  registry  |
+              |   | (state diff)  |  | (compose up) |  | (img poll) |
+              |   +---------------+  +--------------+  +------------+
               |
               |   +---------------+  +--------------+  +-----------+
               |   |   health      |  |   events     |  |   store   |
               |   | (monitoring)  |  | (docker evt) |  | (sqlite)  |
               |   +---------------+  +--------------+  +-----------+
+              |
+              |   +---------------+  +--------------+  +-----------+
+              |   |   notifier    |  |   hostmon    |  |  secrets  |
+              |   | (slack/wh)    |  | (host stats) |  | (age/vault|
+              |   +---------------+  +--------------+  +-----------+
+              |
+              |   +---------------+
+              |   |   eventbus    |
+              |   | (pub/sub)     |
+              |   +---------------+
               |
               +----> All modules access store and config
 ```
@@ -138,7 +147,7 @@ dockercd is a single-container GitOps continuous deployment tool that brings Arg
 #### `internal/gitsync` -- Git Repository Management
 - **Responsibility**: Clones repositories, polls for changes, detects new commits by comparing HEAD SHA with last synced SHA. Manages local repository cache.
 - **Dependencies**: `app` (for `Application.Spec.Source`)
-- **Key decisions**: Uses go-git for all operations (no shelling out). Performs shallow clones (`--depth 1`) to minimize disk and bandwidth. Caches cloned repos in `{dataDir}/repos/{appName}/`. Supports HTTPS only for PoC.
+- **Key decisions**: Uses go-git for all operations (no shelling out). Performs shallow clones (`--depth 1`) to minimize disk and bandwidth. Caches cloned repos in `{dataDir}/repos/{urlHash}/`. Supports HTTPS with Basic auth (global `DOCKERCD_GIT_TOKEN` or per-URL embedded credentials `http://user:pass@host/repo.git`). `urlHash()` strips credentials before hashing so the same repo with and without auth maps to one cache path. `authFor()` prefers URL-embedded credentials over the global token.
 
 #### `internal/parser` -- Compose File Parser
 - **Responsibility**: Parses Docker Compose YAML files into a normalized `ComposeSpec`. Handles multiple compose files with override semantics. Performs variable substitution from `.env` files.
@@ -156,9 +165,9 @@ dockercd is a single-container GitOps continuous deployment tool that brings Arg
 - **Key decisions**: This is a pure function module -- no I/O. Comparison is field-by-field: image tag, environment variables, published ports, volume mounts, labels, networks, restart policy. Order-independent comparison for lists (ports, volumes).
 
 #### `internal/deployer` -- Deployment Executor
-- **Responsibility**: Executes Docker Compose operations to bring live state into alignment with desired state. Runs `docker compose pull`, `docker compose up -d`, and `docker compose down --remove-orphans` (when pruning).
+- **Responsibility**: Executes Docker Compose operations to bring live state into alignment with desired state. Runs `docker compose pull`, `docker compose up -d`, and `docker compose down --remove-orphans` (when pruning). Supports sync waves, pre/post-sync hook containers, and blue-green zero-downtime deployments.
 - **Dependencies**: `app` (for types), Docker client (for compose operations)
-- **Key decisions**: Shells out to `docker compose` CLI for deployment operations. While the Docker SDK handles inspection, compose orchestration (service dependency ordering, network creation, volume management) is complex enough that using the compose CLI is the pragmatic choice. The compose binary is included in the container image.
+- **Key decisions**: Shells out to `docker compose` CLI for deployment operations. While the Docker SDK handles inspection, compose orchestration (service dependency ordering, network creation, volume management) is complex enough that using the compose CLI is the pragmatic choice. The compose binary is included in the container image. **Sync waves**: services labeled `com.dockercd.sync-wave=<n>` are deployed in ascending numeric order; each wave waits for health before proceeding. **Hooks**: services labeled `com.dockercd.hook=pre-sync` or `post-sync` are run as one-shot containers (`docker compose run --rm`) before or after the main deploy. **Blue-green**: services labeled `com.dockercd.strategy=blue-green` use `BlueGreenDeployer` which spins up the new color, health-gates the cutover, then tears down the old color. **Encrypted secrets**: `.env.age` files adjacent to compose files are decrypted at deploy time using the configured age private key.
 
 #### `internal/health` -- Health Monitor
 - **Responsibility**: Polls container health status after deployments. Maps Docker container states to the four-level health model. Computes application-level health as worst-child-status. Detects health transitions and logs them.
@@ -176,9 +185,39 @@ dockercd is a single-container GitOps continuous deployment tool that brings Arg
 - **Key decisions**: Uses a worker pool model (not per-app goroutines) to bound concurrency. Default pool size is 4 workers. Applications are queued for reconciliation either by timer expiry or by external trigger (API call, Docker event). A per-app mutex prevents concurrent reconciliation of the same application.
 
 #### `internal/api` -- REST API Server
-- **Responsibility**: HTTP server exposing REST endpoints for application management. Serves JSON responses. Provides health and readiness probes.
-- **Dependencies**: `app`, `store`, `reconciler`, `differ`
-- **Key decisions**: Uses chi router with middleware stack (recovery, request logging, content-type enforcement). All endpoints are under `/api/v1/` for versioning. Error responses use a consistent JSON schema.
+- **Responsibility**: HTTP server exposing REST endpoints for application management. Serves the embedded SPA (single-page application). Provides health and readiness probes. Streams real-time events via Server-Sent Events (SSE). Receives GitHub/Gitea push webhooks.
+- **Dependencies**: `app`, `store`, `reconciler`, `differ`, `eventbus`
+- **Key decisions**: Uses chi router with middleware stack (recovery, request logging, content-type enforcement). All API endpoints are under `/api/v1/` for versioning. Error responses use a consistent JSON schema. Static SPA assets are embedded via `//go:embed static/*`. SSE endpoint pushes status changes to the browser without polling. Webhook endpoint validates HMAC-SHA256 signatures using `DOCKERCD_WEBHOOK_SECRET`.
+
+#### `internal/eventbus` -- In-Process Event Bus
+- **Responsibility**: Lightweight publish/subscribe bus for broadcasting application status changes to SSE subscribers. Decouples the reconciler from the API server.
+- **Dependencies**: None (leaf module)
+- **Key decisions**: Uses a fan-out channel model with per-subscriber buffered channels. Subscribers that fall behind are dropped rather than blocking the publisher.
+
+#### `internal/hostmon` -- Host Resource Monitor
+- **Responsibility**: Collects host-level resource metrics (CPU, memory, disk, network). Exposes aggregate and per-container metrics for the API `/api/v1/system/stats` endpoint.
+- **Dependencies**: Docker client (for container stats stream)
+- **Key decisions**: Uses the Docker SDK `ContainerStats` streaming API to collect per-container CPU and memory. Host-level metrics read from `/proc/stat`, `/proc/meminfo` (Linux) or platform-equivalent.
+
+#### `internal/notifier` -- Notification Dispatcher
+- **Responsibility**: Sends sync event notifications to configured backends (Slack, generic webhook). Dispatches to multiple backends simultaneously.
+- **Dependencies**: None (leaf module, makes outbound HTTP calls)
+- **Key decisions**: `MultiNotifier` wraps a slice of `Notifier` implementations. `SlackNotifier` formats rich messages with sync status, diff summary, and commit SHA. `WebhookNotifier` POSTs structured JSON with configurable custom headers for auth. Failures in one notifier do not block others.
+
+#### `internal/registry` -- Image Policy Engine
+- **Responsibility**: Polls Docker registries for new image tags matching configured policies. Compares live image digests against desired policy (semver, regex, latest). Triggers reconciliation when a new matching image is available.
+- **Dependencies**: `app` (for image policy types), `store`, `reconciler` (trigger interface)
+- **Key decisions**: Each application service can have an `imagePolicy` label (`com.dockercd.image-policy`) specifying a semver constraint or tag regex. The registry poller queries the registry API on a configurable interval. Uses semantic version comparison from `registry/semver.go`.
+
+#### `internal/secrets` -- Secret Provider
+- **Responsibility**: Resolves secret references in compose files from external stores. Supports age-encrypted `.env.age` files, HashiCorp Vault, and AWS Secrets Manager.
+- **Dependencies**: None (leaf module, makes external calls)
+- **Key decisions**: `MultiSecretProvider` delegates to the appropriate backend by prefix (`vault:`, `awssm:`, age-encrypted file). Age decryption uses the key file path from `DOCKERCD_AGE_KEY_FILE`. Vault auth is via token or AppRole. AWS auth uses the standard SDK credential chain.
+
+#### `internal/reconciler/configsync` -- Config Directory Watcher
+- **Responsibility**: Watches the `DOCKERCD_CONFIG_DIR` directory for YAML application manifest files. Registers new apps, updates changed apps, and removes deleted apps from the store.
+- **Dependencies**: `app`, `store`
+- **Key decisions**: Polls the config directory on startup and on a slow interval. Parsed manifests are compared against the stored version; conditional writes avoid unnecessary DB updates.
 
 ### 2.3 Dependency Graph
 
@@ -190,7 +229,8 @@ cmd/dockercd
        │    ├── app
        │    ├── store
        │    ├── reconciler
-       │    └── differ
+       │    ├── differ
+       │    └── eventbus
        ├── reconciler
        │    ├── gitsync
        │    │    └── app
@@ -206,16 +246,24 @@ cmd/dockercd
        │    │    ├── app
        │    │    ├── inspector
        │    │    └── store
+       │    ├── notifier
+       │    ├── registry   (trigger interface only)
+       │    ├── configsync
+       │    │    ├── app
+       │    │    └── store
        │    ├── store
        │    └── app
        ├── events
        │    ├── app
        │    └── reconciler (trigger interface only)
+       ├── hostmon
+       │    └── (Docker SDK)
+       ├── secrets
        └── store
             └── app
 ```
 
-**Critical constraint**: No circular dependencies. The `app` package is the leaf. Every module depends on `app` for types but `app` depends on nothing. The `reconciler` is the highest-level orchestration module. The `events` module depends on a minimal trigger interface of the reconciler, not the full implementation.
+**Critical constraint**: No circular dependencies. The `app` package is the leaf. Every module depends on `app` for types but `app` depends on nothing. The `reconciler` is the highest-level orchestration module. The `events` module depends on a minimal trigger interface of the reconciler, not the full implementation. `eventbus` is a pure leaf with no dependencies. `notifier`, `secrets`, and `hostmon` are also leaves.
 
 ---
 
@@ -439,6 +487,8 @@ const (
     SyncOperationPoll     SyncOperation = "poll"      // Triggered by poll interval
     SyncOperationManual   SyncOperation = "manual"    // Triggered by API/CLI
     SyncOperationSelfHeal SyncOperation = "self-heal" // Triggered by Docker event
+    SyncOperationRollback SyncOperation = "rollback"  // Triggered by rollback to prior SHA
+    SyncOperationAdopt    SyncOperation = "adopt"     // Adopts unmanaged containers into app
 )
 
 type SyncResultStatus string
@@ -1417,14 +1467,27 @@ func (s *Store) RecordSync(result *app.SyncResult) error {
 
 | Method | Path | Description | Response |
 |--------|------|-------------|----------|
+| `GET` | `/healthz` | Liveness probe | `{"status": "ok"}` |
+| `GET` | `/readyz` | Readiness probe | `{"status": "ready", "checks": {...}}` |
+| `GET` | `/api/v1/system` | Version, uptime, build info | `SystemInfo` |
+| `GET` | `/api/v1/system/stats` | Host + container resource metrics | `SystemStats` |
 | `GET` | `/api/v1/applications` | List all applications | `ApplicationList` |
+| `POST` | `/api/v1/applications` | Register a new application (JSON body) | `Application` |
 | `GET` | `/api/v1/applications/{name}` | Get application detail | `Application` |
+| `DELETE` | `/api/v1/applications/{name}` | Unregister application | `204 No Content` |
 | `POST` | `/api/v1/applications/{name}/sync` | Trigger sync | `SyncResult` |
-| `GET` | `/api/v1/applications/{name}/diff` | Get current diff | `DiffResult` |
+| `POST` | `/api/v1/applications/{name}/rollback` | Roll back to prior commit SHA | `SyncResult` |
+| `POST` | `/api/v1/applications/{name}/adopt` | Adopt unmanaged containers | `SyncResult` |
+| `GET` | `/api/v1/applications/{name}/diff` | Get current diff (dry-run) | `DiffResult` |
 | `GET` | `/api/v1/applications/{name}/events` | Get application events | `EventList` |
 | `GET` | `/api/v1/applications/{name}/history` | Get sync history | `SyncHistoryList` |
-| `GET` | `/healthz` | Liveness probe | `{"status": "ok"}` |
-| `GET` | `/readyz` | Readiness probe | `{"status": "ready"}` |
+| `GET` | `/api/v1/applications/{name}/metrics` | Per-service resource metrics | `MetricsList` |
+| `GET` | `/api/v1/applications/{name}/services/{svc}` | Service detail | `ServiceDetail` |
+| `GET` | `/api/v1/applications/{name}/services/{svc}/logs` | Container log stream | `text/plain` (streaming) |
+| `GET` | `/api/v1/events/stream` | SSE stream of all application events | `text/event-stream` |
+| `POST` | `/api/v1/webhook/git` | GitHub / Gitea push webhook | `202 Accepted` |
+| `GET` | `/api/v1/settings/poll-interval` | Get global poll interval override | `PollIntervalSetting` |
+| `PUT` | `/api/v1/settings/poll-interval` | Set global poll interval override | `PollIntervalSetting` |
 
 ### 7.2 Request/Response Schemas
 
@@ -1612,17 +1675,37 @@ r.Get("/healthz", healthz)
 r.Get("/readyz", readyz)
 
 r.Route("/api/v1", func(r chi.Router) {
+    r.Get("/system", getSystem)
+    r.Get("/system/stats", getSystemStats)
+
     r.Route("/applications", func(r chi.Router) {
         r.Get("/", listApplications)
+        r.Post("/", createApplication)
         r.Route("/{name}", func(r chi.Router) {
             r.Get("/", getApplication)
+            r.Delete("/", deleteApplication)
             r.Post("/sync", syncApplication)
+            r.Post("/rollback", rollbackApplication)
+            r.Post("/adopt", adoptApplication)
             r.Get("/diff", diffApplication)
             r.Get("/events", getEvents)
             r.Get("/history", getHistory)
+            r.Get("/metrics", getMetrics)
+            r.Route("/services/{svc}", func(r chi.Router) {
+                r.Get("/", getService)
+                r.Get("/logs", getServiceLogs)
+            })
         })
     })
+
+    r.Get("/events/stream", eventsStream)          // SSE
+    r.Post("/webhook/git", webhookGit)             // GitHub/Gitea
+    r.Get("/settings/poll-interval", getPollInterval)
+    r.Put("/settings/poll-interval", setPollInterval)
 })
+
+// SPA: serve embedded static assets, fallback to index.html
+r.Handle("/ui/*", spaHandler())
 ```
 
 ---
@@ -1633,86 +1716,93 @@ r.Route("/api/v1", func(r chi.Router) {
 src/
     cmd/
         dockercd/
-            main.go                 # Entry point, wires dependencies
+            main.go                 # Entry point, wires all modules via dependency injection
     internal/
         app/
-            types.go                # All domain types (Application, Status, etc.)
+            types.go                # All domain types (Application, Status, ComposeSpec, etc.)
             validation.go           # Manifest validation logic
             duration.go             # Custom Duration type with YAML/JSON marshaling
         config/
-            config.go               # Config struct and loading
+            config.go               # Config struct, Viper loading, env binding
             defaults.go             # Default values
         store/
             store.go                # Store interface and SQLite implementation
-            queries.go              # SQL query methods
-            migrations.go           # Migration runner
+            queries.go              # SQL query methods (CRUD, history, events)
+            records.go              # DB record types and row scanning
+            migrations.go           # Migration runner (embedded FS)
             migrations/
-                001_initial.sql     # Initial schema
+                001_initial.sql           # Initial schema
+                002_compose_spec_snapshot.sql
+                003_image_policies.sql
+                004_docker_hosts.sql
+                005_app_source.sql
         gitsync/
-            gitsync.go              # GitSyncer interface and implementation
-            cache.go                # Repository cache management
+            gitsync.go              # GitSyncer interface and implementation (go-git)
+            cache.go                # Repository cache (URL hash → local path, credential strip)
         parser/
             parser.go               # ComposeParser interface and implementation
-            merge.go                # Compose file merge logic
-            substitute.go           # Variable substitution
-            normalize.go            # State normalization
+            merge.go                # Compose file override merge algorithm
+            substitute.go           # Variable substitution from .env files
         inspector/
             inspector.go            # StateInspector interface and implementation
-            mapping.go              # Docker state to ServiceState mapping
+            mapping.go              # Docker container state → ServiceState mapping
         differ/
             differ.go               # StateDiffer interface and implementation
-            compare.go              # Field-level comparison functions
-            summary.go              # Human-readable summary generation
+            compare.go              # Field-level comparison (image, env, ports, volumes, labels)
+            summary.go              # Human-readable diff summary generation
         deployer/
-            deployer.go             # Deployer interface and implementation
-            compose.go              # Docker compose CLI wrapper
+            deployer.go             # Deployer interface; sync-wave orchestration
+            compose.go              # Docker compose CLI wrapper (pull, up, down, run)
+            bluegreen.go            # BlueGreenDeployer: color switch with health-gated cutover
         health/
             health.go               # HealthChecker interface and implementation
-            aggregator.go           # Worst-child-status aggregation
+            aggregator.go           # Worst-child-status aggregation across services
         events/
-            watcher.go              # EventWatcher interface and implementation
-            debounce.go             # Event debouncing logic
+            watcher.go              # EventWatcher: Docker event stream, self-heal triggers
+            debounce.go             # Debounce logic (2s window per app)
+        eventbus/
+            eventbus.go             # In-process pub/sub for SSE fan-out
+        hostmon/
+            monitor.go              # Host and per-container resource metrics (CPU, mem, net, blk)
+        notifier/
+            notifier.go             # Notifier interface and MultiNotifier dispatcher
+            slack.go                # Slack webhook notifier
+            webhook.go              # Generic webhook notifier (custom headers)
+        registry/
+            registry.go             # Registry V2 client (tag listing, digest fetch)
+            poller.go               # Image policy poller (semver, regex, latest)
+            semver.go               # Semantic version comparator for tag sorting
+        secrets/
+            secrets.go              # SecretProvider interface and MultiSecretProvider
+            multi.go                # Routes secret refs to correct backend by prefix
+            awssm.go                # AWS Secrets Manager backend
+            vault.go                # HashiCorp Vault backend (token + AppRole auth)
         reconciler/
-            reconciler.go           # Reconciler interface and implementation
-            scheduler.go            # Poll scheduling and work queue
-            worker.go               # Worker pool
+            reconciler.go           # Reconciler interface and core orchestration loop
+            scheduler.go            # Poll scheduling and per-app work queue
+            worker.go               # Worker pool (configurable concurrency)
+            configsync.go           # Config directory watcher (YAML manifest files)
+            ports.go                # Port conflict detection and reporting
         api/
-            server.go               # HTTP server setup and middleware
-            handlers.go             # Request handlers
-            responses.go            # Response types and helpers
+            server.go               # Chi router, middleware stack, SPA handler, SSE
+            handlers.go             # All HTTP request handlers
+            responses.go            # Response types and JSON helpers
+            webhook.go              # HMAC-validated Git push webhook handler
         cli/
-            root.go                 # Root cobra command
-            serve.go                # serve subcommand
+            root.go                 # Root cobra command and version subcommand
+            serve.go                # serve subcommand: bootstraps full runtime
             app.go                  # app subcommand group
-            app_list.go             # app list subcommand
-            app_get.go              # app get subcommand
-            app_sync.go             # app sync subcommand
-            app_diff.go             # app diff subcommand
+            app_list.go             # app list
+            app_get.go              # app get
+            app_sync.go             # app sync
+            app_diff.go             # app diff
+            app_rollback.go         # app rollback <name> <sha>
+            app_adopt.go            # app adopt <name>
     go.mod
     go.sum
-    Dockerfile
-    Makefile
-    docker-compose.yml              # For running dockercd itself
-    examples/
-        simple-app.yaml             # Example: single-service app
-        multi-service-app.yaml      # Example: web + api + db
-        app-with-healthchecks.yaml  # Example: app with health monitoring
+    Dockerfile                      # Multi-stage: golang:1.24-alpine → alpine:3.21
+    Makefile                        # build, test, test-race, lint, docker, integration
 ```
-
-### 8.1 File Counts by Phase
-
-| Phase | New Files | Cumulative |
-|-------|-----------|-----------|
-| Phase 1: Scaffolding | 12 | 12 |
-| Phase 2: Git Sync | 3 | 15 |
-| Phase 3: Parser + Inspector | 8 | 23 |
-| Phase 4: Diff Engine | 4 | 27 |
-| Phase 5: Deployer | 3 | 30 |
-| Phase 6: Reconciler | 4 | 34 |
-| Phase 7: Health + Events | 5 | 39 |
-| Phase 8: API + CLI | 9 | 48 |
-| Phase 9: Container + Integration | 4 | 52 |
-| Phase 10: Docs + Examples | 7 | 59 |
 
 ---
 
@@ -1791,12 +1881,31 @@ type DeployRequest struct {
 
     // DockerHost is the Docker daemon socket path.
     DockerHost string
+
+    // PreSyncServices are hook services to run before the main deploy.
+    PreSyncServices []string
+
+    // PostSyncServices are hook services to run after the main deploy.
+    PostSyncServices []string
+
+    // TLSCertPath is the optional path to a TLS CA certificate for the Docker host.
+    TLSCertPath string
 }
 
 // Deployer executes Docker Compose operations to reconcile state.
 type Deployer interface {
-    // Deploy executes a deployment operation (pull + up + optional prune).
+    // Deploy executes a full deployment: pre-hooks → wave-ordered up → post-hooks.
+    // Respects sync waves (com.dockercd.sync-wave label) and blue-green strategy.
     Deploy(ctx context.Context, req DeployRequest) error
+
+    // DeployServices deploys a specific subset of services (used for sync waves).
+    DeployServices(ctx context.Context, req DeployRequest, services []string) error
+
+    // Down tears down all services for the project (used in blue-green cleanup).
+    Down(ctx context.Context, req DeployRequest) error
+
+    // RunHook runs a one-shot hook container and waits for completion.
+    RunHook(ctx context.Context, req DeployRequest, serviceName string) error
 }
 
 
@@ -2383,257 +2492,55 @@ The PoC API has no authentication or authorization. It is intended to be accesse
 
 ---
 
-## 15. Development Plan
-
-### Phase 1: Project Scaffolding, Config, Store, App Model
-
-**Goal**: Establish the project structure, build system, configuration loading, database schema, and core domain types. At the end of this phase, you can build the binary, load configuration, connect to SQLite, and create/list/get application records.
-
-**Files created**:
-- `src/go.mod`, `src/go.sum`
-- `src/Makefile`
-- `src/cmd/dockercd/main.go`
-- `src/internal/app/types.go`
-- `src/internal/app/validation.go`
-- `src/internal/app/duration.go`
-- `src/internal/config/config.go`
-- `src/internal/config/defaults.go`
-- `src/internal/store/store.go`
-- `src/internal/store/queries.go`
-- `src/internal/store/migrations.go`
-- `src/internal/store/migrations/001_initial.sql`
-
-**Interfaces implemented**: `Store`
-
-**Tests**:
-- `src/internal/app/validation_test.go` -- manifest validation (valid manifests, missing fields, invalid values)
-- `src/internal/app/duration_test.go` -- Duration marshaling/unmarshaling
-- `src/internal/config/config_test.go` -- config loading, defaults, validation
-- `src/internal/store/store_test.go` -- CRUD operations, migrations, transactions (using in-memory SQLite)
-
-**Deliverable**: `make build` produces a binary. `make test` passes. The binary starts, loads config, runs migrations, and exits.
-
----
-
-### Phase 2: Git Sync Module
-
-**Goal**: Clone and pull Git repositories, detect changes by commit SHA, manage local cache.
-
-**Files created**:
-- `src/internal/gitsync/gitsync.go`
-- `src/internal/gitsync/cache.go`
-
-**Interfaces implemented**: `GitSyncer`
-
-**Tests**:
-- `src/internal/gitsync/gitsync_test.go` -- clone, pull, change detection, cache management, error handling. Uses a temporary bare Git repo on the local filesystem (no network needed).
-
-**Deliverable**: Given a git repo URL, clone it, detect when new commits appear, return the HEAD SHA. Handles errors (unreachable repo, corrupted cache).
-
----
-
-### Phase 3: Compose File Parser + Live State Inspector
-
-**Goal**: Parse Docker Compose YAML files into normalized desired state. Query Docker API for current live state.
-
-**Files created**:
-- `src/internal/parser/parser.go`
-- `src/internal/parser/merge.go`
-- `src/internal/parser/substitute.go`
-- `src/internal/parser/normalize.go`
-- `src/internal/inspector/inspector.go`
-- `src/internal/inspector/mapping.go`
-
-**Interfaces implemented**: `ComposeParser`, `StateInspector`
-
-**Tests**:
-- `src/internal/parser/parser_test.go` -- single file parsing, multi-file merge, variable substitution, normalization, error handling. Uses fixture YAML files (no Docker needed).
-- `src/internal/parser/merge_test.go` -- override merge semantics (scalars, maps, lists).
-- `src/internal/inspector/inspector_test.go` -- mocks Docker client, tests container-to-ServiceState mapping, label filtering, health status mapping.
-
-**Deliverable**: Parse compose files into `ComposeSpec`. Query Docker for `[]ServiceState`. Both use the same data model for comparison.
-
----
-
-### Phase 4: Diff Engine
-
-**Goal**: Compare desired and live state to produce actionable diffs.
-
-**Files created**:
-- `src/internal/differ/differ.go`
-- `src/internal/differ/compare.go`
-- `src/internal/differ/summary.go`
-
-**Interfaces implemented**: `StateDiffer`
-
-**Tests**:
-- `src/internal/differ/differ_test.go` -- comprehensive test cases:
-  - All in sync (empty diff)
-  - New service (ToCreate)
-  - Removed service (ToRemove)
-  - Image change (ToUpdate)
-  - Environment variable change (ToUpdate)
-  - Port change (ToUpdate)
-  - Volume change (ToUpdate)
-  - Multiple changes on one service
-  - Multiple services with mixed changes
-  - Edge cases: empty desired, empty live, both empty
-
-**Deliverable**: Pure function module. Given desired and live state, produces a structured diff with human-readable summary. No I/O, no Docker, no Git -- fully testable with unit tests.
-
----
-
-### Phase 5: Deployer Module
-
-**Goal**: Execute Docker Compose CLI operations to reconcile state.
-
-**Files created**:
-- `src/internal/deployer/deployer.go`
-- `src/internal/deployer/compose.go`
-
-**Interfaces implemented**: `Deployer`
-
-**Tests**:
-- `src/internal/deployer/deployer_test.go` -- mocks exec.Command to test CLI argument construction, environment setup, error handling. Does not actually call Docker.
-
-**Deliverable**: Given a `DeployRequest`, constructs and executes the correct `docker compose` commands. Captures and returns errors with stderr output.
-
----
-
-### Phase 6: Reconciliation Loop
-
-**Goal**: Wire together git sync, parser, inspector, differ, and deployer into the core reconciliation algorithm. Implement the scheduler and worker pool.
-
-**Files created**:
-- `src/internal/reconciler/reconciler.go`
-- `src/internal/reconciler/scheduler.go`
-- `src/internal/reconciler/worker.go`
-
-**Interfaces implemented**: `Reconciler`
-
-**Tests**:
-- `src/internal/reconciler/reconciler_test.go` -- uses mock implementations of all dependencies. Tests the reconciliation algorithm:
-  - No changes: skip
-  - Changes detected, automated=true: deploy
-  - Changes detected, automated=false: report only
-  - Git error: condition set, no deploy
-  - Parse error: condition set, Degraded status
-  - Deploy error: condition set, Degraded status
-  - Circuit breaker: opens after 3 failures, closes after success
-- `src/internal/reconciler/scheduler_test.go` -- tests scheduling logic, trigger channel, work queue
-
-**Deliverable**: The reconciler can orchestrate a full reconciliation cycle using mocked dependencies. The scheduler queues work correctly based on poll intervals and manual triggers.
-
----
-
-### Phase 7: Health Monitor + Self-Healing (Events)
-
-**Goal**: Monitor container health after deployment, compute application health. Subscribe to Docker events for self-healing.
-
-**Files created**:
-- `src/internal/health/health.go`
-- `src/internal/health/aggregator.go`
-- `src/internal/events/watcher.go`
-- `src/internal/events/debounce.go`
-
-**Interfaces implemented**: `HealthChecker`, `EventWatcher`
-
-**Tests**:
-- `src/internal/health/health_test.go` -- health status mapping (all Docker states), worst-child aggregation, timeout behavior (using mock inspector)
-- `src/internal/health/aggregator_test.go` -- aggregation edge cases (all healthy, one degraded, mixed, empty)
-- `src/internal/events/watcher_test.go` -- event filtering (compose labels), debouncing (multiple events within window), self-event suppression (using mock Docker client)
-
-**Deliverable**: Health monitor polls and computes health. Event watcher triggers reconciliation on container die/stop events. Both are tested with mocks.
-
----
-
-### Phase 8: API Server + CLI
-
-**Goal**: REST API for programmatic access. CLI commands for interactive use.
-
-**Files created**:
-- `src/internal/api/server.go`
-- `src/internal/api/handlers.go`
-- `src/internal/api/responses.go`
-- `src/internal/cli/root.go`
-- `src/internal/cli/serve.go`
-- `src/internal/cli/app.go`
-- `src/internal/cli/app_list.go`
-- `src/internal/cli/app_get.go`
-- `src/internal/cli/app_sync.go`
-- `src/internal/cli/app_diff.go`
-
-**Interfaces implemented**: (API and CLI are consumers of existing interfaces, they do not define new ones)
-
-**Tests**:
-- `src/internal/api/handlers_test.go` -- HTTP handler tests using `httptest.NewRecorder()`. Tests all endpoints with mock store and reconciler. Tests error responses, content types, status codes.
-
-**Deliverable**: `dockercd serve` starts the API server + reconciler + event watcher. CLI commands can list/get/sync/diff applications. API endpoints return JSON responses.
-
----
-
-### Phase 9: Containerization + Integration Tests
-
-**Goal**: Dockerfile, docker-compose.yml for running dockercd itself, and integration tests.
-
-**Files created**:
-- `src/Dockerfile`
-- `docker-compose.yml` (for running dockercd)
-- `src/internal/integration/reconcile_test.go` (integration test)
-- `src/internal/integration/testdata/` (test fixtures: compose files, app manifests)
-
-**Tests**:
-- Integration test: starts a real Git repo (local bare repo), creates test containers, runs a full reconciliation cycle, verifies containers are created/updated/removed correctly. Uses `testcontainers-go` or direct Docker SDK for test setup.
-- Build test: `docker build` succeeds, image size <100MB.
-
-**Deliverable**: `docker build -t dockercd .` produces a working image. `docker compose up` runs dockercd with socket mounting. Integration tests pass with real Docker.
-
----
-
-### Phase 10: Documentation + Examples
-
-**Goal**: Complete documentation suite and example application manifests.
-
-**Files created**:
-- `README.md` (project overview, quick start, architecture summary)
-- `docs/architecture.md` (this document, finalized)
-- `docs/configuration.md` (all env vars, manifest schema, examples)
-- `docs/development.md` (build, test, contribute)
-- `examples/simple-app.yaml`
-- `examples/multi-service-app.yaml`
-- `examples/app-with-healthchecks.yaml`
-
-**Tests**: None (documentation only).
-
-**Deliverable**: A developer can read the docs, build the project, deploy an example app, and verify the reconciliation loop works.
-
----
-
-### Phase Dependency Graph
-
-```
-Phase 1 (scaffolding)
-    |
-    +---> Phase 2 (git sync)
-    |         |
-    |         +---> Phase 3 (parser + inspector)
-    |                   |
-    |                   +---> Phase 4 (diff engine)
-    |                             |
-    |                             +---> Phase 5 (deployer)
-    |                                       |
-    |                                       +---> Phase 6 (reconciler)
-    |                                                 |
-    +---> Phase 7 (health + events) <-----------------+
-              |
-              +---> Phase 8 (API + CLI)
-                        |
-                        +---> Phase 9 (containerization)
-                                  |
-                                  +---> Phase 10 (docs)
-```
-
-Note: Phase 7 depends on both Phase 1 (store for persistence) and Phase 6 (reconciler for trigger interface), but development can start in parallel with Phases 4-5 since it uses mock dependencies.
+## 15. Implementation Status
+
+All modules are fully implemented. This section summarizes what is built and where to find it.
+
+### 15.1 Core Engine (Complete)
+
+| Module | Status | Key Files |
+|--------|--------|-----------|
+| `app` | ✅ Complete | `types.go`, `validation.go`, `duration.go` |
+| `config` | ✅ Complete | `config.go`, `defaults.go` |
+| `store` | ✅ Complete | `store.go`, `queries.go`, `records.go`, 5 migrations |
+| `gitsync` | ✅ Complete | HTTPS + embedded-cred auth, SHA-based change detection, URL-hash cache |
+| `parser` | ✅ Complete | Multi-file merge, variable substitution |
+| `inspector` | ✅ Complete | Docker SDK, label filtering, healthcheck mapping |
+| `differ` | ✅ Complete | Field-level diff: image, env, ports, volumes, labels |
+| `deployer` | ✅ Complete | Sync waves, pre/post hooks, blue-green, age secrets |
+| `health` | ✅ Complete | Worst-child aggregation, Docker HEALTHCHECK, state inference |
+| `events` | ✅ Complete | Docker event stream, debounce (2s), self-event suppression |
+| `reconciler` | ✅ Complete | Worker pool (default 4), circuit breaker, per-app mutex |
+
+### 15.2 Supporting Modules (Complete)
+
+| Module | Status | Key Files |
+|--------|--------|-----------|
+| `eventbus` | ✅ Complete | Fan-out pub/sub for SSE subscribers |
+| `hostmon` | ✅ Complete | Per-container CPU/mem/net/blk, host-level stats |
+| `notifier` | ✅ Complete | Slack, generic webhook, multi-notifier |
+| `registry` | ✅ Complete | Registry V2 client, semver-aware image policy poller |
+| `secrets` | ✅ Complete | age (file), HashiCorp Vault, AWS Secrets Manager |
+| `reconciler/configsync` | ✅ Complete | Config-directory YAML watcher |
+| `reconciler/ports` | ✅ Complete | Port conflict detection (deduplicated) |
+
+### 15.3 API & UI (Complete)
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| REST API | ✅ Complete | 21 endpoints, full CRUD + sync + rollback + adopt |
+| SSE stream | ✅ Complete | Real-time push via `/api/v1/events/stream` |
+| Webhook | ✅ Complete | HMAC-SHA256 GitHub/Gitea push webhook |
+| Web UI | ✅ Complete | Embedded SPA — 3-column resource tree, metrics, diffs, history, logs |
+| CLI | ✅ Complete | `app list/get/sync/diff/rollback/adopt`, `serve`, `version` |
+
+### 15.4 Install Modes (Complete)
+
+| Mode | Status | Description |
+|------|--------|-------------|
+| Standalone | ✅ Complete | Single dockercd container, GitHub as GitOps source |
+| Bundle | ✅ Complete | dockercd + Gitea + Registry + PostgreSQL, fully self-hosted |
+| Full | ✅ Complete | Bundle + monitoring stack (Prometheus, Grafana, cAdvisor) |
 
 ---
 
