@@ -142,7 +142,14 @@ Single `dockercd` container. GitOps source is GitHub. Minimal footprint.
 ./install.sh --mode bundle
 ```
 Full self-hosted GitOps stack: **dockercd + Gitea + Docker Registry + PostgreSQL**.
-No internet required after initial setup. Git push to Gitea → auto-deploy in ~3 minutes.
+Infrastructure is managed as a single `infra` application (postgres, gitea, registry all in one compose file with `depends_on` ordering). No internet required after initial setup. Git push to Gitea → auto-deploy in ~3 minutes.
+
+Registered applications:
+
+| App | Services | Source |
+|-----|----------|--------|
+| `dockercd` | dockercd | GitHub (`automated: false`) |
+| `infra` | postgres, gitea, registry | Gitea (`automated: true`) |
 
 #### Full
 ```bash
@@ -162,10 +169,10 @@ spec:
   source:
     repoURL: https://github.com/org/app.git   # or http://user:pass@gitea:3000/...
     targetRevision: main                        # branch, tag, or commit SHA
-    path: deploy/                              # path within repo
+    path: deploy/                               # path within repo
     composeFiles:
       - docker-compose.yml
-      - docker-compose.prod.yml               # merged in order
+      - docker-compose.prod.yml                # merged in order
   destination:
     dockerHost: unix:///var/run/docker.sock
     projectName: my-app
@@ -177,6 +184,8 @@ spec:
     syncTimeout: 300s
     healthTimeout: 120s
 ```
+
+See the [full Application Manifest Reference](docs/application-manifest.md) for all fields, defaults, validation rules, Docker Compose labels (`sync-wave`, `hook`, `strategy`, `ignore-drift`), secrets, and annotated examples.
 
 ---
 
