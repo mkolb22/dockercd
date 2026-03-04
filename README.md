@@ -148,7 +148,6 @@ No internet required after initial setup. Git push to Gitea → auto-deploy in ~
 ```bash
 ./install.sh --mode full
 ```
-Bundle + Prometheus / Grafana monitoring stack.
 
 ---
 

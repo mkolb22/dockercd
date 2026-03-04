@@ -357,7 +357,9 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 		return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("store error: %v", err), logger)
 	}
 	if appRec == nil {
-		return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("application %q not found", appName), logger)
+		// App was deleted between enqueueing and processing — skip silently.
+		logger.Debug("app no longer exists, skipping reconciliation", "app", appName)
+		return nil, nil
 	}
 
 	// Deserialize manifest to get app spec (needed for policy decisions below)

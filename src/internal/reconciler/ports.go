@@ -34,10 +34,20 @@ func checkPortConflicts(ctx context.Context, st *store.SQLiteStore, appName stri
 	}
 
 	// Check against reserved ports (skip if this app owns the reserved port)
+	// seen tracks (port, owner) pairs to avoid duplicate conflict messages.
+	seen := make(map[string]bool)
 	var conflicts []string
+	addConflict := func(port, msg string) {
+		key := port + "|" + msg
+		if !seen[key] {
+			seen[key] = true
+			conflicts = append(conflicts, msg)
+		}
+	}
+
 	for port, svcName := range desired {
 		if owner, ok := reservedPorts[port]; ok && owner != appName {
-			conflicts = append(conflicts, fmt.Sprintf("port %s (service %s) is reserved for %s", port, svcName, owner))
+			addConflict(port, fmt.Sprintf("port %s (service %s) is reserved for %s", port, svcName, owner))
 		}
 	}
 
@@ -66,7 +76,7 @@ func checkPortConflicts(ctx context.Context, st *store.SQLiteStore, appName stri
 					continue
 				}
 				if svcName, ok := desired[p.HostPort]; ok {
-					conflicts = append(conflicts, fmt.Sprintf(
+					addConflict(p.HostPort, fmt.Sprintf(
 						"port %s (service %s) conflicts with app %q service %s",
 						p.HostPort, svcName, appRec.Name, svc.Name,
 					))

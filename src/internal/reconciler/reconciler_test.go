@@ -508,11 +508,13 @@ func TestReconcile_AppNotFound(t *testing.T) {
 	r := newTestReconciler(s, &mockGitSyncer{}, &mockParser{}, &mockInspector{}, &mockDiffer{}, &mockDeployer{})
 	result, err := r.ReconcileNow(context.Background(), "nonexistent")
 
-	if err == nil {
-		t.Fatal("expected error for missing app")
+	// App not found is a silent no-op: deleted app races with in-flight worker.
+	// The worker should not record a sync or return an error — just skip.
+	if err != nil {
+		t.Fatalf("expected no error for missing app, got %v", err)
 	}
-	if result.Result != app.SyncResultFailure {
-		t.Errorf("expected failure, got %s", result.Result)
+	if result != nil {
+		t.Errorf("expected nil result for missing app, got %+v", result)
 	}
 }
 
