@@ -158,6 +158,38 @@ Registered applications:
 
 ---
 
+## Deployment Architecture
+
+> **Before deploying, read the [Getting Started guide](docs/getting-started.md).**
+
+The most important architectural decision in a dockercd deployment is keeping your application configuration in a **separate repository** from the dockercd tool itself. This is the same pattern ArgoCD, Flux, and every mature GitOps system enforces:
+
+```
+┌─────────────────────────┐     ┌─────────────────────────────┐
+│   dockercd repo         │     │   your config repo          │
+│   (the tool)            │     │   (your infra, your rules)  │
+│                         │     │                             │
+│  Deploy once.           │     │  apps/                      │
+│  Upgrade independently. │     │    web-app/manifest.yaml    │
+│  Don't put your apps    │     │    web-app/docker-compose.. │
+│  here.                  │     │    api/manifest.yaml        │
+└─────────────────────────┘     │    api/docker-compose.yml   │
+                                └─────────────────────────────┘
+                                              ▲
+                                    dockercd polls and
+                                    reconciles continuously
+```
+
+Keeping these repositories separate means:
+- Upgrading dockercd never touches your application configuration
+- Your config repo is private and contains only your infrastructure state
+- Teams propose infrastructure changes via pull requests against the config repo
+- Two environments (dev/prod) can each track different branches of the same config repo
+
+The [Getting Started guide](docs/getting-started.md) walks through both standalone (GitHub) and bundle (self-hosted Gitea) deployment architectures with step-by-step instructions.
+
+---
+
 ## Application Manifest
 
 ```yaml
