@@ -2,7 +2,7 @@
 
 **ArgoCD-quality GitOps continuous deployment for Docker Compose.**
 
-dockercd brings the reconciliation model of ArgoCD — drift detection, health rollup, sync waves, self-healing — to Docker Compose environments. It runs as a single container, mounts the Docker socket, and continuously reconciles your running services against the desired state in Git.
+DockerCD brings the reconciliation model of ArgoCD — drift detection, health rollup, sync waves, self-healing — to Docker Compose environments. It runs as a single container, mounts the Docker socket, and continuously reconciles your running services against the desired state in Git.
 
 No Kubernetes. No agents. No complex setup.
 
@@ -60,17 +60,10 @@ No Kubernetes. No agents. No complex setup.
 - **Background sweep** — continuous 30s health poll across all registered apps
 - **Health conditions** — timestamped condition records for SyncError, GitError, DeployError, etc.
 
-### Multi-Host Docker
-- **Remote daemons** — connect to `tcp://host:2376` with TLS client certificates
-- **Host registry** — store multiple named Docker hosts in the database
-- **Per-app targeting** — each application specifies its destination `dockerHost`
-- **Host health monitoring** — periodic checks with system info and resource metrics
-
 ### Resource Metrics
 - **Per-container** — CPU %, memory usage/limit, network I/O, block I/O, process count, uptime
 - **Per-service** — aggregated from all containers of the service
 - **Per-app** — sum across all services
-- **Per-host** — system-wide: Docker version, OS, kernel, total RAM, CPU count, storage driver
 
 ### Web UI
 - **Application dashboard** — all apps with sync status and health at a glance
@@ -104,13 +97,6 @@ GET  /api/v1/applications/{name}/metrics            resource metrics
 GET  /api/v1/applications/{name}/services/{svc}     service detail
 GET  /api/v1/applications/{name}/services/{svc}/logs  container logs
 
-GET  /api/v1/hosts                                  list Docker hosts
-POST /api/v1/hosts                                  register host
-GET  /api/v1/hosts/{name}                           host detail + system info
-DELETE /api/v1/hosts/{name}                         unregister
-POST /api/v1/hosts/{name}/check                     health check
-GET  /api/v1/hosts/{name}/stats                     live resource stats
-
 GET  /api/v1/events/stream                          SSE event stream
 POST /api/v1/webhook/git                            GitHub / Gitea push webhook
 
@@ -140,7 +126,6 @@ dockercd version                        # print version
 - **Applications** — full manifest, sync status, health, last-synced SHA, conditions
 - **Sync history** — every sync with operation type, result, diff, compose spec, duration
 - **Events** — timestamped event log per application with severity levels
-- **Docker hosts** — registration, TLS config, health status, system info, metrics
 - **WAL mode** — write-ahead logging for safe concurrent access
 - **Embedded migrations** — schema versioned and applied automatically at startup
 
@@ -165,9 +150,6 @@ No internet required after initial setup. Git push to Gitea → auto-deploy in ~
 ```
 Bundle + Prometheus / Grafana monitoring stack.
 
-### Self-Management
-dockercd manages itself via GitOps. In bundle mode, pushing to Gitea triggers an automated self-deploy of dockercd — including the container that's running the deploy.
-
 ---
 
 ## Application Manifest
@@ -186,7 +168,7 @@ spec:
       - docker-compose.yml
       - docker-compose.prod.yml               # merged in order
   destination:
-    dockerHost: unix:///var/run/docker.sock   # or tcp://host:2376
+    dockerHost: unix:///var/run/docker.sock
     projectName: my-app
   syncPolicy:
     automated: true
