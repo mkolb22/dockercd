@@ -81,7 +81,7 @@ type Monitor struct {
 
 	// Watched apps (those recently deployed, monitored more aggressively)
 	watched   map[string]*watchEntry
-	watchedMu sync.Mutex
+	watchedMu sync.RWMutex
 
 	cancelMu sync.Mutex
 	cancel   context.CancelFunc
@@ -286,12 +286,12 @@ func (m *Monitor) pollLoop(ctx context.Context) {
 
 // checkWatchedApps checks all watched applications and removes expired ones.
 func (m *Monitor) checkWatchedApps(ctx context.Context) {
-	m.watchedMu.Lock()
+	m.watchedMu.RLock()
 	entries := make([]*watchEntry, 0, len(m.watched))
 	for _, e := range m.watched {
 		entries = append(entries, e)
 	}
-	m.watchedMu.Unlock()
+	m.watchedMu.RUnlock()
 
 	var expired []string
 

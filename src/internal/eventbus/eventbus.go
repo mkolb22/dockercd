@@ -74,9 +74,5 @@ func (h *Hub) Broadcast(event Event) {
 
 // MarshalEvent serializes an event to JSON bytes for use in SSE data fields.
 func MarshalEvent(event Event) ([]byte, error) {
-	data, err := json.Marshal(event)
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
+	return json.Marshal(event)
 }

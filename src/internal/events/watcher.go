@@ -231,10 +231,12 @@ func (w *Watcher) watchLoop(ctx context.Context) {
 		w.logger.Error("event stream disconnected", "error", err)
 
 		// Exponential backoff on reconnect
+		t := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
+			t.Stop()
 			return
-		case <-time.After(backoff):
+		case <-t.C:
 		}
 
 		backoff *= 2
@@ -303,10 +305,12 @@ func (w *Watcher) hostWatchLoop(ctx context.Context, host string) {
 
 		w.logger.Error("remote host event stream disconnected", "host", host, "error", err)
 
+		t := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
+			t.Stop()
 			return
-		case <-time.After(backoff):
+		case <-t.C:
 		}
 
 		backoff *= 2

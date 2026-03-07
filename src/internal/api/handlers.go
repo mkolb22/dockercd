@@ -277,6 +277,9 @@ func (h *Handler) DiffApplication(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetEvents(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	limit := queryInt(r, "limit", 50)
+	if limit > 1000 {
+		limit = 1000
+	}
 
 	events, err := h.store.ListEvents(r.Context(), name, limit)
 	if err != nil {
@@ -294,6 +297,9 @@ func (h *Handler) GetEvents(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	limit := queryInt(r, "limit", 20)
+	if limit > 100 {
+		limit = 100
+	}
 
 	records, err := h.store.ListSyncHistory(r.Context(), name, limit)
 	if err != nil {
@@ -561,7 +567,11 @@ func (h *Handler) AdoptApplication(w http.ResponseWriter, r *http.Request) {
 			Ports:  s.Ports,
 		})
 	}
-	servicesJSON, _ := json.Marshal(serviceStatuses)
+	servicesJSON, err := json.Marshal(serviceStatuses)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "serializing service statuses: "+err.Error(), CodeInternalError)
+		return
+	}
 
 	// Record sync with operation=adopt
 	now := time.Now()
@@ -580,12 +590,14 @@ func (h *Handler) AdoptApplication(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Mark application as synced
-	_ = h.store.UpdateApplicationStatus(r.Context(), name, store.StatusUpdate{
+	if err := h.store.UpdateApplicationStatus(r.Context(), name, store.StatusUpdate{
 		SyncStatus:   string(app.SyncStatusSynced),
 		LastSyncTime: &now,
 		ServicesJSON: string(servicesJSON),
 		LastError:    store.StringPtr(""),
-	})
+	}); err != nil {
+		h.logger.Error("failed to update application status after adopt", "name", name, "error", err)
+	}
 
 	h.logger.Info("application adopted", "name", name, "services", len(liveStates))
 

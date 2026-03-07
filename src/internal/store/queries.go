@@ -168,13 +168,28 @@ func (s *SQLiteStore) UpdateApplicationStatus(ctx context.Context, name string, 
 	return nil
 }
 
+// UpdateManifest replaces the manifest JSON for an application.
+func (s *SQLiteStore) UpdateManifest(ctx context.Context, name string, manifest string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE applications SET manifest = ?, updated_at = ? WHERE name = ?`,
+		manifest, time.Now().UTC(), name,
+	)
+	if err != nil {
+		return fmt.Errorf("updating manifest for %q: %w", name, err)
+	}
+	return nil
+}
+
 // SetApplicationSource updates the source field for an application.
 func (s *SQLiteStore) SetApplicationSource(ctx context.Context, name string, source string) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE applications SET source = ?, updated_at = ? WHERE name = ?`,
 		source, time.Now().UTC(), name,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("setting application source %q: %w", name, err)
+	}
+	return nil
 }
 
 // DeleteApplication removes an application and cascades to sync_history and events.

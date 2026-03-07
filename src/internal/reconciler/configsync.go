@@ -75,32 +75,42 @@ func (r *ReconcilerImpl) syncConfigManifests(ctx context.Context) {
 		storeApps[a.Name] = a
 	}
 
-	// Register new manifest apps
+	// Register new manifest apps; update existing ones when YAML content changes.
 	for name, application := range diskApps {
-		if _, exists := storeApps[name]; exists {
-			continue
-		}
-
 		manifestJSON, err := json.Marshal(application)
 		if err != nil {
 			r.logger.Warn("serializing manifest", "name", name, "error", err)
 			continue
 		}
 
-		rec := &store.ApplicationRecord{
-			Name:         name,
-			Manifest:     string(manifestJSON),
-			Source:       "manifest",
-			SyncStatus:   string(app.SyncStatusUnknown),
-			HealthStatus: string(app.HealthStatusUnknown),
-		}
-		if err := r.deps.Store.CreateApplication(ctx, rec); err != nil {
-			r.logger.Warn("registering new manifest app", "name", name, "error", err)
+		existing, exists := storeApps[name]
+		if !exists {
+			rec := &store.ApplicationRecord{
+				Name:         name,
+				Manifest:     string(manifestJSON),
+				Source:       "manifest",
+				SyncStatus:   string(app.SyncStatusUnknown),
+				HealthStatus: string(app.HealthStatusUnknown),
+			}
+			if err := r.deps.Store.CreateApplication(ctx, rec); err != nil {
+				r.logger.Warn("registering new manifest app", "name", name, "error", err)
+				continue
+			}
+			r.AddApp(name)
+			r.logger.Info("registered new application from manifest", "name", name)
 			continue
 		}
 
-		r.AddApp(name)
-		r.logger.Info("registered new application from manifest", "name", name)
+		// Update manifest in store if the YAML content has changed.
+		if existing.Source == "manifest" && existing.Manifest != string(manifestJSON) {
+			if err := r.deps.Store.UpdateManifest(ctx, name, string(manifestJSON)); err != nil {
+				r.logger.Warn("updating changed manifest app", "name", name, "error", err)
+				continue
+			}
+			// Trigger immediate re-reconciliation to apply changes.
+			r.AddApp(name)
+			r.logger.Info("updated application from changed manifest", "name", name)
+		}
 	}
 
 	// Remove manifest-sourced apps whose files are gone

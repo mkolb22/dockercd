@@ -111,7 +111,10 @@ func NewServer(addr string, deps ServerDeps) *Server {
 	router.Post("/api/v1/webhooks/git", h.HandleGitWebhook)
 
 	// Web UI — embedded SPA
-	staticContent, _ := fs.Sub(staticFS, "static")
+	staticContent, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		panic("embedded static FS missing 'static' subdirectory: " + err.Error())
+	}
 	fileServer := http.FileServer(http.FS(staticContent))
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/", http.StatusMovedPermanently)
@@ -125,8 +128,8 @@ func NewServer(addr string, deps ServerDeps) *Server {
 
 	return &Server{
 		httpServer: &http.Server{
-			Addr:              addr,
-			Handler:           router,
+			Addr:    addr,
+			Handler: router,
 			ReadHeaderTimeout: 10 * time.Second,
 			ReadTimeout:       30 * time.Second,
 			IdleTimeout:       120 * time.Second,
