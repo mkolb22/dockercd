@@ -13,67 +13,60 @@ import (
 	yaml "gopkg.in/yaml.v3"
 )
 
-// syncConfigManifests compares manifest files in configDir against the store.
+// syncConfigManifests compares manifest files against the store.
+// It scans two sources for app manifests:
+//  1. The local configDir (if set and exists) — used with mounted YAML files.
+//  2. The "applications/" subfolder of any git-synced repo referenced by a
+//     registered app — handles the case where manifests live in the git repo.
+//
 // New manifests are registered and scheduled. Manifest-sourced apps whose files
-// have been removed are torn down and deleted from the store.
+// have been removed from all sources are torn down and deleted from the store.
 func (r *ReconcilerImpl) syncConfigManifests(ctx context.Context) {
-	if r.deps.ConfigDir == "" {
-		return
-	}
-
-	entries, err := os.ReadDir(r.deps.ConfigDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return
-		}
-		r.logger.Warn("reading config directory for sync", "dir", r.deps.ConfigDir, "error", err)
-		return
-	}
-
-	// Build set of app names from manifest files on disk
+	// Build set of app names present in any manifest source.
 	diskApps := make(map[string]app.Application)
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		ext := filepath.Ext(entry.Name())
-		if ext != ".yaml" && ext != ".yml" {
-			continue
-		}
 
-		path := filepath.Join(r.deps.ConfigDir, entry.Name())
-		data, err := os.ReadFile(path)
-		if err != nil {
-			r.logger.Warn("reading manifest file", "path", path, "error", err)
-			continue
-		}
-
-		var application app.Application
-		if err := yaml.Unmarshal(data, &application); err != nil {
-			r.logger.Warn("parsing manifest file", "path", path, "error", err)
-			continue
-		}
-
-		if application.Kind != "Application" || application.Metadata.Name == "" {
-			continue
-		}
-
-		diskApps[application.Metadata.Name] = application
+	// Source 1: local configDir (e.g. bind-mounted YAML files).
+	if r.deps.ConfigDir != "" {
+		r.scanManifestDir(r.deps.ConfigDir, diskApps)
 	}
 
-	// Get all apps from store
+	// Get all store apps — needed both for the git repo scan and the removal check.
 	apps, err := r.deps.Store.ListApplications(ctx)
 	if err != nil {
 		r.logger.Warn("listing applications for config sync", "error", err)
 		return
 	}
 
-	r.logger.Debug("config sync check", "diskApps", len(diskApps), "storeApps", len(apps))
-
 	storeApps := make(map[string]store.ApplicationRecord, len(apps))
 	for _, a := range apps {
 		storeApps[a.Name] = a
 	}
+
+	// Source 2: applications/ subfolder within each unique git-synced repo.
+	// This lets manifest YAMLs live in the same git repo as the compose files.
+	seenRepos := make(map[string]struct{})
+	for _, a := range apps {
+		var application app.Application
+		if err := json.Unmarshal([]byte(a.Manifest), &application); err != nil {
+			continue
+		}
+		repoURL := application.Spec.Source.RepoURL
+		if repoURL == "" {
+			continue
+		}
+		if _, seen := seenRepos[repoURL]; seen {
+			continue
+		}
+		seenRepos[repoURL] = struct{}{}
+
+		repoPath := r.deps.GitSyncer.RepoPath(repoURL)
+		if repoPath == "" {
+			continue // repo not yet synced
+		}
+		r.scanManifestDir(filepath.Join(repoPath, "applications"), diskApps)
+	}
+
+	r.logger.Debug("config sync check", "diskApps", len(diskApps), "storeApps", len(apps))
 
 	// Register new manifest apps; update existing ones when YAML content changes.
 	for name, application := range diskApps {
@@ -107,13 +100,12 @@ func (r *ReconcilerImpl) syncConfigManifests(ctx context.Context) {
 				r.logger.Warn("updating changed manifest app", "name", name, "error", err)
 				continue
 			}
-			// Trigger immediate re-reconciliation to apply changes.
 			r.AddApp(name)
 			r.logger.Info("updated application from changed manifest", "name", name)
 		}
 	}
 
-	// Remove manifest-sourced apps whose files are gone
+	// Remove manifest-sourced apps absent from all sources.
 	for name, rec := range storeApps {
 		if rec.Source != "manifest" {
 			continue
@@ -124,7 +116,6 @@ func (r *ReconcilerImpl) syncConfigManifests(ctx context.Context) {
 
 		r.logger.Info("manifest removed, tearing down application", "name", name)
 
-		// Parse manifest to get deploy request for teardown
 		var application app.Application
 		if err := json.Unmarshal([]byte(rec.Manifest), &application); err != nil {
 			r.logger.Warn("parsing stored manifest for teardown", "name", name, "error", err)
@@ -132,7 +123,6 @@ func (r *ReconcilerImpl) syncConfigManifests(ctx context.Context) {
 			r.tearDownApp(ctx, name, application)
 		}
 
-		// Delete from store and remove from schedule
 		if err := r.deps.Store.DeleteApplication(ctx, name); err != nil {
 			r.logger.Warn("deleting removed manifest app", "name", name, "error", err)
 			continue
@@ -142,10 +132,50 @@ func (r *ReconcilerImpl) syncConfigManifests(ctx context.Context) {
 	}
 }
 
+// scanManifestDir reads all *.yaml / *.yml files from dir and populates dst
+// with any valid Application manifests found. Errors are logged and skipped.
+func (r *ReconcilerImpl) scanManifestDir(dir string, dst map[string]app.Application) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			r.logger.Warn("reading manifest directory", "dir", dir, "error", err)
+		}
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := filepath.Ext(entry.Name())
+		if ext != ".yaml" && ext != ".yml" {
+			continue
+		}
+
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			r.logger.Warn("reading manifest file", "path", path, "error", err)
+			continue
+		}
+
+		var application app.Application
+		if err := yaml.Unmarshal(data, &application); err != nil {
+			r.logger.Warn("parsing manifest file", "path", path, "error", err)
+			continue
+		}
+
+		if application.Kind != "Application" || application.Metadata.Name == "" {
+			continue
+		}
+
+		dst[application.Metadata.Name] = application
+	}
+}
+
 // tearDownApp runs docker compose down for an application.
 // Uses project-name-only teardown since compose files may no longer exist on disk.
 func (r *ReconcilerImpl) tearDownApp(ctx context.Context, name string, application app.Application) {
-	// docker compose -p <project> down --remove-orphans works without compose files
 	deployReq := deployer.DeployRequest{
 		ProjectName: application.Spec.Destination.ProjectName,
 		DockerHost:  application.Spec.Destination.DockerHost,
