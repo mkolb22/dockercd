@@ -193,7 +193,8 @@ func (bg *BlueGreenDeployer) detectActiveColor(ctx context.Context, req DeployRe
 // waitForHealthy polls the inspector until all containers in the given project
 // are running and healthy, or the timeout expires.
 func (bg *BlueGreenDeployer) waitForHealthy(ctx context.Context, dest app.DestinationSpec, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+	deadlineTimer := time.NewTimer(timeout)
+	defer deadlineTimer.Stop()
 	ticker := time.NewTicker(bg.pollInterval)
 	defer ticker.Stop()
 
@@ -201,11 +202,9 @@ func (bg *BlueGreenDeployer) waitForHealthy(ctx context.Context, dest app.Destin
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-deadlineTimer.C:
+			return fmt.Errorf("timeout after %s waiting for %s to become healthy", timeout, dest.ProjectName)
 		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout after %s waiting for %s to become healthy", timeout, dest.ProjectName)
-			}
-
 			states, err := bg.inspector.Inspect(ctx, dest)
 			if err != nil {
 				bg.logger.Debug("blue-green: health poll error", "project", dest.ProjectName, "error", err)

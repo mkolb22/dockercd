@@ -333,7 +333,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 	eventWatcher.Stop()
 	hostMon.Stop()
 	healthMon.Stop()
-	_ = apiServer.Stop(shutdownCtx)
+	if err := apiServer.Stop(shutdownCtx); err != nil {
+		logger.Error("API server shutdown error", "error", err)
+	}
 	inspConcrete.CloseAllClients()
 	gitSyncer.Close()
 
@@ -396,6 +398,16 @@ func loadApplicationManifests(ctx context.Context, configDir string, st *store.S
 			if existing.Source != "manifest" {
 				if err := st.SetApplicationSource(ctx, application.Metadata.Name, "manifest"); err != nil {
 					logger.Warn("updating application source", "name", application.Metadata.Name, "error", err)
+				}
+			}
+			// Update manifest content if it has changed since last start.
+			if manifestJSON, err := json.Marshal(application); err == nil {
+				if existing.Manifest != string(manifestJSON) {
+					if err := st.UpdateManifest(ctx, application.Metadata.Name, string(manifestJSON)); err != nil {
+						logger.Warn("updating changed manifest on startup", "name", application.Metadata.Name, "error", err)
+					} else {
+						logger.Info("updated manifest from disk on startup", "name", application.Metadata.Name)
+					}
 				}
 			}
 			continue

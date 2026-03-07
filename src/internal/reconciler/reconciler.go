@@ -166,11 +166,13 @@ func (r *ReconcilerImpl) Start(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() { r.wg.Wait(); close(done) }()
 
+	shutdownTimer := time.NewTimer(30 * time.Second)
+	defer shutdownTimer.Stop()
 	select {
 	case <-done:
 		r.logger.Info("reconciler stopped gracefully")
 		return nil
-	case <-time.After(30 * time.Second):
+	case <-shutdownTimer.C:
 		return fmt.Errorf("shutdown timeout: workers did not finish in 30s")
 	}
 }

@@ -99,10 +99,12 @@ func (p *Poller) pollLoop(ctx context.Context) {
 	defer p.wg.Done()
 
 	// Initial check after a short delay to let other components start first.
+	t := time.NewTimer(30 * time.Second)
 	select {
 	case <-ctx.Done():
+		t.Stop()
 		return
-	case <-time.After(30 * time.Second):
+	case <-t.C:
 	}
 
 	p.checkAllApps(ctx)
@@ -233,7 +235,12 @@ func (p *Poller) checkComposeFile(ctx context.Context, appName, repoURL, filePat
 		return nil
 	}
 
-	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+	fi, err := os.Stat(filePath)
+	mode := os.FileMode(0644)
+	if err == nil {
+		mode = fi.Mode()
+	}
+	if err := os.WriteFile(filePath, []byte(content), mode); err != nil {
 		return fmt.Errorf("writing updated compose file: %w", err)
 	}
 

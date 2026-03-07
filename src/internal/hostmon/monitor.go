@@ -45,6 +45,9 @@ type Monitor struct {
 
 // New creates a new host health Monitor.
 func New(insp inspector.StateInspector, st *store.SQLiteStore, logger *slog.Logger, cfg Config) *Monitor {
+	if cfg.MaxConcurrent <= 0 {
+		cfg.MaxConcurrent = DefaultConfig().MaxConcurrent
+	}
 	return &Monitor{
 		inspector: insp,
 		store:     st,
@@ -151,7 +154,9 @@ func (m *Monitor) checkHost(ctx context.Context, host store.DockerHostRecord) {
 		update.HealthStatus = "Unreachable"
 		errStr := err.Error()
 		update.LastError = &errStr
-		_ = m.store.UpdateDockerHostStatus(ctx, host.Name, update)
+		if updateErr := m.store.UpdateDockerHostStatus(ctx, host.Name, update); updateErr != nil {
+			m.logger.Error("failed to update docker host status", "name", host.Name, "error", updateErr)
+		}
 
 		if oldStatus != "Unreachable" {
 			m.logger.Warn("docker host unreachable", "name", host.Name, "url", host.URL, "error", err)
@@ -160,19 +165,28 @@ func (m *Monitor) checkHost(ctx context.Context, host store.DockerHostRecord) {
 		return
 	}
 
-	infoJSON, _ := json.Marshal(info)
 	update.HealthStatus = "Healthy"
-	update.InfoJSON = string(infoJSON)
 	update.LastError = store.StringPtr("") // clear previous error
+
+	if infoJSON, err := json.Marshal(info); err == nil {
+		update.InfoJSON = string(infoJSON)
+	} else {
+		m.logger.Warn("failed to marshal host info", "name", host.Name, "error", err)
+	}
 
 	// Try host stats (best-effort)
 	stats, err := m.inspector.HostStats(checkCtx, host.URL)
 	if err == nil {
-		statsJSON, _ := json.Marshal(stats)
-		update.StatsJSON = string(statsJSON)
+		if statsJSON, err := json.Marshal(stats); err == nil {
+			update.StatsJSON = string(statsJSON)
+		} else {
+			m.logger.Warn("failed to marshal host stats", "name", host.Name, "error", err)
+		}
 	}
 
-	_ = m.store.UpdateDockerHostStatus(ctx, host.Name, update)
+	if err := m.store.UpdateDockerHostStatus(ctx, host.Name, update); err != nil {
+		m.logger.Error("failed to update docker host status", "name", host.Name, "error", err)
+	}
 
 	if oldStatus != "Healthy" {
 		m.logger.Info("docker host healthy", "name", host.Name, "url", host.URL)
