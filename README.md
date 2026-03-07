@@ -186,7 +186,7 @@ Keeping these repositories separate means:
 - Teams propose infrastructure changes via pull requests against the config repo
 - Two environments (dev/prod) can each track different branches of the same config repo
 
-The [Getting Started guide](docs/getting-started.md) walks through both standalone (GitHub) and bundle (self-hosted Gitea) deployment architectures with step-by-step instructions.
+The [Getting Started guide](docs/getting-started.md) walks through both standalone and bundle deployment architectures with step-by-step instructions.
 
 ---
 
