@@ -141,15 +141,15 @@ Single `dockercd` container. GitOps source is GitHub. Minimal footprint.
 ```bash
 ./install.sh --mode bundle
 ```
-Full self-hosted GitOps stack: **dockercd + Gitea + Docker Registry + PostgreSQL**.
-Infrastructure is managed as a single `infra` application (postgres, gitea, registry all in one compose file with `depends_on` ordering). No internet required after initial setup. Git push to Gitea → auto-deploy in ~3 minutes.
+Full self-hosted GitOps stack: **dockercd + Docker Registry**.
+Infrastructure is managed as a single `infra` application (registry). GitOps source is GitHub — push to main → auto-deploy in ~3 minutes.
 
 Registered applications:
 
 | App | Services | Source |
 |-----|----------|--------|
 | `dockercd` | dockercd | GitHub (`automated: false`) |
-| `infra` | postgres, gitea, registry | Gitea (`automated: true`) |
+| `infra` | registry | GitHub (`automated: true`) |
 
 #### Full
 ```bash

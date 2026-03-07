@@ -5,9 +5,8 @@ set -euo pipefail
 # dockercd Installation Script
 #
 # Install modes:
-#   standalone  — dockercd only; GitOps source is GitHub (or any public git)
-#   bundle      — dockercd + Gitea + Registry + PostgreSQL; GitOps source is
-#                 local Gitea (self-hosted, fully offline-capable)
+#   standalone  — dockercd only; GitOps source is GitHub
+#   bundle      — dockercd + Docker Registry; GitOps source is GitHub
 #   full        — bundle + Prometheus / Grafana monitoring
 #
 # Usage:
@@ -19,16 +18,10 @@ set -euo pipefail
 
 # --- Defaults -----------------------------------------------------------------
 DOCKERCD_PORT=8080
-GITEA_PORT=3003
 REGISTRY_PORT=5050
 GRAFANA_PORT=3001
 PROMETHEUS_PORT=9090
 CADVISOR_PORT=8081
-POSTGRES_PORT=5432
-
-GITEA_USER=dockercd
-GITEA_PASS=dockercd123
-GITEA_EMAIL=dockercd@local
 
 NETWORK=dockercd-net
 GITHUB_REPO_URL="https://github.com/mkolb22/dockercd.git"
@@ -223,7 +216,7 @@ if [ -z "$INSTALL_MODE" ]; then
   echo -e "${BOLD}DockerCD Installation${NC}"
   echo ""
   echo "  standalone  — dockercd only (GitHub GitOps)"
-  echo "  bundle      — dockercd + Gitea + Registry (self-hosted GitOps)"
+  echo "  bundle      — dockercd + Docker Registry (GitHub GitOps)"
   echo "  full        — bundle + Prometheus / Grafana monitoring"
   echo ""
   read -rp "Select mode [standalone/bundle/full]: " INSTALL_MODE
@@ -247,9 +240,7 @@ port_warnings=0
 check_port "$DOCKERCD_PORT" "dockercd" || port_warnings=$((port_warnings + 1))
 
 if [ "$INSTALL_MODE" != "standalone" ]; then
-  check_port "$GITEA_PORT"    "Gitea"      || port_warnings=$((port_warnings + 1))
-  check_port "$REGISTRY_PORT" "Registry"   || port_warnings=$((port_warnings + 1))
-  check_port "$POSTGRES_PORT" "PostgreSQL" || port_warnings=$((port_warnings + 1))
+  check_port "$REGISTRY_PORT" "Registry" || port_warnings=$((port_warnings + 1))
 fi
 
 if [ "$INSTALL_MODE" = "full" ]; then
@@ -285,9 +276,6 @@ log_ok "Built and tagged dockercd:latest"
 # =============================================================================
 # STANDALONE MODE
 # Deploy dockercd alone. GitOps source is GitHub.
-# No bootstrap overlay — applications/ contains bundle-only Gitea manifests
-# that must not be loaded here (Gitea isn't running). Self-monitoring app is
-# registered via API after dockercd starts.
 # =============================================================================
 
 if [ "$INSTALL_MODE" = "standalone" ]; then
@@ -300,117 +288,34 @@ if [ "$INSTALL_MODE" = "standalone" ]; then
   wait_healthy "http://localhost:${DOCKERCD_PORT}/healthz" 90
   log_ok "dockercd is healthy at http://localhost:${DOCKERCD_PORT}"
 
-  # Register self-monitoring: GitHub source, manual sync only
   register_app "dockercd" "$GITHUB_REPO_URL" "main" "deploy/" "dockercd" "false"
 
 fi
 
 # =============================================================================
 # BUNDLE MODE (also used by full)
-# Correct sequence:
-#   1. Bring up postgres + gitea + registry first
-#   2. Bootstrap Gitea (create user, create repo, push code)
-#   3. Bring up dockercd with bootstrap overlay (applications/*.yaml mounted)
-#      → manifests already point to Gitea ✓
-#      → dockercd reads and registers them on startup
-#   4. Trigger initial sync for all apps
+# Deploys dockercd + Docker Registry. GitOps source is GitHub.
 # =============================================================================
 
 if [ "$INSTALL_MODE" = "bundle" ] || [ "$INSTALL_MODE" = "full" ]; then
 
-  # --- Step 1: Bring up infra (postgres, gitea, registry) -------------------
-  #
-  # IMPORTANT: Start using the SAME project name that GitOps will use later
-  # (-p infra). This ensures the reconciler sees the containers as in-sync
-  # and skips a redundant redeploy.
-  # Docker Compose handles startup ordering: gitea depends_on postgres healthy.
+  # --- Step 1: Bring up infra (registry) ------------------------------------
 
-  log_step "Deploying infrastructure (PostgreSQL, Gitea, Registry)"
+  log_step "Deploying infrastructure (Docker Registry)"
 
   docker compose -p infra -f applications/infra/docker-compose.yml up -d
 
-  # Wait for postgres
-  log_info "Waiting for PostgreSQL..."
-  local_timeout=90
-  local_elapsed=0
-  pg_status="missing"
-  while [ $local_elapsed -lt $local_timeout ]; do
-    pg_status=$(docker inspect --format='{{.State.Health.Status}}' postgres 2>/dev/null || echo "missing")
-    if [ "$pg_status" = "healthy" ]; then
-      break
-    fi
-    sleep 3
-    local_elapsed=$((local_elapsed + 3))
-  done
-  if [ "$pg_status" = "healthy" ]; then
-    log_ok "PostgreSQL is healthy"
-  else
-    log_warn "PostgreSQL health check timed out (status: ${pg_status}) — continuing"
-  fi
-
-  # Wait for gitea
-  log_info "Waiting for Gitea..."
-  wait_healthy "http://localhost:${GITEA_PORT}/api/v1/version" 120 && \
-    log_ok "Gitea is ready at http://localhost:${GITEA_PORT}" || \
-    log_warn "Gitea may still be starting — some steps may fail"
-
-  # Wait for registry
   log_info "Waiting for Registry..."
   wait_healthy "http://localhost:${REGISTRY_PORT}/v2/" 60 && \
     log_ok "Registry is ready at http://localhost:${REGISTRY_PORT}" || \
     log_warn "Registry may still be starting"
 
-  # --- Step 2: Bootstrap Gitea ----------------------------------------------
-
-  log_step "Bootstrapping Gitea"
-
-  # Create admin user (idempotent)
-  log_info "Creating Gitea admin user '${GITEA_USER}'..."
-  docker exec gitea gitea admin user create \
-    --admin \
-    --username "$GITEA_USER" \
-    --password "$GITEA_PASS" \
-    --email "$GITEA_EMAIL" \
-    --must-change-password=false \
-    --config /data/gitea/conf/app.ini 2>/dev/null && \
-    log_ok "Created Gitea admin user '${GITEA_USER}'" || \
-    log_ok "Gitea admin user '${GITEA_USER}' already exists"
-
-  # Create dockercd repo
-  log_info "Creating repository '${GITEA_USER}/dockercd'..."
-  repo_resp=$(curl -s -o /dev/null -w "%{http_code}" \
-    -u "${GITEA_USER}:${GITEA_PASS}" \
-    -X POST "http://localhost:${GITEA_PORT}/api/v1/user/repos" \
-    -H "Content-Type: application/json" \
-    -d '{"name":"dockercd","auto_init":false,"private":false}')
-  if [ "$repo_resp" = "201" ]; then
-    log_ok "Created Gitea repo '${GITEA_USER}/dockercd'"
-  elif [ "$repo_resp" = "409" ]; then
-    log_ok "Gitea repo '${GITEA_USER}/dockercd' already exists"
-  else
-    log_warn "Gitea repo creation returned HTTP ${repo_resp}"
-  fi
-
-  # Add gitea remote and push
-  gitea_remote_url="http://${GITEA_USER}:${GITEA_PASS}@localhost:${GITEA_PORT}/${GITEA_USER}/dockercd.git"
-  if git remote get-url gitea > /dev/null 2>&1; then
-    log_ok "Git remote 'gitea' already configured"
-  else
-    git remote add gitea "$gitea_remote_url"
-    log_ok "Added git remote 'gitea'"
-  fi
-
-  log_info "Pushing to Gitea..."
-  git push gitea main 2>/dev/null && \
-    log_ok "Pushed main branch to Gitea" || \
-    log_warn "Push to Gitea failed — GitOps loop won't close until this succeeds"
-
-  # --- Step 3: Start dockercd with bootstrap overlay ------------------------
+  # --- Step 2: Start dockercd with bootstrap overlay ------------------------
   #
   # The bootstrap overlay mounts applications/ into /config/applications.
-  # dockercd reads all YAML manifests on startup — all already reference Gitea:
-  #   - applications/dockercd.yaml  → repoURL: gitea:3000/... ✓ (self-monitor)
-  #   - applications/infra.yaml     → repoURL: gitea:3000/... ✓ (postgres+gitea+registry)
+  # dockercd reads the YAML manifests on startup — both reference GitHub:
+  #   - applications/dockercd.yaml  → repoURL: github.com/... (self-monitor)
+  #   - applications/infra.yaml     → repoURL: github.com/... (registry)
 
   log_step "Deploying dockercd (bundle mode)"
 
@@ -424,11 +329,10 @@ if [ "$INSTALL_MODE" = "bundle" ] || [ "$INSTALL_MODE" = "full" ]; then
   wait_healthy "http://localhost:${DOCKERCD_PORT}/healthz" 90
   log_ok "dockercd is healthy at http://localhost:${DOCKERCD_PORT}"
 
-  # --- Step 4: Trigger initial sync -----------------------------------------
+  # --- Step 3: Trigger initial sync -----------------------------------------
 
   log_step "Triggering initial sync"
 
-  # Give dockercd a moment to read manifests and register apps
   sleep 5
 
   for app in dockercd infra; do
@@ -445,8 +349,6 @@ if [ "$INSTALL_MODE" = "full" ]; then
 
   log_step "Deploying monitoring stack (Prometheus, Grafana, cAdvisor)"
 
-  # Monitoring is managed via dockercd-apps repo (separate GitOps app).
-  # For now, the user can register it manually or via dockercd-apps.
   log_info "Monitoring stack (Prometheus/Grafana/cAdvisor) is managed via"
   log_info "the dockercd-apps GitOps repository. Register via the UI or API:"
   log_info "  POST ${DOCKERCD_API}/applications"
@@ -470,13 +372,8 @@ printf "  %-22s %-42s %s\n" "dockercd API" \
   "http://localhost:${DOCKERCD_PORT}/api/v1/" ""
 
 if [ "$INSTALL_MODE" != "standalone" ]; then
-  printf "  %-22s %-42s %s\n" "Gitea" \
-    "http://localhost:${GITEA_PORT}" \
-    "${GITEA_USER} / ${GITEA_PASS}"
   printf "  %-22s %-42s %s\n" "Registry" \
     "http://localhost:${REGISTRY_PORT}" ""
-  printf "  %-22s %-42s %s\n" "PostgreSQL" \
-    "localhost:${POSTGRES_PORT}" "gitea / gitea"
 fi
 
 if [ "$INSTALL_MODE" = "full" ]; then
@@ -495,11 +392,9 @@ if [ "$INSTALL_MODE" = "standalone" ]; then
   log_info "GitOps source: ${GITHUB_REPO_URL}"
   log_info "Sync is manual — use the UI or API to trigger syncs."
 else
-  gitea_internal="http://${GITEA_USER}:${GITEA_PASS}@gitea:3000/${GITEA_USER}/dockercd.git"
   log_ok "Bundle install complete."
-  log_info "GitOps source (internal): ${gitea_internal}"
-  log_info "Push to Gitea → dockercd auto-syncs within 3 minutes."
-  log_info "  git push gitea main"
+  log_info "GitOps source: ${GITHUB_REPO_URL}"
+  log_info "Push to GitHub → dockercd auto-syncs within 3 minutes."
 fi
 
 echo ""

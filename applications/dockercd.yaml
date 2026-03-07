@@ -4,7 +4,7 @@ metadata:
   name: dockercd
 spec:
   source:
-    repoURL: http://dockercd:dockercd123@gitea:3000/dockercd/dockercd.git
+    repoURL: https://github.com/mkolb22/dockercd.git
     targetRevision: main
     path: deploy/
     composeFiles:
