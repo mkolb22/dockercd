@@ -32,7 +32,7 @@ func (r *ReconcilerImpl) worker(ctx context.Context, id int) {
 			lock.Unlock()
 
 			// Reschedule for next poll interval
-			r.reschedule(appName)
+			r.reschedule(ctx, appName)
 
 			if err != nil {
 				logger.Error("reconciliation failed",

@@ -48,8 +48,9 @@ type GoGitSyncer struct {
 	logger *slog.Logger
 	auth   transport.AuthMethod
 
-	// mu protects concurrent access to the same repo URL.
-	mu sync.Map // map[string]*sync.Mutex
+	// urlMu serializes git operations per repo URL to prevent concurrent
+	// clone/pull races. Distinct from reposMu which guards the repos cache.
+	urlMu sync.Map // map[string]*sync.Mutex
 
 	// repos caches opened git.Repository objects to avoid repeated
 	// git.PlainOpen calls which re-read the .git object database.
@@ -367,6 +368,6 @@ func (g *GoGitSyncer) Push(ctx context.Context, repoURL string) error {
 
 // repoMutex returns a per-URL mutex to serialize git operations on the same repo.
 func (g *GoGitSyncer) repoMutex(url string) *sync.Mutex {
-	val, _ := g.mu.LoadOrStore(url, &sync.Mutex{})
+	val, _ := g.urlMu.LoadOrStore(url, &sync.Mutex{})
 	return val.(*sync.Mutex)
 }

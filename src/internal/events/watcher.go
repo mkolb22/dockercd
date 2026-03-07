@@ -73,7 +73,7 @@ type Watcher struct {
 
 	// Track recent sync completions to suppress self-events
 	recentSyncs   map[string]time.Time
-	recentSyncsMu sync.Mutex
+	recentSyncsMu sync.RWMutex
 
 	// Project name → app name mapping (cached from store)
 	projectMap   map[string]string
@@ -83,6 +83,9 @@ type Watcher struct {
 	hostWatchers   map[string]context.CancelFunc
 	hostWatchersMu sync.Mutex
 
+	// ctx is the derived context set in Start, used by WatchHost to tie
+	// remote host goroutines to the watcher's lifecycle.
+	ctx      context.Context
 	cancelMu sync.Mutex
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
@@ -131,6 +134,7 @@ func NewWatcher(
 func (w *Watcher) Start(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	w.cancelMu.Lock()
+	w.ctx = ctx
 	w.cancel = cancel
 	w.cancelMu.Unlock()
 
@@ -171,7 +175,7 @@ func (w *Watcher) Stop() {
 // subsequent events within the self-event guard window.
 func (w *Watcher) RecordSync(appName string) {
 	w.recentSyncsMu.Lock()
-	w.recentSyncs[appName] = time.Now()
+	w.recentSyncs[appName] = time.Now() // always a write
 	w.recentSyncsMu.Unlock()
 }
 
@@ -251,7 +255,13 @@ func (w *Watcher) WatchHost(host string) {
 		return
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	w.cancelMu.Lock()
+	parentCtx := w.ctx
+	w.cancelMu.Unlock()
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parentCtx)
 	w.hostWatchers[host] = cancel
 
 	w.wg.Add(1)
@@ -418,15 +428,27 @@ func (w *Watcher) handleEvent(msg events.Message) {
 }
 
 // isSelfEvent checks if the event was caused by a recent dockercd sync.
+// Uses RLock for the common (no-expiry) read path; upgrades to Lock only
+// when an expired entry needs to be deleted.
 func (w *Watcher) isSelfEvent(appName string) bool {
-	w.recentSyncsMu.Lock()
+	w.recentSyncsMu.RLock()
 	syncTime, exists := w.recentSyncs[appName]
-	if exists && time.Since(syncTime) > w.config.SelfEventGuard {
+	w.recentSyncsMu.RUnlock()
+
+	if !exists {
+		return false
+	}
+	if time.Since(syncTime) <= w.config.SelfEventGuard {
+		return true // within guard window
+	}
+
+	// Entry expired — delete under write lock (re-check to avoid TOCTOU)
+	w.recentSyncsMu.Lock()
+	if t, ok := w.recentSyncs[appName]; ok && time.Since(t) > w.config.SelfEventGuard {
 		delete(w.recentSyncs, appName)
-		exists = false
 	}
 	w.recentSyncsMu.Unlock()
-	return exists
+	return false
 }
 
 // recordEvent stores the container event in the database.
@@ -437,6 +459,7 @@ func (w *Watcher) recordEvent(appName string, msg events.Message, serviceName st
 		Message:  "Container " + string(msg.Action) + ": " + serviceName,
 		Severity: "warning",
 	}
+	// Use a fresh context so event recording is not cancelled by watcher shutdown.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := w.store.RecordEvent(ctx, event); err != nil {

@@ -103,6 +103,9 @@ func New(insp inspector.StateInspector, s *store.SQLiteStore, logger *slog.Logge
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = DefaultConfig().PollInterval
 	}
+	if cfg.SweepInterval <= 0 {
+		cfg.SweepInterval = DefaultConfig().SweepInterval
+	}
 	if cfg.DefaultTimeout <= 0 {
 		cfg.DefaultTimeout = DefaultConfig().DefaultTimeout
 	}
@@ -175,7 +178,8 @@ func (m *Monitor) WaitForServicesHealthy(ctx context.Context, appName string, se
 		timeout = m.config.DefaultTimeout
 	}
 
-	deadline := time.After(timeout)
+	deadlineTimer := time.NewTimer(timeout)
+	defer deadlineTimer.Stop()
 	ticker := time.NewTicker(m.config.PollInterval)
 	defer ticker.Stop()
 
@@ -188,7 +192,7 @@ func (m *Monitor) WaitForServicesHealthy(ctx context.Context, appName string, se
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-deadline:
+		case <-deadlineTimer.C:
 			return fmt.Errorf("timeout waiting for services to become healthy: %v", serviceNames)
 		case <-ticker.C:
 			_, services, err := m.CheckApp(ctx, appName)

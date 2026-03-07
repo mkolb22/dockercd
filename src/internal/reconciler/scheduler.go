@@ -98,8 +98,8 @@ func (r *ReconcilerImpl) enqueue(appName string) {
 }
 
 // reschedule sets the next reconciliation time for an app based on its poll interval.
-func (r *ReconcilerImpl) reschedule(appName string) {
-	interval := r.getAppPollInterval(appName)
+func (r *ReconcilerImpl) reschedule(ctx context.Context, appName string) {
+	interval := r.getAppPollInterval(ctx, appName)
 
 	r.scheduleMu.Lock()
 	r.schedule[appName] = time.Now().Add(interval)
@@ -109,7 +109,7 @@ func (r *ReconcilerImpl) reschedule(appName string) {
 // getAppPollInterval loads the poll interval for an app from its manifest.
 // A global override (if set) takes precedence over per-app intervals.
 // Returns a default of 3 minutes if the app or interval can't be read.
-func (r *ReconcilerImpl) getAppPollInterval(appName string) time.Duration {
+func (r *ReconcilerImpl) getAppPollInterval(ctx context.Context, appName string) time.Duration {
 	const defaultInterval = 3 * time.Minute
 
 	// Check global override first
@@ -120,8 +120,6 @@ func (r *ReconcilerImpl) getAppPollInterval(appName string) time.Duration {
 		return override
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	appRec, err := r.deps.Store.GetApplication(ctx, appName)
 	if err != nil || appRec == nil {
 		return defaultInterval
@@ -154,8 +152,5 @@ func (r *ReconcilerImpl) RemoveApp(appName string) {
 	r.scheduleMu.Unlock()
 
 	r.appLocks.Delete(appName)
-
-	r.breakersMu.Lock()
-	delete(r.breakers, appName)
-	r.breakersMu.Unlock()
+	r.breakers.Delete(appName)
 }

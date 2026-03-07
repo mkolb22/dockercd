@@ -1,6 +1,7 @@
 package reconciler
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -129,7 +130,7 @@ func TestScheduler_Reschedule(t *testing.T) {
 	r := newTestReconciler(s, &mockGitSyncer{}, &mockParser{}, &mockInspector{}, &mockDiffer{}, &mockDeployer{})
 
 	before := time.Now()
-	r.reschedule("myapp")
+	r.reschedule(context.Background(), "myapp")
 	after := time.Now()
 
 	r.scheduleMu.RLock()

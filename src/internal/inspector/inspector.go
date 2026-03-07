@@ -112,7 +112,7 @@ type DockerInspector struct {
 	// Client cache: one client per host, reused across calls to avoid
 	// repeated TLS config loading and client creation overhead.
 	clientCache   map[string]DockerClient
-	clientCacheMu sync.Mutex
+	clientCacheMu sync.RWMutex
 }
 
 // ClientFactory creates Docker API clients.
@@ -232,19 +232,32 @@ func (d *DockerInspector) GetTLSCertPath(host string) string {
 // getClient returns a cached Docker client for the given host, creating one
 // via clientFactory on first access. Clients are reused across calls to avoid
 // repeated TLS config loading and object allocation.
+// Factory creation happens outside the lock so concurrent calls for different
+// hosts don't block each other.
 func (d *DockerInspector) getClient(host string) (DockerClient, error) {
-	d.clientCacheMu.Lock()
-	defer d.clientCacheMu.Unlock()
-
-	if cli, ok := d.clientCache[host]; ok {
+	// Fast path: read lock for cache hit (common case)
+	d.clientCacheMu.RLock()
+	cli, ok := d.clientCache[host]
+	d.clientCacheMu.RUnlock()
+	if ok {
 		return cli, nil
 	}
 
+	// Slow path: create client outside any lock to avoid blocking other hosts
 	cli, err := d.clientFactory(host)
 	if err != nil {
 		return nil, err
 	}
+
+	// Store with double-check: another goroutine may have created it while we did
+	d.clientCacheMu.Lock()
+	if existing, ok := d.clientCache[host]; ok {
+		d.clientCacheMu.Unlock()
+		cli.Close() // discard our duplicate
+		return existing, nil
+	}
 	d.clientCache[host] = cli
+	d.clientCacheMu.Unlock()
 	return cli, nil
 }
 
@@ -533,7 +546,9 @@ func (d *DockerInspector) GetServiceLogs(ctx context.Context, dest app.Destinati
 		return splitLines(raw), nil
 	}
 
-	// Merge stdout and stderr
+	// Merge stdout and stderr. Docker multiplexed streams don't carry
+	// timestamps per-frame, so we concatenate stdout then stderr. Callers
+	// that need interleaved ordering should use a TTY-mode container instead.
 	merged := append(stdout.Bytes(), stderr.Bytes()...)
 	return splitLines(merged), nil
 }

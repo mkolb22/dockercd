@@ -27,12 +27,10 @@
   function initRefreshSelector() {
     var sel = document.getElementById('refresh-interval');
     if (!sel) return;
-    var val = getRefreshInterval();
-    sel.value = String(val);
     sel.addEventListener('change', function() {
       var ms = parseInt(this.value, 10);
       localStorage.setItem('dockercd_refresh_interval', ms);
-      // Push poll interval to backend reconciler
+      // Push poll interval to backend reconciler (sets global override for all apps)
       API.setPollInterval(ms).catch(function() {});
       // Restart refresh with new interval if currently running
       if (state.refreshTimer) {
@@ -40,8 +38,14 @@
         if (fn) startRefresh(fn);
       }
     });
-    // Sync current UI value to backend on load
-    API.setPollInterval(val).catch(function() {});
+    // Initialize dropdown from backend value (source of truth)
+    API.getPollInterval().then(function(data) {
+      var ms = data.intervalMs || getRefreshInterval();
+      localStorage.setItem('dockercd_refresh_interval', ms);
+      sel.value = String(ms);
+    }).catch(function() {
+      sel.value = String(getRefreshInterval());
+    });
   }
 
   // --- Router ---

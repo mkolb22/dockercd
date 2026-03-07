@@ -98,9 +98,8 @@ type ReconcilerImpl struct {
 	// Per-app locking
 	appLocks sync.Map // map[string]*sync.Mutex
 
-	// Circuit breakers
-	breakers   map[string]*CircuitBreaker
-	breakersMu sync.Mutex
+	// Circuit breakers — sync.Map[string, *CircuitBreaker]
+	breakers sync.Map
 
 	// Lifecycle
 	wg     sync.WaitGroup
@@ -121,7 +120,6 @@ func New(deps Deps) *ReconcilerImpl {
 		workers:   workers,
 		schedule:  make(map[string]time.Time),
 		trigger:   make(chan string, 16),
-		breakers:  make(map[string]*CircuitBreaker),
 		logger:    deps.Logger,
 	}
 }
@@ -231,7 +229,11 @@ func (r *ReconcilerImpl) GetPollOverride() time.Duration {
 // If appRec and application are non-nil, they are used directly (avoiding a
 // redundant store fetch and JSON unmarshal). Pass nil for both when calling
 // from DryRun where no pre-fetched data is available.
-func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced bool, appRec *store.ApplicationRecord, application *app.Application) (*app.ComposeSpec, *app.DiffResult, string, error) {
+// computeDiff returns (composeSpec, diffResult, headSHA, composePath, error).
+// composePath is the resolved local path to the compose files directory; it is
+// returned so callers can reuse it for deployment without recomputing.
+// composePath is empty when the function returns early (no SHA change, no diff).
+func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced bool, appRec *store.ApplicationRecord, application *app.Application) (*app.ComposeSpec, *app.DiffResult, string, string, error) {
 	logger := r.logger.With("app", appName)
 
 	// Look up the application from the store (unless pre-fetched)
@@ -239,10 +241,10 @@ func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced
 		var err error
 		appRec, err = r.deps.Store.GetApplication(ctx, appName)
 		if err != nil {
-			return nil, nil, "", fmt.Errorf("store error: %v", err)
+			return nil, nil, "", "", fmt.Errorf("store error: %w", err)
 		}
 		if appRec == nil {
-			return nil, nil, "", fmt.Errorf("application %q not found", appName)
+			return nil, nil, "", "", fmt.Errorf("application %q not found", appName)
 		}
 	}
 
@@ -250,7 +252,7 @@ func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced
 	if application == nil {
 		var a app.Application
 		if err := json.Unmarshal([]byte(appRec.Manifest), &a); err != nil {
-			return nil, nil, "", fmt.Errorf("invalid manifest: %v", err)
+			return nil, nil, "", "", fmt.Errorf("invalid manifest: %w", err)
 		}
 		application = &a
 	}
@@ -263,7 +265,7 @@ func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced
 			HealthStatus: string(app.HealthStatusDegraded),
 			LastError:    store.StringPtr(fmt.Sprintf("git sync failed: %v", err)),
 		})
-		return nil, nil, "", fmt.Errorf("git sync failed: %v", err)
+		return nil, nil, "", "", fmt.Errorf("git sync failed: %w", err)
 	}
 
 	// Update head SHA
@@ -273,7 +275,7 @@ func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced
 	if headSHA == appRec.LastSyncedSHA && !forced {
 		if !application.Spec.SyncPolicy.SelfHeal {
 			logger.Debug("no changes detected, skipping")
-			return nil, nil, headSHA, nil
+			return nil, nil, headSHA, "", nil
 		}
 		// Self-heal: continue to check live state for drift
 	}
@@ -281,7 +283,7 @@ func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced
 	// STEP 3: Parse desired state
 	repoPath := r.deps.GitSyncer.RepoPath(application.Spec.Source.RepoURL)
 	if repoPath == "" {
-		return nil, nil, headSHA, fmt.Errorf("repo path not found after sync")
+		return nil, nil, headSHA, "", fmt.Errorf("repo path not found after sync")
 	}
 
 	composePath := repoPath
@@ -295,10 +297,10 @@ func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced
 			HealthStatus: string(app.HealthStatusDegraded),
 			LastError:    store.StringPtr(fmt.Sprintf("parse error: %v", err)),
 		})
-		return nil, nil, headSHA, fmt.Errorf("parse error: %v", err)
+		return nil, nil, headSHA, "", fmt.Errorf("parse error: %w", err)
 	}
 	if composeSpec == nil {
-		return nil, nil, headSHA, fmt.Errorf("parser returned nil spec")
+		return nil, nil, headSHA, "", fmt.Errorf("parser returned nil spec")
 	}
 
 	// STEP 3b: Check port conflicts
@@ -307,24 +309,24 @@ func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced
 			HealthStatus: string(app.HealthStatusDegraded),
 			LastError:    store.StringPtr(fmt.Sprintf("port conflict: %v", err)),
 		})
-		return nil, nil, headSHA, fmt.Errorf("port conflict: %v", err)
+		return nil, nil, headSHA, "", fmt.Errorf("port conflict: %w", err)
 	}
 
 	// STEP 4: Inspect live state
 	liveServices, err := r.deps.Inspector.Inspect(ctx, application.Spec.Destination)
 	if err != nil {
-		return nil, nil, headSHA, fmt.Errorf("inspect error: %v", err)
+		return nil, nil, headSHA, "", fmt.Errorf("inspect error: %w", err)
 	}
 
 	// STEP 5: Compute diff
 	diffResult := r.deps.Differ.Diff(composeSpec.Services, liveServices)
 
-	return composeSpec, diffResult, headSHA, nil
+	return composeSpec, diffResult, headSHA, composePath, nil
 }
 
 // DryRun computes the diff for an application without deploying anything.
 func (r *ReconcilerImpl) DryRun(ctx context.Context, appName string) (*app.DiffResult, string, error) {
-	_, diffResult, headSHA, err := r.computeDiff(ctx, appName, true, nil, nil)
+	_, diffResult, headSHA, _, err := r.computeDiff(ctx, appName, true, nil, nil)
 	if err != nil {
 		return nil, headSHA, err
 	}
@@ -376,7 +378,7 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 	}
 
 	// STEPS 1-5: Git sync, parse, inspect, diff (pass pre-fetched record + parsed manifest)
-	composeSpec, diffResult, headSHA, err := r.computeDiff(ctx, appName, forced, appRec, &application)
+	composeSpec, diffResult, headSHA, composePath, err := r.computeDiff(ctx, appName, forced, appRec, &application)
 	if err != nil {
 		breaker.RecordFailure()
 		return r.finishResult(ctx, result, app.SyncResultFailure, err.Error(), logger)
@@ -426,13 +428,7 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 		HealthStatus: string(app.HealthStatusProgressing),
 	})
 
-	// Derive compose path from repo for deployer (mirrors computeDiff logic)
-	deployRepoPath := r.deps.GitSyncer.RepoPath(application.Spec.Source.RepoURL)
-	composePath := deployRepoPath
-	if application.Spec.Source.Path != "" && application.Spec.Source.Path != "." {
-		composePath = filepath.Join(deployRepoPath, application.Spec.Source.Path)
-	}
-
+	// composePath was returned by computeDiff — reuse it directly.
 	// Build compose file paths
 	composeFiles := make([]string, len(application.Spec.Source.ComposeFiles))
 	for i, f := range application.Spec.Source.ComposeFiles {
@@ -692,16 +688,14 @@ func (r *ReconcilerImpl) getAppLock(appName string) *sync.Mutex {
 }
 
 // getBreaker returns the circuit breaker for an app, creating one if needed.
+// Uses sync.Map so reads (the common path) are lock-free.
 func (r *ReconcilerImpl) getBreaker(appName string) *CircuitBreaker {
-	r.breakersMu.Lock()
-	defer r.breakersMu.Unlock()
-
-	if cb, ok := r.breakers[appName]; ok {
-		return cb
+	if val, ok := r.breakers.Load(appName); ok {
+		return val.(*CircuitBreaker)
 	}
 	cb := NewCircuitBreaker(3, 5*time.Minute)
-	r.breakers[appName] = cb
-	return cb
+	actual, _ := r.breakers.LoadOrStore(appName, cb)
+	return actual.(*CircuitBreaker)
 }
 
 // Rollback re-deploys an application from the git repository state at a stored
