@@ -13,6 +13,45 @@ import (
 	yaml "gopkg.in/yaml.v3"
 )
 
+// manifestRepoPath returns the effective subdirectory to scan within the
+// manifest repo, falling back to "applications" if not configured.
+func (r *ReconcilerImpl) manifestRepoPath() string {
+	if r.deps.ManifestRepoPath != "" {
+		return r.deps.ManifestRepoPath
+	}
+	return "applications"
+}
+
+// manifestRevision returns the effective git revision to track for the
+// manifest repo, falling back to "main" if not configured.
+func (r *ReconcilerImpl) manifestRevision() string {
+	if r.deps.ManifestRevision != "" {
+		return r.deps.ManifestRevision
+	}
+	return "main"
+}
+
+// syncManifestRepo syncs the dedicated manifest repo and scans its
+// ManifestRepoPath subdirectory, populating dst with Application definitions.
+// This is called as the first step of syncConfigManifests so the manifest repo
+// is always the authoritative source regardless of what apps are in the store.
+func (r *ReconcilerImpl) syncManifestRepo(ctx context.Context, dst map[string]app.Application) {
+	source := app.SourceSpec{
+		RepoURL:        r.deps.ManifestRepoURL,
+		TargetRevision: r.manifestRevision(),
+	}
+	if _, err := r.deps.GitSyncer.Sync(ctx, source); err != nil {
+		r.logger.Warn("syncing manifest repo", "url", r.deps.ManifestRepoURL, "error", err)
+		return
+	}
+	repoPath := r.deps.GitSyncer.RepoPath(r.deps.ManifestRepoURL)
+	if repoPath == "" {
+		r.logger.Warn("manifest repo path not available after sync", "url", r.deps.ManifestRepoURL)
+		return
+	}
+	r.scanManifestDir(filepath.Join(repoPath, r.manifestRepoPath()), dst)
+}
+
 // syncConfigManifests compares manifest files against the store.
 // It scans two sources for app manifests:
 //  1. The local configDir (if set and exists) — used with mounted YAML files.
@@ -24,6 +63,12 @@ import (
 func (r *ReconcilerImpl) syncConfigManifests(ctx context.Context) {
 	// Build set of app names present in any manifest source.
 	diskApps := make(map[string]app.Application)
+
+	// Source 0: dedicated manifest repo — the GitOps control plane.
+	// Synced unconditionally so it works even on cold start with an empty store.
+	if r.deps.ManifestRepoURL != "" {
+		r.syncManifestRepo(ctx, diskApps)
+	}
 
 	// Source 1: local configDir (e.g. bind-mounted YAML files).
 	if r.deps.ConfigDir != "" {

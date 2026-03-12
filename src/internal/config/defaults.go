@@ -28,4 +28,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("api_token", "")
 	v.SetDefault("image_poll_interval", 300*time.Second)
 	v.SetDefault("default_registry_url", "")
+	v.SetDefault("manifest_repo_url", "")
+	v.SetDefault("manifest_repo_path", "applications")
+	v.SetDefault("manifest_revision", "main")
 }

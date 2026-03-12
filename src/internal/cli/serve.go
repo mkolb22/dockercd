@@ -216,8 +216,11 @@ func runServe(_ *cobra.Command, _ []string) error {
 		WorkerCount:   cfg.WorkerCount,
 		Broadcaster:   sseHub,
 		Notifier:      appNotifier,
-		TLSLookup:     tlsLookup,
-		ConfigDir:     cfg.ConfigDir,
+		TLSLookup:        tlsLookup,
+		ConfigDir:        cfg.ConfigDir,
+		ManifestRepoURL:  cfg.ManifestRepoURL,
+		ManifestRepoPath: cfg.ManifestRepoPath,
+		ManifestRevision: cfg.ManifestRevision,
 	})
 
 	// Initialize event watcher for self-healing

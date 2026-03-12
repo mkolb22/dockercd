@@ -76,6 +76,15 @@ type Deps struct {
 
 	WorkerCount int
 	ConfigDir   string // path to application manifest directory (watched for changes)
+
+	// ManifestRepoURL is the git repository that acts as the GitOps control
+	// plane for Application definitions. When set, syncConfigManifests syncs
+	// this repo on every scheduler tick and diffs its ManifestRepoPath
+	// subdirectory against the store — creating, updating, or tearing down
+	// apps to match. Leave empty to rely solely on ConfigDir or API registration.
+	ManifestRepoURL  string
+	ManifestRepoPath string // subdirectory to scan; defaults to "applications"
+	ManifestRevision string // branch/tag/SHA to track; defaults to "main"
 }
 
 // ReconcilerImpl implements Reconciler with a worker pool and scheduler.

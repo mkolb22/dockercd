@@ -51,6 +51,18 @@ type Config struct {
 	// DefaultRegistryURL is the Docker registry URL for private registries.
 	// Leave empty to use Docker Hub.
 	DefaultRegistryURL string `mapstructure:"default_registry_url"`
+	// ManifestRepoURL is the git repository URL containing Application manifests.
+	// When set, dockercd syncs this repo on every poll cycle and treats
+	// ManifestRepoPath as the authoritative source of Application definitions.
+	// Adding, changing, or removing a YAML in that directory automatically
+	// creates, updates, or tears down the corresponding application.
+	ManifestRepoURL string `mapstructure:"manifest_repo_url"`
+	// ManifestRepoPath is the subdirectory within ManifestRepoURL to scan for
+	// Application YAML manifests. Defaults to "applications".
+	ManifestRepoPath string `mapstructure:"manifest_repo_path"`
+	// ManifestRevision is the git branch/tag/SHA to track in ManifestRepoURL.
+	// Defaults to "main".
+	ManifestRevision string `mapstructure:"manifest_revision"`
 }
 
 // Validate checks the configuration for correctness.
