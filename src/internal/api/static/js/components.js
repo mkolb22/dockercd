@@ -861,8 +861,20 @@ var Components = (function() {
       return '';
     }
 
-    // Take last 20 and show oldest first (left to right)
-    var records = history.slice(0, 20).reverse();
+    // Deduplicate by commit SHA — keep only the latest sync per commit.
+    // Multiple syncs on the same SHA shouldn't create extra dots.
+    var seen = {};
+    var deduped = [];
+    for (var di = 0; di < history.length; di++) {
+      var sha = history[di].commitSHA || ('no-sha-' + di);
+      if (!seen[sha]) {
+        seen[sha] = true;
+        deduped.push(history[di]);
+      }
+    }
+
+    // Take last 20 unique commits and show oldest first (left to right)
+    var records = deduped.slice(0, 20).reverse();
 
     var html = '<div class="timeline-container" id="timeline-container">';
     html += '<div class="timeline-header">Deployment Timeline</div>';

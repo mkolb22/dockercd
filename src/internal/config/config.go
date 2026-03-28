@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/mkolb22/dockercd/internal/cluster"
@@ -123,6 +124,7 @@ func Load() (*Config, error) {
 	v.AddConfigPath(".")
 
 	v.SetEnvPrefix("DOCKERCD")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
 	// DOCKER_HOST is a standard env var without prefix
