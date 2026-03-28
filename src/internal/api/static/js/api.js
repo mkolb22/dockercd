@@ -82,6 +82,10 @@ var API = (function() {
 
     getServiceLogs: function(appName, svcName, tail) {
       return request('GET', '/applications/' + encodeURIComponent(appName) + '/services/' + encodeURIComponent(svcName) + '/logs?tail=' + (tail || 200));
+    },
+
+    rollbackApp: function(name, targetSHA) {
+      return request('POST', '/applications/' + encodeURIComponent(name) + '/rollback', { targetSHA: targetSHA });
     }
   };
 })();

@@ -138,6 +138,33 @@ var Components = (function() {
 
   // --- Cards ---
 
+  function healthDotClass(app) {
+    var h = (app.status.healthStatus || '').toLowerCase();
+    if (h === 'healthy') return 'dot-healthy';
+    if (h === 'progressing') return 'dot-progressing';
+    if (h === 'degraded') return 'dot-degraded';
+    return 'dot-unknown';
+  }
+
+  function miniTimelineDots(history) {
+    if (!history || history.length === 0) return '';
+    var recent = history.slice(0, 5);
+    var html = '<div class="card-mini-timeline">';
+    // Show oldest first (left to right)
+    for (var i = recent.length - 1; i >= 0; i--) {
+      var r = recent[i];
+      var cls = 'dot-unknown';
+      switch ((r.result || '').toLowerCase()) {
+        case 'success': cls = 'dot-success'; break;
+        case 'failure': cls = 'dot-failure'; break;
+        case 'skipped': cls = 'dot-skipped'; break;
+      }
+      html += '<span class="mini-dot ' + cls + '" title="' + esc(shortSHA(r.commitSHA)) + ' - ' + esc(r.result) + '"></span>';
+    }
+    html += '</div>';
+    return html;
+  }
+
   function appCard(app, appStatsMap) {
     var name = app.metadata.name;
     var projectName = app.spec.destination.projectName || name;
@@ -145,6 +172,7 @@ var Components = (function() {
     var sha = shortSHA(app.status.lastSyncedSHA);
     var syncTime = timeAgo(app.status.lastSyncTime);
     var statusCls = cardStatusClass(app);
+    var dotCls = healthDotClass(app);
 
     var errorLine = '';
     if (app.status.lastError) {
@@ -168,8 +196,12 @@ var Components = (function() {
       '</div>';
     }
 
+    // Mini timeline from history (populated async by app.js if available)
+    var miniTimeline = app._history ? miniTimelineDots(app._history) : '';
+
     return '<a href="#/apps/' + encodeURIComponent(name) + '" class="app-card ' + statusCls + '">' +
       '<div class="card-header">' +
+        '<span class="card-health-dot ' + dotCls + '"></span>' +
         '<span class="card-name">' + esc(name) + '</span>' +
         '<div class="card-badges">' +
           syncBadge(app.status.syncStatus) +
@@ -180,6 +212,7 @@ var Components = (function() {
       metricsLine +
       '<div class="card-repo">' + esc(repo) + '</div>' +
       errorLine +
+      miniTimeline +
       '<div class="card-footer">' +
         '<span>' + esc(syncTime) + '</span>' +
         (sha ? '<span class="card-sha">' + esc(sha) + '</span>' : '') +
@@ -811,6 +844,555 @@ var Components = (function() {
     }, 4000);
   }
 
+  // --- Deployment Timeline ---
+
+  function timelineDotClass(record) {
+    var result = (record.result || '').toLowerCase();
+    var op = (record.operation || '').toLowerCase();
+    if (op === 'rollback') return 'dot-rollback';
+    if (result === 'success') return 'dot-success';
+    if (result === 'failure') return 'dot-failure';
+    if (result === 'skipped') return 'dot-skipped';
+    return 'dot-unknown';
+  }
+
+  function renderTimeline(history, currentSHA) {
+    if (!history || history.length === 0) {
+      return '';
+    }
+
+    // Take last 20 and show oldest first (left to right)
+    var records = history.slice(0, 20).reverse();
+
+    var html = '<div class="timeline-container" id="timeline-container">';
+    html += '<div class="timeline-header">Deployment Timeline</div>';
+    html += '<div class="timeline-scroll">';
+    html += '<div class="timeline-track">';
+
+    for (var i = 0; i < records.length; i++) {
+      var r = records[i];
+      var dotCls = timelineDotClass(r);
+      var isCurrent = currentSHA && r.commitSHA && r.commitSHA === currentSHA;
+      var isRecent = i >= records.length - 3;
+      var duration = r.durationMs ? (r.durationMs / 1000).toFixed(1) + 's' : '';
+      var commitMsg = r.commitMessage || '';
+
+      // Size classes
+      var sizeClass = isRecent ? ' dot-recent' : '';
+      var currentClass = isCurrent ? ' dot-current' : '';
+
+      html += '<div class="timeline-segment">';
+      if (i > 0) {
+        html += '<div class="timeline-line"></div>';
+      }
+      html += '<div class="timeline-dot ' + dotCls + sizeClass + currentClass + '" ' +
+        'data-timeline-idx="' + i + '" ' +
+        'data-sha="' + esc(r.commitSHA || '') + '" ' +
+        'data-result="' + esc(r.result || '') + '">';
+      // Tooltip
+      html += '<div class="timeline-tooltip">';
+      html += '<div class="timeline-tooltip-sha">' + esc(shortSHA(r.commitSHA)) + '</div>';
+      if (commitMsg) {
+        html += '<div class="timeline-tooltip-msg">' + esc(commitMsg.substring(0, 60)) + '</div>';
+      }
+      html += '<div class="timeline-tooltip-time">' + esc(timeAgo(r.startedAt || r.createdAt)) + '</div>';
+      if (duration) {
+        html += '<div class="timeline-tooltip-duration">' + esc(duration) + '</div>';
+      }
+      html += '</div>'; // tooltip
+      html += '</div>'; // dot
+      html += '</div>'; // segment
+    }
+
+    html += '</div>'; // track
+    html += '</div>'; // scroll
+    html += '<div id="rollback-preview-slot"></div>';
+    html += '</div>'; // container
+
+    return html;
+  }
+
+  function renderRollbackPreview(sha, diff, appName) {
+    var shortSha = shortSHA(sha);
+
+    var html = '<div class="rollback-preview" id="rollback-preview">';
+    html += '<div class="rollback-preview-header">';
+    html += '<div class="rollback-preview-title">';
+    html += 'Diff to <span class="rollback-preview-sha">' + esc(shortSha) + '</span>';
+    html += '</div>';
+    html += '<div class="rollback-preview-actions">';
+    html += '<button class="btn btn-danger" id="rollback-btn">Rollback to ' + esc(shortSha) + '</button>';
+    html += '<button class="btn" id="rollback-close-btn">Close</button>';
+    html += '</div>';
+    html += '</div>';
+
+    html += '<div class="rollback-preview-body">';
+    if (!diff || diff.inSync) {
+      html += '<div class="diff-synced">No differences from current state</div>';
+    } else {
+      if (diff.summary) {
+        html += '<p style="margin-bottom:0.75rem;color:var(--text-secondary);font-size:0.85rem">' + esc(diff.summary) + '</p>';
+      }
+      if (diff.toCreate && diff.toCreate.length > 0) {
+        html += diffSection('create', '+CREATE', diff.toCreate);
+      }
+      if (diff.toUpdate && diff.toUpdate.length > 0) {
+        html += diffSection('update', '~UPDATE', diff.toUpdate);
+      }
+      if (diff.toRemove && diff.toRemove.length > 0) {
+        html += diffSection('remove', '-REMOVE', diff.toRemove);
+      }
+    }
+    html += '</div>';
+
+    // Confirmation slot
+    html += '<div id="rollback-confirm-slot"></div>';
+
+    html += '</div>';
+    return html;
+  }
+
+  function renderRollbackConfirm(appName, sha) {
+    var shortSha = shortSHA(sha);
+    return '<div class="rollback-confirm">' +
+      '<div class="rollback-confirm-text">Roll back <strong>' + esc(appName) + '</strong> to commit <strong>' + esc(shortSha) + '</strong>?</div>' +
+      '<div class="rollback-confirm-actions">' +
+        '<button class="btn btn-danger" id="rollback-confirm-yes">Confirm Rollback</button>' +
+        '<button class="btn" id="rollback-confirm-no">Cancel</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // --- Topology Graph (Wave 2) ---
+
+  function renderTopologyGraph(services, appName) {
+    if (!services || services.length === 0) {
+      return '<div class="topology-container"><div class="topology-header">Service Topology</div>' +
+        '<div class="empty-state" style="padding:1.5rem"><p>No services to display</p></div></div>';
+    }
+
+    // Build network adjacency: services sharing a network are connected
+    var networkMap = {}; // network -> [svcName]
+    var svcMap = {};     // svcName -> service obj
+    services.forEach(function(svc) {
+      svcMap[svc.name] = svc;
+      var nets = svc.networks || [];
+      nets.forEach(function(net) {
+        if (!networkMap[net]) networkMap[net] = [];
+        networkMap[net].push(svc.name);
+      });
+    });
+
+    // Build edges from shared networks
+    var edges = [];
+    var edgeSet = {};
+    Object.keys(networkMap).forEach(function(net) {
+      var members = networkMap[net];
+      for (var i = 0; i < members.length; i++) {
+        for (var j = i + 1; j < members.length; j++) {
+          var key = members[i] < members[j] ? members[i] + '|' + members[j] : members[j] + '|' + members[i];
+          if (!edgeSet[key]) {
+            edgeSet[key] = true;
+            edges.push({ from: members[i], to: members[j] });
+          }
+        }
+      }
+    });
+
+    // Build dependency graph for directed edges + layering
+    var depEdges = [];
+    var hasIncoming = {};
+    services.forEach(function(svc) {
+      if (svc.depends_on) {
+        var deps = Array.isArray(svc.depends_on) ? svc.depends_on : Object.keys(svc.depends_on);
+        deps.forEach(function(dep) {
+          depEdges.push({ from: dep, to: svc.name });
+          hasIncoming[svc.name] = true;
+        });
+      }
+    });
+
+    // Compute depth levels via topological layering
+    var depth = {};
+    var queue = [];
+    services.forEach(function(svc) {
+      if (!hasIncoming[svc.name]) {
+        depth[svc.name] = 0;
+        queue.push(svc.name);
+      }
+    });
+
+    // BFS to assign depths
+    var visited = {};
+    while (queue.length > 0) {
+      var current = queue.shift();
+      if (visited[current]) continue;
+      visited[current] = true;
+      depEdges.forEach(function(e) {
+        if (e.from === current) {
+          var newDepth = (depth[current] || 0) + 1;
+          if (!depth[e.to] || depth[e.to] < newDepth) {
+            depth[e.to] = newDepth;
+          }
+          queue.push(e.to);
+        }
+      });
+    }
+
+    // Assign depth 0 to any service not reached
+    services.forEach(function(svc) {
+      if (depth[svc.name] === undefined) depth[svc.name] = 0;
+    });
+
+    // Group services by depth
+    var layers = {};
+    var maxDepth = 0;
+    services.forEach(function(svc) {
+      var d = depth[svc.name];
+      if (d > maxDepth) maxDepth = d;
+      if (!layers[d]) layers[d] = [];
+      layers[d].push(svc);
+    });
+
+    // Layout constants
+    var nodeW = 180, nodeH = 56;
+    var hGap = 80, vGap = 24;
+    var padX = 24, padY = 40;
+
+    // Find max layer height for centering
+    var maxLayerSize = 0;
+    for (var l = 0; l <= maxDepth; l++) {
+      var count = (layers[l] || []).length;
+      if (count > maxLayerSize) maxLayerSize = count;
+    }
+
+    var svgW = padX * 2 + (maxDepth + 1) * nodeW + maxDepth * hGap;
+    var svgH = padY * 2 + maxLayerSize * nodeH + (maxLayerSize - 1) * vGap;
+    if (svgH < 120) svgH = 120;
+
+    // Compute positions
+    var positions = {}; // svcName -> {x, y, cx, cy}
+    for (var layer = 0; layer <= maxDepth; layer++) {
+      var layerSvcs = layers[layer] || [];
+      var totalH = layerSvcs.length * nodeH + (layerSvcs.length - 1) * vGap;
+      var startY = (svgH - totalH) / 2;
+      var x = padX + layer * (nodeW + hGap);
+      for (var si = 0; si < layerSvcs.length; si++) {
+        var y = startY + si * (nodeH + vGap);
+        positions[layerSvcs[si].name] = {
+          x: x, y: y,
+          cx: x + nodeW / 2,
+          cy: y + nodeH / 2,
+          right: x + nodeW,
+          left: x
+        };
+      }
+    }
+
+    // Build SVG
+    var svg = '<div class="topology-container">' +
+      '<div class="topology-header">Service Topology</div>' +
+      '<svg class="topology-svg" id="topology-graph" viewBox="0 0 ' + svgW + ' ' + svgH + '" preserveAspectRatio="xMidYMid meet">';
+
+    // Arrow marker
+    svg += '<defs><marker id="topo-arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">' +
+      '<polygon points="0 0, 8 3, 0 6" class="topology-edge-arrow"/></marker></defs>';
+
+    // Draw undirected network edges (only if no dep edges exist)
+    if (depEdges.length === 0 && edges.length > 0) {
+      edges.forEach(function(e) {
+        var p1 = positions[e.from];
+        var p2 = positions[e.to];
+        if (!p1 || !p2) return;
+        var x1 = p1.right;
+        var y1 = p1.cy;
+        var x2 = p2.left;
+        var y2 = p2.cy;
+        // If same layer, draw curved line
+        if (depth[e.from] === depth[e.to]) {
+          x1 = p1.cx;
+          y1 = p1.y + nodeH;
+          x2 = p2.cx;
+          y2 = p2.y + nodeH;
+          var my = Math.max(y1, y2) + 30;
+          svg += '<path class="topology-edge" d="M' + x1 + ',' + y1 + ' C' + x1 + ',' + my + ' ' + x2 + ',' + my + ' ' + x2 + ',' + y2 + '"/>';
+        } else {
+          var dx = (x2 - x1) * 0.4;
+          svg += '<path class="topology-edge" d="M' + x1 + ',' + y1 + ' C' + (x1 + dx) + ',' + y1 + ' ' + (x2 - dx) + ',' + y2 + ' ' + x2 + ',' + y2 + '"/>';
+        }
+      });
+    }
+
+    // Draw directed dependency edges
+    depEdges.forEach(function(e) {
+      var p1 = positions[e.from];
+      var p2 = positions[e.to];
+      if (!p1 || !p2) return;
+      var x1 = p1.right;
+      var y1 = p1.cy;
+      var x2 = p2.left;
+      var y2 = p2.cy;
+      var dx = (x2 - x1) * 0.4;
+      svg += '<path class="topology-edge" d="M' + x1 + ',' + y1 + ' C' + (x1 + dx) + ',' + y1 + ' ' + (x2 - dx) + ',' + y2 + ' ' + x2 + ',' + y2 + '" marker-end="url(#topo-arrow)"/>';
+    });
+
+    // Draw nodes
+    services.forEach(function(svc) {
+      var pos = positions[svc.name];
+      if (!pos) return;
+      var h = (svc.health || 'unknown').toLowerCase();
+      var dotCls = 'dot-' + h;
+      var imageTag = (svc.image || '').split(':').pop() || '';
+      if (imageTag.length > 20) imageTag = imageTag.substring(0, 18) + '..';
+
+      svg += '<g class="topology-node health-' + h + '" data-service="' + esc(svc.name) + '">';
+      svg += '<rect x="' + pos.x + '" y="' + pos.y + '" width="' + nodeW + '" height="' + nodeH + '"/>';
+      // Health dot
+      svg += '<circle class="health-indicator ' + dotCls + '" cx="' + (pos.x + 14) + '" cy="' + (pos.y + nodeH / 2) + '" r="5"/>';
+      // Service name
+      svg += '<text class="node-name" x="' + (pos.x + 26) + '" y="' + (pos.y + 22) + '">' + esc(svc.name) + '</text>';
+      // Image tag
+      svg += '<text class="node-image" x="' + (pos.x + 26) + '" y="' + (pos.y + 38) + '">' + esc(imageTag) + '</text>';
+      // Health text
+      svg += '<text x="' + (pos.x + nodeW - 8) + '" y="' + (pos.y + 22) + '" text-anchor="end" font-size="9" fill="' +
+        (h === 'healthy' ? 'var(--color-healthy)' : h === 'progressing' ? 'var(--color-progressing)' : h === 'degraded' ? 'var(--color-degraded)' : 'var(--color-unknown)') +
+        '">' + esc(svc.health || 'unknown') + '</text>';
+      svg += '</g>';
+    });
+
+    svg += '</svg></div>';
+    return svg;
+  }
+
+  // --- Service Detail Slide-Out Panel (Wave 2) ---
+
+  function renderServicePanel(service) {
+    if (!service) return '';
+
+    var h = (service.health || 'unknown').toLowerCase();
+    var dotCls = 'dot-' + h;
+
+    var html = '<div class="service-panel-overlay" id="service-panel-overlay">';
+    html += '<div class="service-panel" id="service-panel">';
+
+    // Header
+    html += '<div class="service-panel-header">';
+    html += '<div class="service-panel-title">';
+    html += '<span class="service-panel-health-dot ' + dotCls + '"></span>';
+    html += esc(service.name);
+    html += '</div>';
+    html += '<button class="service-panel-close" id="service-panel-close">&times;</button>';
+    html += '</div>';
+
+    // Body
+    html += '<div class="service-panel-body">';
+
+    // Identity section
+    html += '<div class="service-panel-section">';
+    html += '<div class="service-panel-section-title">Service</div>';
+    html += panelRow('Name', service.name);
+    html += panelRow('Image', service.image || '-', true);
+    html += panelRow('Health', '<span class="service-panel-health-indicator"><span class="service-panel-health-dot ' + dotCls + '"></span> ' + esc(service.health || 'Unknown') + '</span>');
+    html += panelRow('State', service.state || '-');
+    if (service.containerId) {
+      html += panelRow('Container', service.containerId.substring(0, 12), true);
+    }
+    html += '</div>';
+
+    // Ports section
+    if (service.ports && service.ports.length > 0) {
+      html += '<div class="service-panel-section">';
+      html += '<div class="service-panel-section-title">Ports</div>';
+      service.ports.forEach(function(p) {
+        var mapping = p.hostPort ? p.hostPort + ' \u2192 ' + p.containerPort : String(p.containerPort);
+        html += panelRow(p.protocol || 'tcp', mapping);
+      });
+      html += '</div>';
+    }
+
+    // Networks section
+    if (service.networks && service.networks.length > 0) {
+      html += '<div class="service-panel-section">';
+      html += '<div class="service-panel-section-title">Networks</div>';
+      html += '<div class="service-panel-tags">';
+      service.networks.forEach(function(net) {
+        html += '<span class="service-panel-tag">' + esc(net) + '</span>';
+      });
+      html += '</div>';
+      html += '</div>';
+    }
+
+    // Additional info
+    if (service.metrics) {
+      var m = service.metrics;
+      html += '<div class="service-panel-section">';
+      html += '<div class="service-panel-section-title">Resources</div>';
+      html += resourceBar('CPU', m.cpuPercent, 100, '%');
+      html += '<div style="height:0.35rem"></div>';
+      html += resourceBar('MEM', m.memoryUsageMB, m.memoryLimitMB, 'MB');
+      if (m.uptime) html += panelRow('Uptime', m.uptime);
+      if (m.pids > 0) html += panelRow('PIDs', String(m.pids));
+      html += '</div>';
+    }
+
+    html += '</div>'; // body
+    html += '</div>'; // panel
+    html += '</div>'; // overlay
+
+    return html;
+  }
+
+  function panelRow(label, value, mono) {
+    var cls = mono ? ' mono' : '';
+    // Value can be raw HTML (for health indicator)
+    return '<div class="service-panel-row">' +
+      '<span class="service-panel-row-label">' + esc(label) + '</span>' +
+      '<span class="service-panel-row-value' + cls + '">' + value + '</span>' +
+      '</div>';
+  }
+
+  // --- Command Palette (Wave 3) ---
+
+  function renderCommandPalette(results, selectedIndex) {
+    var html = '<div class="cmd-palette-overlay" id="cmd-palette-overlay">';
+    html += '<div class="cmd-palette">';
+    html += '<div class="cmd-palette-input-wrap">';
+    html += '<span class="cmd-palette-input-icon">\u{1F50D}</span>';
+    html += '<input class="cmd-palette-input" id="cmd-palette-input" type="text" placeholder="Type a command or search..." autocomplete="off" spellcheck="false">';
+    html += '</div>';
+    html += '<div class="cmd-palette-results" id="cmd-palette-results">';
+    if (!results || results.length === 0) {
+      html += '<div class="cmd-palette-empty">No results</div>';
+    } else {
+      for (var i = 0; i < results.length; i++) {
+        var r = results[i];
+        var sel = i === selectedIndex ? ' selected' : '';
+        html += '<div class="cmd-palette-result' + sel + '" data-cmd-idx="' + i + '">';
+        html += '<span class="cmd-palette-result-icon">' + (r.icon || '') + '</span>';
+        html += '<div class="cmd-palette-result-text">';
+        html += '<div class="cmd-palette-result-title">' + esc(r.title) + '</div>';
+        if (r.desc) {
+          html += '<div class="cmd-palette-result-desc">' + esc(r.desc) + '</div>';
+        }
+        html += '</div>';
+        if (r.kbd) {
+          html += '<span class="cmd-palette-result-kbd">' + esc(r.kbd) + '</span>';
+        }
+        html += '</div>';
+      }
+    }
+    html += '</div>';
+    html += '</div>';
+    html += '</div>';
+    return html;
+  }
+
+  // --- Notification Center (Wave 3) ---
+
+  function renderNotificationBell(unreadCount) {
+    var badge = document.getElementById('notification-badge');
+    if (badge) {
+      if (unreadCount > 0) {
+        badge.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
+        badge.style.display = '';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  }
+
+  function renderNotificationPanel(notifications) {
+    if (!notifications || notifications.length === 0) {
+      return '<div class="notification-panel-header">' +
+        '<span class="notification-panel-title">Notifications</span>' +
+        '</div>' +
+        '<div class="notification-empty">No notifications yet</div>';
+    }
+
+    var html = '<div class="notification-panel-header">';
+    html += '<span class="notification-panel-title">Notifications</span>';
+    html += '<button class="notification-mark-read" id="notification-mark-all">Mark all read</button>';
+    html += '</div>';
+    html += '<div class="notification-list">';
+
+    for (var i = 0; i < notifications.length; i++) {
+      var n = notifications[i];
+      var unreadCls = n.read ? '' : ' unread';
+      var icon = '\u2139\uFE0F'; // info
+      switch (n.type) {
+        case 'sync': icon = n.success ? '\u2705' : '\u274C'; break;
+        case 'health': icon = '\u{1F49A}'; break;
+        case 'rollback': icon = '\u23EA'; break;
+        case 'created': icon = '\u2795'; break;
+        case 'deleted': icon = '\u{1F5D1}\uFE0F'; break;
+      }
+
+      html += '<div class="notification-item' + unreadCls + '" data-notification-idx="' + i + '"' +
+        (n.appName ? ' data-notification-app="' + esc(n.appName) + '"' : '') + '>';
+      html += '<span class="notification-item-icon">' + icon + '</span>';
+      html += '<div class="notification-item-body">';
+      if (n.appName) {
+        html += '<div class="notification-item-app">' + esc(n.appName) + '</div>';
+      }
+      html += '<div class="notification-item-msg">' + esc(n.message) + '</div>';
+      html += '</div>';
+      html += '<span class="notification-item-time">' + timeAgo(n.time) + '</span>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  // --- Health Sparklines (Wave 3) ---
+
+  function renderSparkline(healthHistory, width, height) {
+    if (!healthHistory || healthHistory.length < 2) return '';
+
+    width = width || 80;
+    height = height || 20;
+    var padding = 2;
+    var drawW = width - padding * 2;
+    var drawH = height - padding * 2;
+    var count = healthHistory.length;
+    var step = drawW / (count - 1);
+
+    // Map health to Y: healthy=top, progressing=mid, degraded=bottom, unknown=bottom
+    function healthToY(h) {
+      switch ((h || '').toLowerCase()) {
+        case 'healthy': return padding;
+        case 'progressing': return padding + drawH * 0.5;
+        case 'degraded': return padding + drawH;
+        default: return padding + drawH;
+      }
+    }
+
+    function healthToColor(h) {
+      switch ((h || '').toLowerCase()) {
+        case 'healthy': return 'var(--color-healthy)';
+        case 'progressing': return 'var(--color-progressing)';
+        case 'degraded': return 'var(--color-degraded)';
+        default: return 'var(--color-unknown)';
+      }
+    }
+
+    // Build SVG path segments with per-segment coloring
+    var segments = '';
+    for (var i = 0; i < count - 1; i++) {
+      var x1 = padding + i * step;
+      var y1 = healthToY(healthHistory[i]);
+      var x2 = padding + (i + 1) * step;
+      var y2 = healthToY(healthHistory[i + 1]);
+      var color = healthToColor(healthHistory[i + 1]);
+      segments += '<line class="sparkline-line" x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) +
+        '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) +
+        '" stroke="' + color + '"/>';
+    }
+
+    return '<span class="sparkline"><svg width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">' +
+      segments + '</svg></span>';
+  }
+
   return {
     portLinks: portLinks,
     appGrid: appGrid,
@@ -833,6 +1415,15 @@ var Components = (function() {
     serviceOverviewTab: serviceOverviewTab,
     serviceMetricsTab: serviceMetricsTab,
     serviceLogsTab: serviceLogsTab,
-    renderLogLines: renderLogLines
+    renderLogLines: renderLogLines,
+    renderTimeline: renderTimeline,
+    renderRollbackPreview: renderRollbackPreview,
+    renderRollbackConfirm: renderRollbackConfirm,
+    renderTopologyGraph: renderTopologyGraph,
+    renderServicePanel: renderServicePanel,
+    renderCommandPalette: renderCommandPalette,
+    renderNotificationBell: renderNotificationBell,
+    renderNotificationPanel: renderNotificationPanel,
+    renderSparkline: renderSparkline
   };
 })();
