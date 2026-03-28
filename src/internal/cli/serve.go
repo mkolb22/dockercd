@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/mkolb22/dockercd/internal/api"
 	"github.com/mkolb22/dockercd/internal/app"
+	"github.com/mkolb22/dockercd/internal/cluster"
 	"github.com/mkolb22/dockercd/internal/config"
 	"github.com/mkolb22/dockercd/internal/deployer"
 	"github.com/mkolb22/dockercd/internal/differ"
@@ -287,6 +288,75 @@ func runServe(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("starting API server: %w", err)
 	}
 
+	// Cluster mode: create and start the cluster node if enabled.
+	// The cluster node manages active/passive state and calls onPromote/onDemote
+	// to start/stop the reconciler as leadership changes.
+	var clusterNode *cluster.ClusterNode
+	if cfg.Cluster.Enabled {
+		// Override cluster DataDir with the main data dir if not explicitly set
+		clusterCfg := cfg.Cluster
+		if clusterCfg.DataDir == "" || clusterCfg.DataDir == "/data" {
+			clusterCfg.DataDir = cfg.DataDir
+		}
+
+		clusterNode = cluster.NewClusterNode(
+			clusterCfg,
+			func() {
+				// onPromote: start the reconciler and background services
+				logger.Info("cluster: promoted to active — starting reconciler and monitors")
+				go func() {
+					if err := healthMon.Start(ctx); err != nil {
+						logger.Error("health monitor error", "error", err)
+					}
+				}()
+				go func() {
+					if err := hostMon.Start(ctx); err != nil {
+						logger.Error("host health monitor error", "error", err)
+					}
+				}()
+				go func() {
+					if err := eventWatcher.Start(ctx); err != nil {
+						logger.Error("event watcher error", "error", err)
+					}
+				}()
+				for _, h := range dbHosts {
+					eventWatcher.WatchHost(h.URL)
+				}
+				if imagePoller != nil {
+					go func() {
+						if err := imagePoller.Start(ctx); err != nil {
+							logger.Error("image poller error", "error", err)
+						}
+					}()
+				}
+				go func() {
+					if err := rec.Start(ctx); err != nil && ctx.Err() == nil {
+						logger.Error("reconciler error", "error", err)
+					}
+				}()
+			},
+			func() {
+				// onDemote: stop the reconciler and background services
+				logger.Info("cluster: demoted to passive — stopping reconciler and monitors")
+				shutCtx, shutCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer shutCancel()
+				if imagePoller != nil {
+					imagePoller.Stop()
+				}
+				eventWatcher.Stop()
+				hostMon.Stop()
+				healthMon.Stop()
+				_ = rec.Stop(shutCtx)
+			},
+			logger,
+		)
+
+		// Start cluster node (blocks until ctx canceled)
+		logger.Info("dockercd ready (cluster mode)", "api_addr", addr, "node_id", cfg.Cluster.NodeID)
+		err = clusterNode.Start(ctx)
+	} else {
+		// Non-cluster mode: start everything directly as before
+
 	// Start health monitor in background
 	go func() {
 		if err := healthMon.Start(ctx); err != nil {
@@ -325,6 +395,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// Start reconciler (blocks until ctx is canceled)
 	logger.Info("dockercd ready", "api_addr", addr)
 	err = rec.Start(ctx)
+	} // end non-cluster mode
 
 	// Graceful shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/mkolb22/dockercd/internal/cluster"
 	"github.com/spf13/viper"
 )
 
@@ -63,6 +64,9 @@ type Config struct {
 	// ManifestRevision is the git branch/tag/SHA to track in ManifestRepoURL.
 	// Defaults to "main".
 	ManifestRevision string `mapstructure:"manifest_revision"`
+
+	// Cluster holds the active-passive cluster configuration.
+	Cluster cluster.ClusterConfig `mapstructure:"cluster"`
 }
 
 // Validate checks the configuration for correctness.

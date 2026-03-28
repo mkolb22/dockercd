@@ -1,0 +1,42 @@
+services:
+  dockercd-node0:
+    image: dockercd:latest
+    container_name: dockercd-node0
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dockercd-node0-data:/data
+    environment:
+      DOCKERCD_CLUSTER_ENABLED: "true"
+      DOCKERCD_CLUSTER_NODE_ID: "node0"
+      DOCKERCD_CLUSTER_PEER_ADDR: "dockercd-node1:9090"
+      DOCKERCD_CLUSTER_LISTEN_ADDR: ":9090"
+      DOCKERCD_CLUSTER_PREFERRED_LEADER: "node0"
+      DOCKERCD_CLUSTER_HEARTBEAT_INTERVAL: "60s"
+      DOCKERCD_CLUSTER_MAX_MISSED_BEATS: "3"
+
+  dockercd-node1:
+    image: dockercd:latest
+    container_name: dockercd-node1
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+      - "9091:9090"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dockercd-node1-data:/data
+    environment:
+      DOCKERCD_CLUSTER_ENABLED: "true"
+      DOCKERCD_CLUSTER_NODE_ID: "node1"
+      DOCKERCD_CLUSTER_PEER_ADDR: "dockercd-node0:9090"
+      DOCKERCD_CLUSTER_LISTEN_ADDR: ":9090"
+      DOCKERCD_CLUSTER_PREFERRED_LEADER: "node0"
+      DOCKERCD_CLUSTER_HEARTBEAT_INTERVAL: "60s"
+      DOCKERCD_CLUSTER_MAX_MISSED_BEATS: "3"
+
+volumes:
+  dockercd-node0-data:
+  dockercd-node1-data:
