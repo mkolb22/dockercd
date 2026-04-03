@@ -328,10 +328,10 @@ func TestReconcile_ChangesDetected_ManualMode(t *testing.T) {
 		t.Error("should NOT have deployed in manual mode")
 	}
 
-	// Check sync status was marked OutOfSync
+	// Containers exist (no ToCreate in diff) → ManuallyManaged, not OutOfSync
 	appRec, _ := s.GetApplication(context.Background(), "myapp")
-	if appRec.SyncStatus != string(app.SyncStatusOutOfSync) {
-		t.Errorf("expected OutOfSync, got %q", appRec.SyncStatus)
+	if appRec.SyncStatus != string(app.SyncStatusManuallyManaged) {
+		t.Errorf("expected ManuallyManaged, got %q", appRec.SyncStatus)
 	}
 }
 
@@ -348,14 +348,21 @@ func TestReconcile_ManualMode_ForcedSync(t *testing.T) {
 	dep := &mockDeployer{}
 
 	r := newTestReconciler(s, gs, p, insp, d, dep)
-	// ReconcileNow is forced=true
+	// ReconcileNow is forced=true, but manual-policy apps are still skipped.
+	// Manual means manual — even the Sync button doesn't force deployment.
 	result, _ := r.ReconcileNow(context.Background(), "myapp")
 
-	if result.Result != app.SyncResultSuccess {
-		t.Errorf("expected success (forced sync), got %s (err: %s)", result.Result, result.Error)
+	if result.Result != app.SyncResultSkipped {
+		t.Errorf("expected skipped (manual mode, even when forced), got %s", result.Result)
 	}
-	if !dep.deployed {
-		t.Error("should have deployed on forced sync even in manual mode")
+	if dep.deployed {
+		t.Error("should NOT deploy manual-policy apps even when forced")
+	}
+
+	// Status should be ManuallyManaged
+	appRec, _ := s.GetApplication(context.Background(), "myapp")
+	if appRec.SyncStatus != string(app.SyncStatusManuallyManaged) {
+		t.Errorf("expected ManuallyManaged, got %q", appRec.SyncStatus)
 	}
 }
 

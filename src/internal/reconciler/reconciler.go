@@ -425,14 +425,23 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 
 	// Diff detected
 	logger.Info("drift detected", "summary", diffResult.Summary)
+
+	if !application.Spec.SyncPolicy.Automated {
+		// Manual-sync app: the user manages this themselves.
+		// Not an error — just not dockercd's responsibility to deploy.
+		// This applies even when forced (Sync button) — manual means manual.
+		r.updateStatus(ctx, appName, store.StatusUpdate{
+			SyncStatus: string(app.SyncStatusManuallyManaged),
+			LastError:  store.StringPtr(""), // clear any previous error
+		})
+		logger.Info("manually managed", "summary", diffResult.Summary)
+		return r.finishResult(ctx, result, app.SyncResultSkipped, "", logger)
+	}
+
+	// Automated app with drift — this is a real OutOfSync.
 	r.updateStatus(ctx, appName, store.StatusUpdate{
 		SyncStatus: string(app.SyncStatusOutOfSync),
 	})
-
-	if !application.Spec.SyncPolicy.Automated && !forced {
-		logger.Info("manual sync required")
-		return r.finishResult(ctx, result, app.SyncResultSkipped, "out of sync, manual sync required", logger)
-	}
 
 	// STEP 7: Deploy
 	r.updateStatus(ctx, appName, store.StatusUpdate{

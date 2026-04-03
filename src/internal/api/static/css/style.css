@@ -401,6 +401,8 @@ a:hover { text-decoration: underline; }
 
 .badge-synced { background: rgba(34, 197, 94, 0.12); color: var(--color-synced); border: 1px solid rgba(34, 197, 94, 0.15); }
 .badge-outofsync { background: rgba(234, 179, 8, 0.12); color: var(--color-outofsync); border: 1px solid rgba(234, 179, 8, 0.15); }
+.badge-awaiting { background: rgba(96, 165, 250, 0.12); color: #60a5fa; border: 1px solid rgba(96, 165, 250, 0.15); }
+.badge-manual { background: rgba(168, 85, 247, 0.12); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.15); }
 .badge-error { background: rgba(239, 68, 68, 0.12); color: var(--color-error); border: 1px solid rgba(239, 68, 68, 0.15); }
 .badge-unknown { background: rgba(107, 114, 128, 0.12); color: var(--color-unknown); border: 1px solid rgba(107, 114, 128, 0.15); }
 .badge-healthy { background: rgba(34, 197, 94, 0.12); color: var(--color-healthy); border: 1px solid rgba(34, 197, 94, 0.15); }

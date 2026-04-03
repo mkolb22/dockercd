@@ -292,6 +292,34 @@ func (d *DockerInspector) Inspect(ctx context.Context, dest app.DestinationSpec)
 		return nil, fmt.Errorf("listing containers for project %q: %w", dest.ProjectName, err)
 	}
 
+	// Fallback: if no containers found by project label, try matching by
+	// exact container name. This handles manually managed apps where the
+	// container was started under a different compose project but the
+	// container name matches the project name.
+	// Docker's name filter is substring-based, so we filter to exact match.
+	if len(containers) == 0 {
+		nameFilter := filters.NewArgs()
+		nameFilter.Add("name", dest.ProjectName)
+		candidates, err := cli.ContainerList(ctx, container.ListOptions{
+			All:     true,
+			Filters: nameFilter,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("listing containers by name %q: %w", dest.ProjectName, err)
+		}
+		// Docker name filter is substring — keep only exact matches.
+		// Container names have a leading "/" in the API.
+		exactName := "/" + dest.ProjectName
+		for _, c := range candidates {
+			for _, n := range c.Names {
+				if n == exactName {
+					containers = append(containers, c)
+					break
+				}
+			}
+		}
+	}
+
 	states := make([]app.ServiceState, 0, len(containers))
 	for _, c := range containers {
 		// Get detailed inspection data

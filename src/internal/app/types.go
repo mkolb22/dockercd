@@ -49,10 +49,12 @@ type SyncPolicy struct {
 type SyncStatus string
 
 const (
-	SyncStatusSynced    SyncStatus = "Synced"
-	SyncStatusOutOfSync SyncStatus = "OutOfSync"
-	SyncStatusUnknown   SyncStatus = "Unknown"
-	SyncStatusError     SyncStatus = "Error"
+	SyncStatusSynced       SyncStatus = "Synced"
+	SyncStatusOutOfSync    SyncStatus = "OutOfSync"
+	SyncStatusAwaitingSync      SyncStatus = "AwaitingSync"
+	SyncStatusManuallyManaged   SyncStatus = "ManuallyManaged"
+	SyncStatusUnknown      SyncStatus = "Unknown"
+	SyncStatusError        SyncStatus = "Error"
 )
 
 // HealthStatus represents the health of an application or service.

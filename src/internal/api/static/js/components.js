@@ -35,6 +35,8 @@ var Components = (function() {
     switch ((status || '').toLowerCase()) {
       case 'synced': return 'badge-synced';
       case 'outofsync': return 'badge-outofsync';
+      case 'awaitingsync': return 'badge-awaiting';
+      case 'manuallymanaged': return 'badge-manual';
       case 'error': return 'badge-error';
       default: return 'badge-unknown';
     }
