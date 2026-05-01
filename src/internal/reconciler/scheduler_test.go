@@ -39,9 +39,9 @@ func TestScheduler_EnqueueDueApps(t *testing.T) {
 
 	now := time.Now()
 	r.scheduleMu.Lock()
-	r.schedule["due1"] = now.Add(-1 * time.Second)    // past due
-	r.schedule["due2"] = now.Add(-5 * time.Second)    // past due
-	r.schedule["future"] = now.Add(5 * time.Minute)   // not due
+	r.schedule["due1"] = now.Add(-1 * time.Second)  // past due
+	r.schedule["due2"] = now.Add(-5 * time.Second)  // past due
+	r.schedule["future"] = now.Add(5 * time.Minute) // not due
 	r.scheduleMu.Unlock()
 
 	r.enqueueDueApps()

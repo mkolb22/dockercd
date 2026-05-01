@@ -15,6 +15,7 @@ import (
 type mockDeployer struct {
 	mu          sync.Mutex
 	deployCalls []DeployRequest
+	pullCalls   []DeployRequest
 	downCalls   []DeployRequest
 	deployErr   map[string]error // keyed by ProjectName
 	downErr     map[string]error // keyed by ProjectName
@@ -34,6 +35,13 @@ func (m *mockDeployer) Deploy(ctx context.Context, req DeployRequest) error {
 	if err, ok := m.deployErr[req.ProjectName]; ok {
 		return err
 	}
+	return nil
+}
+
+func (m *mockDeployer) Pull(ctx context.Context, req DeployRequest) error {
+	m.mu.Lock()
+	m.pullCalls = append(m.pullCalls, req)
+	m.mu.Unlock()
 	return nil
 }
 
@@ -127,9 +135,9 @@ func (m *mockInspector) InspectServiceDetail(_ context.Context, _ app.Destinatio
 func (m *mockInspector) GetServiceLogs(_ context.Context, _ app.DestinationSpec, _ string, _ int) ([]string, error) {
 	return nil, nil
 }
-func (m *mockInspector) RegisterTLS(_ string, _ inspector.TLSConfig)   {}
-func (m *mockInspector) UnregisterTLS(_ string)                        {}
-func (m *mockInspector) GetTLSCertPath(_ string) string                { return "" }
+func (m *mockInspector) RegisterTLS(_ string, _ inspector.TLSConfig) {}
+func (m *mockInspector) UnregisterTLS(_ string)                      {}
+func (m *mockInspector) GetTLSCertPath(_ string) string              { return "" }
 
 // healthyState returns a service state that is running and healthy.
 func healthyState(name string) app.ServiceState {
@@ -304,7 +312,7 @@ func TestBlueGreen_HealthCheckFailure(t *testing.T) {
 
 	bg := NewBlueGreen(inner, insp, logger)
 	bg.pollInterval = 5 * time.Millisecond // fast polling for tests
-	bg.timeout = 50 * time.Millisecond    // short timeout so the test completes quickly
+	bg.timeout = 50 * time.Millisecond     // short timeout so the test completes quickly
 
 	req := DeployRequest{
 		ProjectName:  "myapp",
@@ -505,6 +513,55 @@ func TestBlueGreen_DeployServices_Delegates(t *testing.T) {
 
 	if err := bg.DeployServices(context.Background(), req, []string{"web"}); err != nil {
 		t.Fatalf("DeployServices: %v", err)
+	}
+}
+
+func TestBlueGreen_Pull_Delegates(t *testing.T) {
+	inner := newMockDeployer()
+	insp := newMockInspector()
+	logger := testLogger()
+
+	bg := NewBlueGreen(inner, insp, logger)
+
+	req := DeployRequest{
+		ProjectName: "myapp",
+	}
+
+	if err := bg.Pull(context.Background(), req); err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+	if len(inner.pullCalls) != 1 {
+		t.Fatalf("expected one delegated pull, got %d", len(inner.pullCalls))
+	}
+}
+
+func TestActiveBlueGreenState_ReturnsRunningColorState(t *testing.T) {
+	insp := newMockInspector()
+	insp.addResult("myapp-blue", []app.ServiceState{
+		{Name: "web", Status: "exited", Health: app.HealthStatusDegraded},
+	}, nil)
+	insp.addResult("myapp-green", []app.ServiceState{
+		{Name: "web", Status: "running", Health: app.HealthStatusHealthy},
+	}, nil)
+
+	color, dest, states, active, err := ActiveBlueGreenState(context.Background(), insp, app.DestinationSpec{
+		ProjectName: "myapp",
+		DockerHost:  "unix:///var/run/docker.sock",
+	})
+	if err != nil {
+		t.Fatalf("ActiveBlueGreenState: %v", err)
+	}
+	if !active {
+		t.Fatal("expected an active color")
+	}
+	if color != colorGreen {
+		t.Fatalf("expected active color green, got %q", color)
+	}
+	if dest.ProjectName != "myapp-green" {
+		t.Fatalf("expected green destination, got %q", dest.ProjectName)
+	}
+	if len(states) != 1 || states[0].Name != "web" {
+		t.Fatalf("unexpected states: %+v", states)
 	}
 }
 

@@ -29,7 +29,7 @@ func newAppGetCmd() *cobra.Command {
 }
 
 func runAppGet(serverAddr, name string) error {
-	resp, err := apiClient.Get(serverAddr + "/api/v1/applications/" + name)
+	resp, err := apiRequest(http.MethodGet, serverAddr+"/api/v1/applications/"+name, "", nil)
 	if err != nil {
 		return fmt.Errorf("connecting to server: %w", err)
 	}

@@ -20,8 +20,14 @@ import (
 // --- Mock reconciler ---
 
 type mockReconciler struct {
-	result *app.SyncResult
-	err    error
+	result    *app.SyncResult
+	err       error
+	dryRun    *app.DiffResult
+	dryRunSHA string
+	dryRunErr error
+	rendered  *app.ComposeSpec
+	renderSHA string
+	renderErr error
 }
 
 // --- Mock inspector ---
@@ -51,13 +57,13 @@ func (m *mockInspector) InspectServiceDetail(_ context.Context, _ app.Destinatio
 func (m *mockInspector) GetServiceLogs(_ context.Context, _ app.DestinationSpec, _ string, _ int) ([]string, error) {
 	return nil, nil
 }
-func (m *mockInspector) RegisterTLS(_ string, _ inspector.TLSConfig)   {}
-func (m *mockInspector) UnregisterTLS(_ string)                        {}
-func (m *mockInspector) GetTLSCertPath(_ string) string                { return "" }
+func (m *mockInspector) RegisterTLS(_ string, _ inspector.TLSConfig) {}
+func (m *mockInspector) UnregisterTLS(_ string)                      {}
+func (m *mockInspector) GetTLSCertPath(_ string) string              { return "" }
 
-func (m *mockReconciler) Start(_ context.Context) error                { return nil }
-func (m *mockReconciler) Stop(_ context.Context) error                 { return nil }
-func (m *mockReconciler) TriggerReconcile(_ string)                    {}
+func (m *mockReconciler) Start(_ context.Context) error { return nil }
+func (m *mockReconciler) Stop(_ context.Context) error  { return nil }
+func (m *mockReconciler) TriggerReconcile(_ string)     {}
 func (m *mockReconciler) ReconcileNow(_ context.Context, appName string) (*app.SyncResult, error) {
 	if m.result != nil {
 		return m.result, m.err
@@ -70,7 +76,19 @@ func (m *mockReconciler) ReconcileNow(_ context.Context, appName string) (*app.S
 }
 
 func (m *mockReconciler) DryRun(_ context.Context, appName string) (*app.DiffResult, string, error) {
+	if m.dryRun != nil || m.dryRunErr != nil || m.dryRunSHA != "" {
+		return m.dryRun, m.dryRunSHA, m.dryRunErr
+	}
 	return &app.DiffResult{InSync: true, Summary: "All in sync"}, "abc123", nil
+}
+
+func (m *mockReconciler) RenderDesired(_ context.Context, appName string) (*app.ComposeSpec, string, error) {
+	if m.rendered != nil || m.renderErr != nil || m.renderSHA != "" {
+		return m.rendered, m.renderSHA, m.renderErr
+	}
+	return &app.ComposeSpec{
+		Services: []app.ServiceSpec{{Name: "web", Image: "nginx:latest"}},
+	}, "abc123", nil
 }
 
 func (m *mockReconciler) Rollback(_ context.Context, appName string, targetSHA string) (*app.SyncResult, error) {
@@ -227,6 +245,48 @@ func TestListApplications_ContentType(t *testing.T) {
 	}
 }
 
+func TestAPIToken_BearerAndCookieAuth(t *testing.T) {
+	s := setupTestStore(t)
+	srv := NewServer(":0", ServerDeps{
+		Store:      s,
+		Reconciler: &mockReconciler{},
+		Logger:     testLogger(),
+		APIToken:   "secret-token",
+	})
+
+	unauth := doRequest(t, srv, "GET", "/api/v1/applications")
+	if unauth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated request to return 401, got %d", unauth.Code)
+	}
+
+	req := httptest.NewRequest("POST", "/api/v1/auth/session", strings.NewReader(`{"token":"secret-token"}`))
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected login 200, got %d: %s", w.Code, w.Body.String())
+	}
+	cookies := w.Result().Cookies()
+	if len(cookies) == 0 || cookies[0].Name != authCookieName {
+		t.Fatalf("expected auth cookie, got %v", cookies)
+	}
+
+	req = httptest.NewRequest("GET", "/api/v1/applications", nil)
+	req.AddCookie(cookies[0])
+	w = httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected cookie-authenticated request 200, got %d", w.Code)
+	}
+
+	req = httptest.NewRequest("GET", "/api/v1/applications", nil)
+	req.Header.Set("Authorization", "Bearer secret-token")
+	w = httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected bearer-authenticated request 200, got %d", w.Code)
+	}
+}
+
 // --- Get Application ---
 
 func TestGetApplication_Found(t *testing.T) {
@@ -363,6 +423,51 @@ func TestSyncApplication_DryRun(t *testing.T) {
 	}
 }
 
+func TestGetRenderedDesired(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp")
+	rec := &mockReconciler{
+		renderSHA: "def456",
+		rendered: &app.ComposeSpec{
+			Services: []app.ServiceSpec{{Name: "api", Image: "example/api:1.0.0"}},
+		},
+	}
+	srv := newTestServer(t, s, rec)
+
+	w := doRequest(t, srv, "GET", "/api/v1/applications/myapp/desired")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp RenderedDesiredResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.AppName != "myapp" {
+		t.Errorf("expected appName=myapp, got %q", resp.AppName)
+	}
+	if resp.HeadSHA != "def456" {
+		t.Errorf("expected headSHA=def456, got %q", resp.HeadSHA)
+	}
+	if resp.Compose == nil || len(resp.Compose.Services) != 1 || resp.Compose.Services[0].Name != "api" {
+		t.Fatalf("unexpected compose response: %+v", resp.Compose)
+	}
+}
+
+func TestGitWebhookRequiresConfiguredSecret(t *testing.T) {
+	s := setupTestStore(t)
+	srv := newTestServer(t, s, nil)
+
+	req := httptest.NewRequest("POST", "/api/v1/webhook/git", strings.NewReader(`{}`))
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when webhook secret is unset, got %d", w.Code)
+	}
+}
+
 // --- Diff Application ---
 
 func TestDiffApplication_NoHistory(t *testing.T) {
@@ -383,7 +488,7 @@ func TestDiffApplication_NoHistory(t *testing.T) {
 	}
 }
 
-func TestDiffApplication_WithHistory(t *testing.T) {
+func TestDiffApplication_IgnoresStaleHistory(t *testing.T) {
 	s := setupTestStore(t)
 	createTestApp(t, s, "myapp")
 
@@ -403,7 +508,9 @@ func TestDiffApplication_WithHistory(t *testing.T) {
 		DiffJSON:  string(diffJSON),
 	})
 
-	srv := newTestServer(t, s, nil)
+	srv := newTestServer(t, s, &mockReconciler{
+		dryRun: &app.DiffResult{InSync: true, Summary: "All services in sync"},
+	})
 
 	w := doRequest(t, srv, "GET", "/api/v1/applications/myapp/diff")
 
@@ -413,10 +520,10 @@ func TestDiffApplication_WithHistory(t *testing.T) {
 
 	var diff app.DiffResult
 	_ = json.NewDecoder(w.Body).Decode(&diff)
-	if diff.InSync {
-		t.Error("expected inSync=false")
+	if !diff.InSync {
+		t.Error("expected live dry-run diff to report inSync=true")
 	}
-	if diff.Summary != "1 to update" {
+	if diff.Summary != "All services in sync" {
 		t.Errorf("expected summary, got %q", diff.Summary)
 	}
 }
@@ -748,4 +855,3 @@ func TestGetApplication_ResponseStructure(t *testing.T) {
 		t.Errorf("expected LastSyncedSHA=deadbeef, got %q", resp.Status.LastSyncedSHA)
 	}
 }
-

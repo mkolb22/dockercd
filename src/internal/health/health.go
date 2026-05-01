@@ -72,12 +72,12 @@ type watchEntry struct {
 
 // Monitor implements HealthChecker with periodic polling.
 type Monitor struct {
-	inspector      inspector.StateInspector
-	store          *store.SQLiteStore
-	logger         *slog.Logger
-	config         Config
-	Broadcaster    eventbus.Broadcaster
-	eventNotifier  notifier.Notifier
+	inspector     inspector.StateInspector
+	store         *store.SQLiteStore
+	logger        *slog.Logger
+	config        Config
+	Broadcaster   eventbus.Broadcaster
+	eventNotifier notifier.Notifier
 
 	// Watched apps (those recently deployed, monitored more aggressively)
 	watched   map[string]*watchEntry
@@ -174,6 +174,9 @@ func (m *Monitor) UnwatchApp(appName string) {
 // WaitForServicesHealthy blocks until the named services are all healthy or
 // the context/timeout expires. Returns nil when all named services are healthy.
 func (m *Monitor) WaitForServicesHealthy(ctx context.Context, appName string, serviceNames []string, timeout time.Duration) error {
+	if len(serviceNames) == 0 {
+		return nil
+	}
 	if timeout <= 0 {
 		timeout = m.config.DefaultTimeout
 	}
@@ -201,14 +204,19 @@ func (m *Monitor) WaitForServicesHealthy(ctx context.Context, appName string, se
 				continue
 			}
 
-			allHealthy := true
+			healthy := make(map[string]bool, len(nameSet))
+			allSeenHealthy := true
 			for _, svc := range services {
-				if nameSet[svc.Name] && svc.Health != app.HealthStatusHealthy {
-					allHealthy = false
+				if !nameSet[svc.Name] {
+					continue
+				}
+				if svc.Health != app.HealthStatusHealthy {
+					allSeenHealthy = false
 					break
 				}
+				healthy[svc.Name] = true
 			}
-			if allHealthy {
+			if allSeenHealthy && len(healthy) == len(nameSet) {
 				return nil
 			}
 		}

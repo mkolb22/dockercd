@@ -213,6 +213,11 @@ func (r *ReconcilerImpl) scanManifestDir(dir string, dst map[string]app.Applicat
 		if application.Kind != "Application" || application.Metadata.Name == "" {
 			continue
 		}
+		application.ApplyDefaults()
+		if err := application.Validate(); err != nil {
+			r.logger.Warn("invalid application manifest", "path", path, "name", application.Metadata.Name, "error", err)
+			continue
+		}
 
 		dst[application.Metadata.Name] = application
 	}

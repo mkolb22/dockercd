@@ -14,6 +14,7 @@ func newAppCmd() *cobra.Command {
 		newAppGetCmd(),
 		newAppSyncCmd(),
 		newAppDiffCmd(),
+		newAppDesiredCmd(),
 		newAppRollbackCmd(),
 		newAppAdoptCmd(),
 	)

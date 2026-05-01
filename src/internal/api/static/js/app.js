@@ -773,7 +773,7 @@
   function startSSE() {
     if (sseSource) return;
     try {
-      sseSource = new EventSource('/api/v1/events');
+      sseSource = new EventSource('/api/v1/events/stream', { withCredentials: true });
       sseSource.addEventListener('health', function(e) {
         try {
           var data = JSON.parse(e.data);

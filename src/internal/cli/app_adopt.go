@@ -29,7 +29,7 @@ func newAppAdoptCmd() *cobra.Command {
 func runAppAdopt(serverAddr, name string) error {
 	url := fmt.Sprintf("%s/api/v1/applications/%s/adopt", serverAddr, name)
 
-	resp, err := apiClient.Post(url, "application/json", nil)
+	resp, err := apiRequest(http.MethodPost, url, "application/json", nil)
 	if err != nil {
 		return fmt.Errorf("adopt request failed: %w", err)
 	}

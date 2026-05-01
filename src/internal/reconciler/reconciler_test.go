@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,7 +30,7 @@ func (m *mockGitSyncer) Sync(_ context.Context, _ app.SourceSpec) (string, error
 	return m.sha, m.err
 }
 func (m *mockGitSyncer) CheckoutSHA(_ context.Context, _ string, _ string) error { return m.err }
-func (m *mockGitSyncer) RepoPath(_ string) string                               { return m.path }
+func (m *mockGitSyncer) RepoPath(_ string) string                                { return m.path }
 func (m *mockGitSyncer) Commit(_ context.Context, _ string, _ string, _ []string) error {
 	return nil
 }
@@ -46,11 +47,19 @@ func (m *mockParser) Parse(_ context.Context, _ string, _ []string) (*app.Compos
 }
 
 type mockInspector struct {
-	states []app.ServiceState
-	err    error
+	states          []app.ServiceState
+	statesByProject map[string][]app.ServiceState
+	err             error
+	destinations    []app.DestinationSpec
 }
 
-func (m *mockInspector) Inspect(_ context.Context, _ app.DestinationSpec) ([]app.ServiceState, error) {
+func (m *mockInspector) Inspect(_ context.Context, dest app.DestinationSpec) ([]app.ServiceState, error) {
+	m.destinations = append(m.destinations, dest)
+	if m.statesByProject != nil {
+		if states, ok := m.statesByProject[dest.ProjectName]; ok {
+			return states, m.err
+		}
+	}
 	return m.states, m.err
 }
 func (m *mockInspector) InspectService(_ context.Context, _ app.DestinationSpec, _ string) (*app.ServiceState, error) {
@@ -72,35 +81,56 @@ func (m *mockInspector) InspectServiceDetail(_ context.Context, _ app.Destinatio
 func (m *mockInspector) GetServiceLogs(_ context.Context, _ app.DestinationSpec, _ string, _ int) ([]string, error) {
 	return nil, nil
 }
-func (m *mockInspector) RegisterTLS(_ string, _ inspector.TLSConfig)   {}
-func (m *mockInspector) UnregisterTLS(_ string)                        {}
-func (m *mockInspector) GetTLSCertPath(_ string) string                { return "" }
+func (m *mockInspector) RegisterTLS(_ string, _ inspector.TLSConfig) {}
+func (m *mockInspector) UnregisterTLS(_ string)                      {}
+func (m *mockInspector) GetTLSCertPath(_ string) string              { return "" }
 
 type mockDiffer struct {
-	result *app.DiffResult
+	result  *app.DiffResult
+	desired []app.ServiceSpec
+	live    []app.ServiceState
 }
 
-func (m *mockDiffer) Diff(_ []app.ServiceSpec, _ []app.ServiceState) *app.DiffResult {
+func (m *mockDiffer) Diff(desired []app.ServiceSpec, live []app.ServiceState) *app.DiffResult {
+	m.desired = desired
+	m.live = live
 	return m.result
 }
 
 type mockDeployer struct {
-	deployed  bool
-	err       error
-	lastReq   deployer.DeployRequest
-	downed    bool
-	downErr   error
-	hookRun   bool
-	hookErr   error
+	deployed           bool
+	deployCalls        int
+	deployServiceCalls int
+	pulled             bool
+	pullCalls          int
+	err                error
+	lastReq            deployer.DeployRequest
+	downed             bool
+	downErr            error
+	hookRun            bool
+	hookServices       []string
+	hookErr            error
+	deployFn           func(context.Context, deployer.DeployRequest) error
 }
 
-func (m *mockDeployer) Deploy(_ context.Context, req deployer.DeployRequest) error {
+func (m *mockDeployer) Deploy(ctx context.Context, req deployer.DeployRequest) error {
 	m.deployed = true
+	m.deployCalls++
+	m.lastReq = req
+	if m.deployFn != nil {
+		return m.deployFn(ctx, req)
+	}
+	return m.err
+}
+func (m *mockDeployer) Pull(_ context.Context, req deployer.DeployRequest) error {
+	m.pulled = true
+	m.pullCalls++
 	m.lastReq = req
 	return m.err
 }
 func (m *mockDeployer) DeployServices(_ context.Context, req deployer.DeployRequest, _ []string) error {
 	m.deployed = true
+	m.deployServiceCalls++
 	m.lastReq = req
 	return m.err
 }
@@ -108,8 +138,9 @@ func (m *mockDeployer) Down(_ context.Context, req deployer.DeployRequest) error
 	m.downed = true
 	return m.downErr
 }
-func (m *mockDeployer) RunHook(_ context.Context, _ deployer.DeployRequest, _ string) error {
+func (m *mockDeployer) RunHook(_ context.Context, _ deployer.DeployRequest, serviceName string) error {
 	m.hookRun = true
+	m.hookServices = append(m.hookServices, serviceName)
 	return m.hookErr
 }
 
@@ -117,6 +148,7 @@ type mockHealthMonitor struct {
 	watchCalled   bool
 	unwatchCalled bool
 	waitCalled    bool
+	waitCalls     [][]string
 	waitErr       error
 	waitServices  []string
 }
@@ -134,6 +166,7 @@ func (m *mockHealthMonitor) UnwatchApp(_ string) {
 }
 func (m *mockHealthMonitor) WaitForServicesHealthy(_ context.Context, _ string, serviceNames []string, _ time.Duration) error {
 	m.waitCalled = true
+	m.waitCalls = append(m.waitCalls, append([]string(nil), serviceNames...))
 	m.waitServices = serviceNames
 	return m.waitErr
 }
@@ -348,21 +381,20 @@ func TestReconcile_ManualMode_ForcedSync(t *testing.T) {
 	dep := &mockDeployer{}
 
 	r := newTestReconciler(s, gs, p, insp, d, dep)
-	// ReconcileNow is forced=true, but manual-policy apps are still skipped.
-	// Manual means manual — even the Sync button doesn't force deployment.
+	// ReconcileNow is forced=true, so manual-policy apps deploy when the
+	// user explicitly clicks Sync or calls the API/CLI sync endpoint.
 	result, _ := r.ReconcileNow(context.Background(), "myapp")
 
-	if result.Result != app.SyncResultSkipped {
-		t.Errorf("expected skipped (manual mode, even when forced), got %s", result.Result)
+	if result.Result != app.SyncResultSuccess {
+		t.Errorf("expected success (forced manual sync), got %s", result.Result)
 	}
-	if dep.deployed {
-		t.Error("should NOT deploy manual-policy apps even when forced")
+	if !dep.deployed {
+		t.Error("should deploy manual-policy apps when forced")
 	}
 
-	// Status should be ManuallyManaged
 	appRec, _ := s.GetApplication(context.Background(), "myapp")
-	if appRec.SyncStatus != string(app.SyncStatusManuallyManaged) {
-		t.Errorf("expected ManuallyManaged, got %q", appRec.SyncStatus)
+	if appRec.SyncStatus != string(app.SyncStatusSynced) {
+		t.Errorf("expected Synced, got %q", appRec.SyncStatus)
 	}
 }
 
@@ -473,6 +505,70 @@ func TestReconcile_DeployError(t *testing.T) {
 	appRec, _ := s.GetApplication(context.Background(), "myapp")
 	if appRec.HealthStatus != string(app.HealthStatusDegraded) {
 		t.Errorf("expected Degraded after deploy error, got %q", appRec.HealthStatus)
+	}
+}
+
+func TestReconcile_EnforcesSyncTimeout(t *testing.T) {
+	s := setupTestStore(t)
+	application := app.Application{
+		APIVersion: "dockercd/v1",
+		Kind:       "Application",
+		Metadata:   app.AppMetadata{Name: "myapp"},
+		Spec: app.AppSpec{
+			Source: app.SourceSpec{
+				RepoURL:        "https://github.com/test/repo.git",
+				TargetRevision: "main",
+				Path:           ".",
+				ComposeFiles:   []string{"docker-compose.yml"},
+			},
+			Destination: app.DestinationSpec{
+				DockerHost:  "unix:///var/run/docker.sock",
+				ProjectName: "myapp",
+			},
+			SyncPolicy: app.SyncPolicy{
+				Automated:   true,
+				SyncTimeout: app.NewDuration(5 * time.Millisecond),
+			},
+		},
+	}
+	manifest, _ := json.Marshal(application)
+	if err := s.CreateApplication(context.Background(), &store.ApplicationRecord{
+		Name:         "myapp",
+		Manifest:     string(manifest),
+		SyncStatus:   string(app.SyncStatusUnknown),
+		HealthStatus: string(app.HealthStatusUnknown),
+	}); err != nil {
+		t.Fatalf("create app: %v", err)
+	}
+
+	gs := &mockGitSyncer{sha: "new-sha", path: "/tmp/repo"}
+	p := &mockParser{spec: &app.ComposeSpec{
+		Services: []app.ServiceSpec{{Name: "web", Image: "nginx:1.26"}},
+	}}
+	insp := &mockInspector{}
+	d := &mockDiffer{result: &app.DiffResult{InSync: false, Summary: "changes"}}
+	dep := &mockDeployer{
+		deployFn: func(ctx context.Context, _ deployer.DeployRequest) error {
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+
+	r := newTestReconciler(s, gs, p, insp, d, dep)
+	result, err := r.ReconcileNow(context.Background(), "myapp")
+
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if result.Result != app.SyncResultFailure {
+		t.Errorf("expected failure, got %s", result.Result)
+	}
+	if !strings.Contains(result.Error, "sync timeout after") {
+		t.Fatalf("expected sync timeout error, got %q", result.Error)
+	}
+	appRec, _ := s.GetApplication(context.Background(), "myapp")
+	if !strings.Contains(appRec.LastError, "sync timeout after") {
+		t.Fatalf("expected persisted timeout error, got %q", appRec.LastError)
 	}
 }
 
@@ -823,6 +919,100 @@ func TestDryRun_ReturnsDiffWithoutDeploying(t *testing.T) {
 	}
 }
 
+func TestDryRun_BlueGreenDiffUsesActiveColor(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp", true, "old-sha")
+
+	gs := &mockGitSyncer{sha: "new-sha", path: "/tmp/repo"}
+	p := &mockParser{spec: &app.ComposeSpec{
+		Services: []app.ServiceSpec{
+			{
+				Name:  "web",
+				Image: "nginx:1.27",
+				Labels: map[string]string{
+					"com.dockercd.strategy": "blue-green",
+				},
+			},
+		},
+	}}
+	insp := &mockInspector{
+		statesByProject: map[string][]app.ServiceState{
+			"myapp-blue": {
+				{Name: "web", Image: "nginx:1.26", Status: "running", Health: app.HealthStatusHealthy},
+			},
+			"myapp-green": nil,
+		},
+	}
+	d := &mockDiffer{result: &app.DiffResult{
+		InSync: false,
+		ToUpdate: []app.ServiceDiff{
+			{ServiceName: "web", ChangeType: app.ChangeTypeUpdate},
+		},
+		Summary: "image changed",
+	}}
+
+	r := New(Deps{
+		GitSyncer:   gs,
+		Parser:      p,
+		Inspector:   insp,
+		Differ:      d,
+		Deployer:    &mockDeployer{},
+		Store:       s,
+		Logger:      testLogger(),
+		WorkerCount: 1,
+	})
+
+	diff, _, err := r.DryRun(context.Background(), "myapp")
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if diff == nil || diff.InSync {
+		t.Fatalf("expected out-of-sync diff, got %+v", diff)
+	}
+	if len(d.live) != 1 || d.live[0].Image != "nginx:1.26" {
+		t.Fatalf("expected diff against active blue state, got %+v", d.live)
+	}
+	if len(insp.destinations) != 1 || insp.destinations[0].ProjectName != "myapp-blue" {
+		t.Fatalf("expected only active blue project inspection, got %+v", insp.destinations)
+	}
+}
+
+func TestRenderDesired_DoesNotInspectDocker(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp", true, "old-sha")
+
+	gs := &mockGitSyncer{sha: "new-sha", path: "/tmp/repo"}
+	p := &mockParser{spec: &app.ComposeSpec{
+		Services: []app.ServiceSpec{{Name: "web", Image: "nginx:1.27"}},
+	}}
+	insp := &mockInspector{err: fmt.Errorf("docker unavailable")}
+
+	r := New(Deps{
+		GitSyncer:   gs,
+		Parser:      p,
+		Inspector:   insp,
+		Differ:      &mockDiffer{},
+		Deployer:    &mockDeployer{},
+		Store:       s,
+		Logger:      testLogger(),
+		WorkerCount: 1,
+	})
+
+	rendered, headSHA, err := r.RenderDesired(context.Background(), "myapp")
+	if err != nil {
+		t.Fatalf("RenderDesired: %v", err)
+	}
+	if headSHA != "new-sha" {
+		t.Fatalf("expected headSHA=new-sha, got %q", headSHA)
+	}
+	if rendered == nil || len(rendered.Services) != 1 {
+		t.Fatalf("unexpected rendered spec: %+v", rendered)
+	}
+	if len(insp.destinations) != 0 {
+		t.Fatalf("expected no Docker inspections, got %+v", insp.destinations)
+	}
+}
+
 func TestReconcile_SyncWaves_DeploysInOrder(t *testing.T) {
 	s := setupTestStore(t)
 	createTestApp(t, s, "myapp", true, "old-sha")
@@ -868,10 +1058,25 @@ func TestReconcile_SyncWaves_DeploysInOrder(t *testing.T) {
 	if !dep.deployed {
 		t.Error("should have deployed")
 	}
-	// With multiple waves (wave 0: db+cache, wave 1: web), WaitForServicesHealthy
-	// should have been called between wave 0 and wave 1.
-	if !hm.waitCalled {
-		t.Error("expected WaitForServicesHealthy to be called between waves")
+	if dep.deployServiceCalls != 2 {
+		t.Errorf("expected two service wave deploys, got %d", dep.deployServiceCalls)
+	}
+	if dep.deployCalls != 0 {
+		t.Errorf("expected no full deploy during wave sync, got %d", dep.deployCalls)
+	}
+	if dep.pullCalls != 1 {
+		t.Errorf("expected one pull before wave deploys, got %d", dep.pullCalls)
+	}
+	// With multiple waves (wave 0: db+cache, wave 1: web), each wave is health
+	// gated, including the final wave before post-sync hooks would run.
+	if len(hm.waitCalls) != 2 {
+		t.Fatalf("expected WaitForServicesHealthy for each wave, got %d", len(hm.waitCalls))
+	}
+	if fmt.Sprint(hm.waitCalls[0]) != "[cache db]" {
+		t.Errorf("expected wave 0 services [cache db], got %v", hm.waitCalls[0])
+	}
+	if fmt.Sprint(hm.waitCalls[1]) != "[web]" {
+		t.Errorf("expected wave 1 services [web], got %v", hm.waitCalls[1])
 	}
 }
 

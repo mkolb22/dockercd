@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -27,6 +28,7 @@ type Handler struct {
 	sseHub        eventbus.Broadcaster
 	eventWatcher  *events.Watcher
 	webhookSecret string
+	apiToken      string
 }
 
 // Healthz is the liveness probe.
@@ -64,6 +66,53 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(w).Encode(ReadyResponse{Status: "not ready", Checks: checks})
 	}
+}
+
+// Login verifies the configured API token and stores it in an HttpOnly cookie
+// for browser clients, including native EventSource connections.
+func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+	if h.apiToken == "" {
+		writeError(w, http.StatusNotFound, "API authentication is not enabled", CodeNotFound)
+		return
+	}
+
+	var req struct {
+		Token string `json:"token"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error(), CodeBadRequest)
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(req.Token), []byte(h.apiToken)) != 1 {
+		writeError(w, http.StatusUnauthorized, "invalid token", CodeBadRequest)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     authCookieName,
+		Value:    req.Token,
+		Path:     "/api/v1",
+		MaxAge:   int((30 * 24 * time.Hour).Seconds()),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil,
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// Logout clears the browser auth cookie.
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     authCookieName,
+		Value:    "",
+		Path:     "/api/v1",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil,
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // maxRequestBody is the maximum allowed request body size (1 MB).
@@ -241,35 +290,48 @@ func (h *Handler) SyncApplication(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DiffApplication(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 
-	// Check recent sync history for the latest diff
-	records, err := h.store.ListSyncHistory(r.Context(), name, 1)
+	appRec, err := h.store.GetApplication(r.Context(), name)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "listing sync history: "+err.Error(), CodeInternalError)
+		writeError(w, http.StatusInternalServerError, "getting application: "+err.Error(), CodeInternalError)
+		return
+	}
+	if appRec == nil {
+		writeError(w, http.StatusNotFound, "application not found: "+name, CodeNotFound)
 		return
 	}
 
-	if len(records) == 0 {
-		// No sync history — return empty diff
-		writeJSON(w, http.StatusOK, app.DiffResult{
-			InSync:  true,
-			Summary: "No sync history available",
-		})
+	diff, _, err := h.reconciler.DryRun(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "diff failed: "+err.Error(), CodeInternalError)
+		return
+	}
+	writeJSON(w, http.StatusOK, diff)
+}
+
+// GetRenderedDesired returns the parsed desired compose state from Git without
+// consulting the Docker engine.
+func (h *Handler) GetRenderedDesired(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+
+	appRec, err := h.store.GetApplication(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "getting application: "+err.Error(), CodeInternalError)
+		return
+	}
+	if appRec == nil {
+		writeError(w, http.StatusNotFound, "application not found: "+name, CodeNotFound)
 		return
 	}
 
-	// Parse stored diff JSON
-	if records[0].DiffJSON != "" {
-		var diff app.DiffResult
-		if err := json.Unmarshal([]byte(records[0].DiffJSON), &diff); err == nil {
-			writeJSON(w, http.StatusOK, diff)
-			return
-		}
+	compose, headSHA, err := h.reconciler.RenderDesired(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "render desired state failed: "+err.Error(), CodeInternalError)
+		return
 	}
-
-	// No diff data stored
-	writeJSON(w, http.StatusOK, app.DiffResult{
-		InSync:  true,
-		Summary: "No diff data available",
+	writeJSON(w, http.StatusOK, RenderedDesiredResponse{
+		AppName: name,
+		HeadSHA: headSHA,
+		Compose: compose,
 	})
 }
 
@@ -711,11 +773,17 @@ func buildAppResponse(rec store.ApplicationRecord) (ApplicationResponse, error) 
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/json")
+	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
 
 func writeError(w http.ResponseWriter, status int, msg string, code string) {
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/json")
+	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(ErrorResponse{Error: msg, Code: code})
 }

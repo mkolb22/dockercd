@@ -15,8 +15,8 @@ type CommandRunner func(ctx context.Context, name string, args ...string) *exec.
 
 // ComposeDeployer implements Deployer using the docker compose CLI.
 type ComposeDeployer struct {
-	logger    *slog.Logger
-	runCmd    CommandRunner
+	logger *slog.Logger
+	runCmd CommandRunner
 }
 
 // New creates a ComposeDeployer with the default command runner.
@@ -48,16 +48,8 @@ func (d *ComposeDeployer) Deploy(ctx context.Context, req DeployRequest) error {
 
 	// Step 2: Pull images (if requested)
 	if req.Pull {
-		pullArgs := d.baseArgs(req)
-		pullArgs = append(pullArgs, "pull")
-
-		d.logger.Info("pulling images",
-			"project", req.ProjectName,
-			"files", req.ComposeFiles,
-		)
-
-		if err := d.run(ctx, req, pullArgs); err != nil {
-			return fmt.Errorf("pull failed: %w", err)
+		if err := d.Pull(ctx, req); err != nil {
+			return err
 		}
 	}
 
@@ -92,11 +84,30 @@ func (d *ComposeDeployer) Deploy(ctx context.Context, req DeployRequest) error {
 	return nil
 }
 
+// Pull fetches all images referenced by the compose files.
+func (d *ComposeDeployer) Pull(ctx context.Context, req DeployRequest) error {
+	args := d.baseArgs(req)
+	args = append(args, "pull")
+
+	d.logger.Info("pulling images",
+		"project", req.ProjectName,
+		"files", req.ComposeFiles,
+	)
+
+	if err := d.run(ctx, req, args); err != nil {
+		return fmt.Errorf("pull failed: %w", err)
+	}
+	return nil
+}
+
 // DeployServices deploys only the named services via docker compose up -d <services...>.
 // This is used for sync wave deployment to apply one wave at a time.
 func (d *ComposeDeployer) DeployServices(ctx context.Context, req DeployRequest, serviceNames []string) error {
 	args := d.baseArgs(req)
 	args = append(args, "up", "-d")
+	if req.Prune {
+		args = append(args, "--remove-orphans")
+	}
 	args = append(args, serviceNames...)
 
 	d.logger.Info("deploying services",

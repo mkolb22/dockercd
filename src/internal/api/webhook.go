@@ -28,20 +28,23 @@ func (h *Handler) HandleGitWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate HMAC signature if webhook secret is configured
-	if h.webhookSecret != "" {
-		sig := r.Header.Get("X-Hub-Signature-256")
-		if sig == "" {
-			// Gitea sends signature without the "sha256=" prefix in X-Gitea-Signature
-			gitSig := r.Header.Get("X-Gitea-Signature")
-			if gitSig != "" {
-				sig = "sha256=" + gitSig
-			}
+	if h.webhookSecret == "" {
+		writeError(w, http.StatusServiceUnavailable, "webhook secret is not configured", CodeUnavailable)
+		return
+	}
+
+	// Validate HMAC signature.
+	sig := r.Header.Get("X-Hub-Signature-256")
+	if sig == "" {
+		// Gitea sends signature without the "sha256=" prefix in X-Gitea-Signature
+		gitSig := r.Header.Get("X-Gitea-Signature")
+		if gitSig != "" {
+			sig = "sha256=" + gitSig
 		}
-		if !validateHMAC(body, sig, h.webhookSecret) {
-			writeError(w, http.StatusUnauthorized, "invalid signature", CodeBadRequest)
-			return
-		}
+	}
+	if !validateHMAC(body, sig, h.webhookSecret) {
+		writeError(w, http.StatusUnauthorized, "invalid signature", CodeBadRequest)
+		return
 	}
 
 	// Parse push event to extract repo URL

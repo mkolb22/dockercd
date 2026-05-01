@@ -27,6 +27,11 @@ import (
 	"github.com/mkolb22/dockercd/internal/store"
 )
 
+const (
+	defaultSyncTimeout   = 300 * time.Second
+	resultPersistTimeout = 10 * time.Second
+)
+
 // Reconciler orchestrates the reconciliation loop for all applications.
 type Reconciler interface {
 	// Start begins the reconciliation loop. Blocks until ctx is canceled.
@@ -45,6 +50,9 @@ type Reconciler interface {
 	// DryRun computes the diff for an application without deploying anything.
 	// Returns the diff result and the current HEAD SHA.
 	DryRun(ctx context.Context, appName string) (*app.DiffResult, string, error)
+
+	// RenderDesired returns the parsed, normalized desired compose state from Git.
+	RenderDesired(ctx context.Context, appName string) (*app.ComposeSpec, string, error)
 
 	// Rollback re-deploys the application from the git repository state at the
 	// given commit SHA. The SHA must exist in sync history. A new sync record is
@@ -71,11 +79,12 @@ type Deps struct {
 	Store         *store.SQLiteStore
 	Logger        *slog.Logger
 	Broadcaster   eventbus.Broadcaster
-	Notifier      notifier.Notifier // optional: sends sync event notifications
+	Notifier      notifier.Notifier        // optional: sends sync event notifications
 	TLSLookup     func(host string) string // returns TLS cert path for a Docker host URL
 
-	WorkerCount int
-	ConfigDir   string // path to application manifest directory (watched for changes)
+	WorkerCount         int
+	DefaultPollInterval time.Duration
+	ConfigDir           string // path to application manifest directory (watched for changes)
 
 	// ManifestRepoURL is the git repository that acts as the GitOps control
 	// plane for Application definitions. When set, syncConfigManifests syncs
@@ -267,6 +276,12 @@ func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced
 		}
 		application = &a
 	}
+	if err := prepareApplication(application); err != nil {
+		return nil, nil, "", "", fmt.Errorf("invalid manifest: %w", err)
+	}
+	var cancel context.CancelFunc
+	ctx, cancel = ensureSyncDeadline(ctx, *application)
+	defer cancel()
 
 	// STEP 1: Git Sync
 	logger.Debug("syncing git repository")
@@ -323,10 +338,30 @@ func (r *ReconcilerImpl) computeDiff(ctx context.Context, appName string, forced
 		return nil, nil, headSHA, "", fmt.Errorf("port conflict: %w", err)
 	}
 
-	// STEP 4: Inspect live state
-	liveServices, err := r.deps.Inspector.Inspect(ctx, application.Spec.Destination)
-	if err != nil {
-		return nil, nil, headSHA, "", fmt.Errorf("inspect error: %w", err)
+	// STEP 4: Inspect live state. Blue-green applications serve from the
+	// active color project, not the base project name.
+	var liveServices []app.ServiceState
+	if hasBlueGreenStrategy(composeSpec.Services) {
+		_, _, states, active, err := deployer.ActiveBlueGreenState(ctx, r.deps.Inspector, application.Spec.Destination)
+		if err != nil {
+			r.updateStatus(ctx, appName, store.StatusUpdate{
+				HealthStatus: string(app.HealthStatusDegraded),
+				LastError:    store.StringPtr(fmt.Sprintf("inspect error: %v", err)),
+			})
+			return nil, nil, headSHA, "", fmt.Errorf("inspect error: %w", err)
+		}
+		if active {
+			liveServices = states
+		}
+	} else {
+		liveServices, err = r.deps.Inspector.Inspect(ctx, application.Spec.Destination)
+		if err != nil {
+			r.updateStatus(ctx, appName, store.StatusUpdate{
+				HealthStatus: string(app.HealthStatusDegraded),
+				LastError:    store.StringPtr(fmt.Sprintf("inspect error: %v", err)),
+			})
+			return nil, nil, headSHA, "", fmt.Errorf("inspect error: %w", err)
+		}
 	}
 
 	// STEP 5: Compute diff
@@ -346,6 +381,66 @@ func (r *ReconcilerImpl) DryRun(ctx context.Context, appName string) (*app.DiffR
 		return &app.DiffResult{InSync: true, Summary: "All services in sync"}, headSHA, nil
 	}
 	return diffResult, headSHA, nil
+}
+
+// RenderDesired returns the parsed, normalized desired compose state from Git
+// without consulting the Docker engine.
+func (r *ReconcilerImpl) RenderDesired(ctx context.Context, appName string) (*app.ComposeSpec, string, error) {
+	logger := r.logger.With("app", appName)
+
+	appRec, err := r.deps.Store.GetApplication(ctx, appName)
+	if err != nil {
+		return nil, "", fmt.Errorf("store error: %w", err)
+	}
+	if appRec == nil {
+		return nil, "", fmt.Errorf("application %q not found", appName)
+	}
+
+	var application app.Application
+	if err := json.Unmarshal([]byte(appRec.Manifest), &application); err != nil {
+		return nil, "", fmt.Errorf("invalid manifest: %w", err)
+	}
+	if err := prepareApplication(&application); err != nil {
+		return nil, "", fmt.Errorf("invalid manifest: %w", err)
+	}
+	var cancel context.CancelFunc
+	ctx, cancel = ensureSyncDeadline(ctx, application)
+	defer cancel()
+
+	logger.Debug("syncing git repository for desired-state render")
+	headSHA, err := r.deps.GitSyncer.Sync(ctx, application.Spec.Source)
+	if err != nil {
+		r.updateStatus(ctx, appName, store.StatusUpdate{
+			HealthStatus: string(app.HealthStatusDegraded),
+			LastError:    store.StringPtr(fmt.Sprintf("git sync failed: %v", err)),
+		})
+		return nil, "", fmt.Errorf("git sync failed: %w", err)
+	}
+	r.updateStatus(ctx, appName, store.StatusUpdate{HeadSHA: headSHA})
+
+	repoPath := r.deps.GitSyncer.RepoPath(application.Spec.Source.RepoURL)
+	if repoPath == "" {
+		return nil, headSHA, fmt.Errorf("repo path not found after sync")
+	}
+
+	composePath := repoPath
+	if application.Spec.Source.Path != "" && application.Spec.Source.Path != "." {
+		composePath = filepath.Join(repoPath, application.Spec.Source.Path)
+	}
+
+	composeSpec, err := r.deps.Parser.Parse(ctx, composePath, application.Spec.Source.ComposeFiles)
+	if err != nil {
+		r.updateStatus(ctx, appName, store.StatusUpdate{
+			HealthStatus: string(app.HealthStatusDegraded),
+			LastError:    store.StringPtr(fmt.Sprintf("parse error: %v", err)),
+		})
+		return nil, headSHA, fmt.Errorf("parse error: %w", err)
+	}
+	if composeSpec == nil {
+		return nil, headSHA, fmt.Errorf("parser returned nil spec")
+	}
+
+	return composeSpec, headSHA, nil
 }
 
 // reconcileApp runs the full reconciliation algorithm for a single application.
@@ -380,19 +475,26 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 	if err := json.Unmarshal([]byte(appRec.Manifest), &application); err != nil {
 		return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("invalid manifest: %v", err), logger)
 	}
+	if err := prepareApplication(&application); err != nil {
+		return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("invalid manifest: %v", err), logger)
+	}
+
+	syncTimeout := effectiveSyncTimeout(application)
+	opCtx, cancel := context.WithTimeout(ctx, syncTimeout)
+	defer cancel()
 
 	// Check circuit breaker
 	breaker := r.getBreaker(appName)
 	if !breaker.Allow() {
 		logger.Debug("circuit breaker open, skipping reconciliation")
-		return r.finishResult(ctx, result, app.SyncResultSkipped, "circuit breaker open", logger)
+		return r.finishResult(opCtx, result, app.SyncResultSkipped, "circuit breaker open", logger)
 	}
 
 	// STEPS 1-5: Git sync, parse, inspect, diff (pass pre-fetched record + parsed manifest)
-	composeSpec, diffResult, headSHA, composePath, err := r.computeDiff(ctx, appName, forced, appRec, &application)
+	composeSpec, diffResult, headSHA, composePath, err := r.computeDiff(opCtx, appName, forced, appRec, &application)
 	if err != nil {
 		breaker.RecordFailure()
-		return r.finishResult(ctx, result, app.SyncResultFailure, err.Error(), logger)
+		return r.finishResult(opCtx, result, app.SyncResultFailure, operationErrorMessage(opCtx, syncTimeout, err), logger)
 	}
 
 	result.CommitSHA = headSHA
@@ -406,7 +508,7 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 
 	// computeDiff returns nil diffResult when change detection skips (no SHA change)
 	if diffResult == nil {
-		return r.finishResult(ctx, result, app.SyncResultSkipped, "", logger)
+		return r.finishResult(opCtx, result, app.SyncResultSkipped, "", logger)
 	}
 
 	result.Diff = diffResult
@@ -415,36 +517,35 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 	if diffResult.InSync {
 		logger.Debug("all services in sync")
 		breaker.RecordSuccess()
-		r.updateStatus(ctx, appName, store.StatusUpdate{
+		r.updateStatus(opCtx, appName, store.StatusUpdate{
 			SyncStatus:    string(app.SyncStatusSynced),
 			LastSyncedSHA: headSHA,
 			LastError:     store.StringPtr(""), // clear error
 		})
-		return r.finishResult(ctx, result, app.SyncResultSkipped, "", logger)
+		return r.finishResult(opCtx, result, app.SyncResultSkipped, "", logger)
 	}
 
 	// Diff detected
 	logger.Info("drift detected", "summary", diffResult.Summary)
 
-	if !application.Spec.SyncPolicy.Automated {
+	if !application.Spec.SyncPolicy.Automated && !forced {
 		// Manual-sync app: the user manages this themselves.
 		// Not an error — just not dockercd's responsibility to deploy.
-		// This applies even when forced (Sync button) — manual means manual.
-		r.updateStatus(ctx, appName, store.StatusUpdate{
+		r.updateStatus(opCtx, appName, store.StatusUpdate{
 			SyncStatus: string(app.SyncStatusManuallyManaged),
 			LastError:  store.StringPtr(""), // clear any previous error
 		})
 		logger.Info("manually managed", "summary", diffResult.Summary)
-		return r.finishResult(ctx, result, app.SyncResultSkipped, "", logger)
+		return r.finishResult(opCtx, result, app.SyncResultSkipped, "", logger)
 	}
 
 	// Automated app with drift — this is a real OutOfSync.
-	r.updateStatus(ctx, appName, store.StatusUpdate{
+	r.updateStatus(opCtx, appName, store.StatusUpdate{
 		SyncStatus: string(app.SyncStatusOutOfSync),
 	})
 
 	// STEP 7: Deploy
-	r.updateStatus(ctx, appName, store.StatusUpdate{
+	r.updateStatus(opCtx, appName, store.StatusUpdate{
 		HealthStatus: string(app.HealthStatusProgressing),
 	})
 
@@ -478,6 +579,7 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 		DockerHost:       application.Spec.Destination.DockerHost,
 		PreSyncServices:  preSyncServices,
 		PostSyncServices: postSyncServices,
+		HealthTimeout:    application.Spec.SyncPolicy.HealthTimeout.Duration,
 	}
 
 	// Populate TLS cert path for remote hosts
@@ -488,7 +590,8 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 	// Check for blue-green strategy: if any service has the strategy label set to
 	// "blue-green", wrap the deployer in a BlueGreenDeployer for this deployment.
 	activeDep := r.deps.Deployer
-	if composeSpec != nil && hasBlueGreenStrategy(composeSpec.Services) {
+	blueGreen := composeSpec != nil && hasBlueGreenStrategy(composeSpec.Services)
+	if blueGreen {
 		logger.Info("blue-green strategy detected, wrapping deployer")
 		activeDep = deployer.NewBlueGreen(r.deps.Deployer, r.deps.Inspector, r.logger)
 	}
@@ -496,18 +599,50 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 	// Group services by sync wave for ordered deployment
 	waves := groupByWave(composeSpec.Services)
 
-	if len(waves) <= 1 {
+	if len(waves) <= 1 || blueGreen {
+		if blueGreen && len(waves) > 1 {
+			logger.Info("blue-green strategy controls the full app deployment; sync-wave labels are ignored for this sync")
+		}
 		// Single wave (or no wave labels): use standard Deploy for full compose apply
-		if err := activeDep.Deploy(ctx, deployReq); err != nil {
+		if err := activeDep.Deploy(opCtx, deployReq); err != nil {
 			breaker.RecordFailure()
-			r.updateStatus(ctx, appName, store.StatusUpdate{
+			errMsg := operationErrorMessage(opCtx, syncTimeout, err)
+			r.updateStatus(opCtx, appName, store.StatusUpdate{
 				HealthStatus: string(app.HealthStatusDegraded),
-				LastError:    store.StringPtr(fmt.Sprintf("deploy error: %v", err)),
+				LastError:    store.StringPtr(fmt.Sprintf("deploy error: %v", errMsg)),
 			})
-			return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("deploy error: %v", err), logger)
+			return r.finishResult(opCtx, result, app.SyncResultFailure, fmt.Sprintf("deploy error: %v", errMsg), logger)
 		}
 	} else {
-		// Multi-wave deployment: deploy each wave and wait for healthy before proceeding
+		// Multi-wave deployment: pre-hooks and pulls run once, then each wave is
+		// applied and health-gated before post-hooks run.
+		if err := runHooks(opCtx, activeDep, deployReq, preSyncServices, "pre-sync"); err != nil {
+			breaker.RecordFailure()
+			errMsg := operationErrorMessage(opCtx, syncTimeout, err)
+			r.updateStatus(opCtx, appName, store.StatusUpdate{
+				HealthStatus: string(app.HealthStatusDegraded),
+				LastError:    store.StringPtr(errMsg),
+			})
+			return r.finishResult(opCtx, result, app.SyncResultFailure, errMsg, logger)
+		}
+
+		if deployReq.Pull {
+			if err := activeDep.Pull(opCtx, deployReq); err != nil {
+				breaker.RecordFailure()
+				errMsg := operationErrorMessage(opCtx, syncTimeout, err)
+				r.updateStatus(opCtx, appName, store.StatusUpdate{
+					HealthStatus: string(app.HealthStatusDegraded),
+					LastError:    store.StringPtr(fmt.Sprintf("pull error: %v", errMsg)),
+				})
+				return r.finishResult(opCtx, result, app.SyncResultFailure, fmt.Sprintf("pull error: %v", errMsg), logger)
+			}
+		}
+
+		waveReq := deployReq
+		waveReq.Pull = false
+		waveReq.PreSyncServices = nil
+		waveReq.PostSyncServices = nil
+
 		for i, wave := range waves {
 			logger.Info("deploying sync wave",
 				"wave", wave.Wave,
@@ -515,41 +650,43 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 				"waveIndex", fmt.Sprintf("%d/%d", i+1, len(waves)),
 			)
 
-			if err := activeDep.DeployServices(ctx, deployReq, wave.Services); err != nil {
+			if err := activeDep.DeployServices(opCtx, waveReq, wave.Services); err != nil {
 				breaker.RecordFailure()
-				r.updateStatus(ctx, appName, store.StatusUpdate{
+				errMsg := operationErrorMessage(opCtx, syncTimeout, err)
+				r.updateStatus(opCtx, appName, store.StatusUpdate{
 					HealthStatus: string(app.HealthStatusDegraded),
-					LastError:    store.StringPtr(fmt.Sprintf("wave %d deploy error: %v", wave.Wave, err)),
+					LastError:    store.StringPtr(fmt.Sprintf("wave %d deploy error: %v", wave.Wave, errMsg)),
 				})
-				return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("wave %d deploy error: %v", wave.Wave, err), logger)
+				return r.finishResult(opCtx, result, app.SyncResultFailure, fmt.Sprintf("wave %d deploy error: %v", wave.Wave, errMsg), logger)
 			}
 
-			// Wait for health between waves (not after the last wave)
-			if i < len(waves)-1 && r.deps.HealthMonitor != nil {
+			// Wait for health after every wave so post-sync hooks only run after
+			// the final wave reaches a healthy state.
+			if r.deps.HealthMonitor != nil {
 				logger.Info("waiting for wave services to become healthy",
 					"wave", wave.Wave,
 					"services", wave.Services,
 				)
-				if err := r.deps.HealthMonitor.WaitForServicesHealthy(ctx, appName, wave.Services, application.Spec.SyncPolicy.HealthTimeout.Duration); err != nil {
+				if err := r.deps.HealthMonitor.WaitForServicesHealthy(opCtx, appName, wave.Services, application.Spec.SyncPolicy.HealthTimeout.Duration); err != nil {
 					breaker.RecordFailure()
-					r.updateStatus(ctx, appName, store.StatusUpdate{
+					errMsg := operationErrorMessage(opCtx, syncTimeout, err)
+					r.updateStatus(opCtx, appName, store.StatusUpdate{
 						HealthStatus: string(app.HealthStatusDegraded),
-						LastError:    store.StringPtr(fmt.Sprintf("wave %d health gate failed: %v", wave.Wave, err)),
+						LastError:    store.StringPtr(fmt.Sprintf("wave %d health gate failed: %v", wave.Wave, errMsg)),
 					})
-					return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("wave %d health gate failed: %v", wave.Wave, err), logger)
+					return r.finishResult(opCtx, result, app.SyncResultFailure, fmt.Sprintf("wave %d health gate failed: %v", wave.Wave, errMsg), logger)
 				}
-				logger.Info("wave services healthy, proceeding to next wave", "wave", wave.Wave)
+				logger.Info("wave services healthy", "wave", wave.Wave)
 			}
 		}
 
-		// After all waves deployed, run a full compose apply for pruning if needed
-		if deployReq.Prune {
-			pruneReq := deployReq
-			pruneReq.Pull = false
-			pruneReq.PreSyncServices = nil
-			pruneReq.PostSyncServices = nil
-			if err := activeDep.Deploy(ctx, pruneReq); err != nil {
-				logger.Warn("prune after wave deploy failed", "error", err)
+		for _, svc := range postSyncServices {
+			if err := activeDep.RunHook(opCtx, deployReq, svc); err != nil {
+				logger.Error("post-sync hook failed",
+					"project", deployReq.ProjectName,
+					"service", svc,
+					"error", err,
+				)
 			}
 		}
 	}
@@ -557,21 +694,44 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 	// STEP 8: Mark success (health monitoring is Phase 7)
 	now := time.Now()
 	breaker.RecordSuccess()
-	r.updateStatus(ctx, appName, store.StatusUpdate{
+	statusUpdate := store.StatusUpdate{
 		SyncStatus:    string(app.SyncStatusSynced),
 		HealthStatus:  string(app.HealthStatusProgressing),
 		LastSyncedSHA: headSHA,
 		LastSyncTime:  &now,
 		LastError:     store.StringPtr(""), // clear
-	})
+	}
+	if blueGreen {
+		bgHealth, bgServices, err := r.inspectBlueGreenHealth(opCtx, application.Spec.Destination)
+		if err != nil {
+			breaker.RecordFailure()
+			r.updateStatus(opCtx, appName, store.StatusUpdate{
+				HealthStatus: string(app.HealthStatusDegraded),
+				LastError:    store.StringPtr(fmt.Sprintf("blue-green health inspection failed: %v", err)),
+			})
+			return r.finishResult(opCtx, result, app.SyncResultFailure, fmt.Sprintf("blue-green health inspection failed: %v", err), logger)
+		}
+		if bgHealth != app.HealthStatusHealthy {
+			breaker.RecordFailure()
+			errMsg := fmt.Sprintf("blue-green active color is %s after deployment", bgHealth)
+			r.updateStatus(opCtx, appName, store.StatusUpdate{
+				HealthStatus: string(bgHealth),
+				LastError:    store.StringPtr(errMsg),
+			})
+			return r.finishResult(opCtx, result, app.SyncResultFailure, errMsg, logger)
+		}
+		statusUpdate.HealthStatus = string(bgHealth)
+		statusUpdate.ServicesJSON = bgServices
+	}
+	r.updateStatus(opCtx, appName, statusUpdate)
 
 	// Register with health monitor to transition from Progressing → Healthy
-	if r.deps.HealthMonitor != nil {
+	if r.deps.HealthMonitor != nil && !blueGreen {
 		r.deps.HealthMonitor.WatchApp(appName, application.Spec.SyncPolicy.HealthTimeout.Duration)
 	}
 
 	logger.Info("deployment successful", "sha", headSHA, "summary", diffResult.Summary)
-	return r.finishResult(ctx, result, app.SyncResultSuccess, "", logger)
+	return r.finishResult(opCtx, result, app.SyncResultSuccess, "", logger)
 }
 
 // finishResult completes a SyncResult and records it in the store.
@@ -603,7 +763,10 @@ func (r *ReconcilerImpl) finishResult(ctx context.Context, result *app.SyncResul
 		}
 	}
 
-	if err := r.deps.Store.RecordSync(ctx, syncRec); err != nil {
+	persistCtx, cancel := persistenceContext(ctx)
+	defer cancel()
+
+	if err := r.deps.Store.RecordSync(persistCtx, syncRec); err != nil {
 		logger.Error("failed to record sync", "error", err)
 	}
 
@@ -623,7 +786,7 @@ func (r *ReconcilerImpl) finishResult(ctx context.Context, result *app.SyncResul
 			message = fmt.Sprintf("Deployed %s via %s", result.CommitSHA[:min(7, len(result.CommitSHA))], result.Operation)
 		}
 
-		_ = r.deps.Store.RecordEvent(ctx, &store.EventRecord{
+		_ = r.deps.Store.RecordEvent(persistCtx, &store.EventRecord{
 			AppName:  result.AppName,
 			Type:     eventType,
 			Message:  message,
@@ -631,7 +794,7 @@ func (r *ReconcilerImpl) finishResult(ctx context.Context, result *app.SyncResul
 		})
 
 		if r.deps.Notifier != nil {
-			if notifyErr := r.deps.Notifier.Notify(ctx, notifier.NotificationEvent{
+			if notifyErr := r.deps.Notifier.Notify(persistCtx, notifier.NotificationEvent{
 				Type:    notifyType,
 				AppName: result.AppName,
 				Message: message,
@@ -660,12 +823,96 @@ func (r *ReconcilerImpl) finishResult(ctx context.Context, result *app.SyncResul
 
 // updateStatus updates the application status in the store.
 func (r *ReconcilerImpl) updateStatus(ctx context.Context, appName string, update store.StatusUpdate) {
-	if err := r.deps.Store.UpdateApplicationStatus(ctx, appName, update); err != nil {
+	persistCtx, cancel := persistenceContext(ctx)
+	defer cancel()
+
+	if err := r.deps.Store.UpdateApplicationStatus(persistCtx, appName, update); err != nil {
 		r.logger.Error("failed to update app status",
 			"app", appName,
 			"error", err,
 		)
 	}
+}
+
+func persistenceContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		return context.WithTimeout(context.Background(), resultPersistTimeout)
+	}
+	if ctx.Err() == nil {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(context.Background(), resultPersistTimeout)
+}
+
+func prepareApplication(application *app.Application) error {
+	application.ApplyDefaults()
+	return application.Validate()
+}
+
+func effectiveSyncTimeout(application app.Application) time.Duration {
+	if application.Spec.SyncPolicy.SyncTimeout.Duration > 0 {
+		return application.Spec.SyncPolicy.SyncTimeout.Duration
+	}
+	return defaultSyncTimeout
+}
+
+func ensureSyncDeadline(ctx context.Context, application app.Application) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, effectiveSyncTimeout(application))
+}
+
+func operationErrorMessage(ctx context.Context, timeout time.Duration, err error) string {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Sprintf("sync timeout after %s", timeout)
+	}
+	return err.Error()
+}
+
+func runHooks(ctx context.Context, dep deployer.Deployer, req deployer.DeployRequest, services []string, phase string) error {
+	for _, svc := range services {
+		if err := dep.RunHook(ctx, req, svc); err != nil {
+			return fmt.Errorf("%s hook %q failed: %w", phase, svc, err)
+		}
+	}
+	return nil
+}
+
+func (r *ReconcilerImpl) inspectBlueGreenHealth(ctx context.Context, dest app.DestinationSpec) (app.HealthStatus, string, error) {
+	_, activeDest, states, active, err := deployer.ActiveBlueGreenState(ctx, r.deps.Inspector, dest)
+	if err != nil {
+		return app.HealthStatusUnknown, "", err
+	}
+	if !active {
+		return app.HealthStatusUnknown, "", fmt.Errorf("no active blue-green color found for project %s", dest.ProjectName)
+	}
+
+	statuses := serviceStatusesFromStates(states)
+	aggregated := health.Aggregate(statuses)
+	servicesJSON, err := json.Marshal(statuses)
+	if err != nil {
+		return app.HealthStatusUnknown, "", fmt.Errorf("serializing active services for %s: %w", activeDest.ProjectName, err)
+	}
+
+	return aggregated, string(servicesJSON), nil
+}
+
+func serviceStatusesFromStates(states []app.ServiceState) []app.ServiceStatus {
+	statuses := make([]app.ServiceStatus, 0, len(states))
+	for _, s := range states {
+		statuses = append(statuses, app.ServiceStatus{
+			Name:   s.Name,
+			Image:  s.Image,
+			Health: s.Health,
+			State:  s.Status,
+			Ports:  s.Ports,
+		})
+	}
+	return statuses
 }
 
 // getAppLock returns a per-app mutex for serializing reconciliation.
@@ -748,25 +995,32 @@ func (r *ReconcilerImpl) Rollback(ctx context.Context, appName string, targetSHA
 	if err := json.Unmarshal([]byte(appRec.Manifest), &application); err != nil {
 		return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("invalid manifest: %v", err), logger)
 	}
+	if err := prepareApplication(&application); err != nil {
+		return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("invalid manifest: %v", err), logger)
+	}
+
+	syncTimeout := effectiveSyncTimeout(application)
+	opCtx, cancel := context.WithTimeout(ctx, syncTimeout)
+	defer cancel()
 
 	// Verify a sync record for this SHA exists.
-	syncRec, err := r.deps.Store.GetSyncBySHA(ctx, appName, targetSHA)
+	syncRec, err := r.deps.Store.GetSyncBySHA(opCtx, appName, targetSHA)
 	if err != nil {
-		return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("store error: %v", err), logger)
+		return r.finishResult(opCtx, result, app.SyncResultFailure, fmt.Sprintf("store error: %v", err), logger)
 	}
 	if syncRec == nil {
-		return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("no sync history found for SHA %s", targetSHA), logger)
+		return r.finishResult(opCtx, result, app.SyncResultFailure, fmt.Sprintf("no sync history found for SHA %s", targetSHA), logger)
 	}
 
 	// Ensure the repo is cloned/up-to-date (sync to the current branch first).
-	_, err = r.deps.GitSyncer.Sync(ctx, application.Spec.Source)
+	_, err = r.deps.GitSyncer.Sync(opCtx, application.Spec.Source)
 	if err != nil {
-		return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("git sync failed: %v", err), logger)
+		return r.finishResult(opCtx, result, app.SyncResultFailure, fmt.Sprintf("git sync failed: %v", operationErrorMessage(opCtx, syncTimeout, err)), logger)
 	}
 
 	// Check out the target SHA so compose files reflect the rollback revision.
-	if err := r.deps.GitSyncer.CheckoutSHA(ctx, application.Spec.Source.RepoURL, targetSHA); err != nil {
-		return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("checkout target SHA failed: %v", err), logger)
+	if err := r.deps.GitSyncer.CheckoutSHA(opCtx, application.Spec.Source.RepoURL, targetSHA); err != nil {
+		return r.finishResult(opCtx, result, app.SyncResultFailure, fmt.Sprintf("checkout target SHA failed: %v", operationErrorMessage(opCtx, syncTimeout, err)), logger)
 	}
 
 	// Build compose file paths using the cached repo.
@@ -780,17 +1034,38 @@ func (r *ReconcilerImpl) Rollback(ctx context.Context, appName string, targetSHA
 		composeFiles[i] = filepath.Join(composePath, f)
 	}
 
-	r.updateStatus(ctx, appName, store.StatusUpdate{
+	composeSpec, err := r.deps.Parser.Parse(opCtx, composePath, application.Spec.Source.ComposeFiles)
+	if err != nil {
+		return r.finishResult(opCtx, result, app.SyncResultFailure, fmt.Sprintf("parse error: %v", operationErrorMessage(opCtx, syncTimeout, err)), logger)
+	}
+	if composeSpec == nil {
+		return r.finishResult(opCtx, result, app.SyncResultFailure, "parser returned nil spec", logger)
+	}
+
+	r.updateStatus(opCtx, appName, store.StatusUpdate{
 		HealthStatus: string(app.HealthStatusProgressing),
 	})
 
+	var preSyncServices, postSyncServices []string
+	for _, svc := range composeSpec.Services {
+		switch svc.Labels[differ.HookLabel] {
+		case "pre-sync":
+			preSyncServices = append(preSyncServices, svc.Name)
+		case "post-sync":
+			postSyncServices = append(postSyncServices, svc.Name)
+		}
+	}
+
 	deployReq := deployer.DeployRequest{
-		ProjectName:  application.Spec.Destination.ProjectName,
-		ComposeFiles: composeFiles,
-		WorkDir:      composePath,
-		Pull:         true,
-		Prune:        application.Spec.SyncPolicy.Prune,
-		DockerHost:   application.Spec.Destination.DockerHost,
+		ProjectName:      application.Spec.Destination.ProjectName,
+		ComposeFiles:     composeFiles,
+		WorkDir:          composePath,
+		Pull:             true,
+		Prune:            application.Spec.SyncPolicy.Prune,
+		DockerHost:       application.Spec.Destination.DockerHost,
+		PreSyncServices:  preSyncServices,
+		PostSyncServices: postSyncServices,
+		HealthTimeout:    application.Spec.SyncPolicy.HealthTimeout.Duration,
 	}
 
 	// Populate TLS cert path for remote hosts
@@ -798,34 +1073,65 @@ func (r *ReconcilerImpl) Rollback(ctx context.Context, appName string, targetSHA
 		deployReq.TLSCertPath = r.deps.TLSLookup(deployReq.DockerHost)
 	}
 
-	if err := r.deps.Deployer.Deploy(ctx, deployReq); err != nil {
-		r.updateStatus(ctx, appName, store.StatusUpdate{
+	activeDep := r.deps.Deployer
+	blueGreen := hasBlueGreenStrategy(composeSpec.Services)
+	if blueGreen {
+		activeDep = deployer.NewBlueGreen(r.deps.Deployer, r.deps.Inspector, r.logger)
+	}
+
+	if err := activeDep.Deploy(opCtx, deployReq); err != nil {
+		errMsg := operationErrorMessage(opCtx, syncTimeout, err)
+		r.updateStatus(opCtx, appName, store.StatusUpdate{
 			HealthStatus: string(app.HealthStatusDegraded),
-			LastError:    store.StringPtr(fmt.Sprintf("rollback deploy error: %v", err)),
+			LastError:    store.StringPtr(fmt.Sprintf("rollback deploy error: %v", errMsg)),
 		})
-		return r.finishResult(ctx, result, app.SyncResultFailure, fmt.Sprintf("deploy error: %v", err), logger)
+		return r.finishResult(opCtx, result, app.SyncResultFailure, fmt.Sprintf("deploy error: %v", errMsg), logger)
+	}
+
+	// Prefer the target sync snapshot for audit continuity, but fall back to
+	// the freshly parsed target state if the older record did not include one.
+	if syncRec.ComposeSpecJSON != "" {
+		result.ComposeSpecJSON = syncRec.ComposeSpecJSON
+	} else if specJSON, err := json.Marshal(composeSpec); err == nil {
+		result.ComposeSpecJSON = string(specJSON)
 	}
 
 	now := time.Now()
-	r.updateStatus(ctx, appName, store.StatusUpdate{
+	statusUpdate := store.StatusUpdate{
 		SyncStatus:    string(app.SyncStatusSynced),
 		HealthStatus:  string(app.HealthStatusProgressing),
 		LastSyncedSHA: targetSHA,
 		LastSyncTime:  &now,
 		LastError:     store.StringPtr(""),
-	})
-
-	// Carry the stored compose spec snapshot forward into the new sync record.
-	if syncRec.ComposeSpecJSON != "" {
-		result.ComposeSpecJSON = syncRec.ComposeSpecJSON
 	}
+	if blueGreen {
+		bgHealth, bgServices, err := r.inspectBlueGreenHealth(opCtx, application.Spec.Destination)
+		if err != nil {
+			r.updateStatus(opCtx, appName, store.StatusUpdate{
+				HealthStatus: string(app.HealthStatusDegraded),
+				LastError:    store.StringPtr(fmt.Sprintf("blue-green health inspection failed: %v", err)),
+			})
+			return r.finishResult(opCtx, result, app.SyncResultFailure, fmt.Sprintf("blue-green health inspection failed: %v", err), logger)
+		}
+		if bgHealth != app.HealthStatusHealthy {
+			errMsg := fmt.Sprintf("blue-green active color is %s after rollback", bgHealth)
+			r.updateStatus(opCtx, appName, store.StatusUpdate{
+				HealthStatus: string(bgHealth),
+				LastError:    store.StringPtr(errMsg),
+			})
+			return r.finishResult(opCtx, result, app.SyncResultFailure, errMsg, logger)
+		}
+		statusUpdate.HealthStatus = string(bgHealth)
+		statusUpdate.ServicesJSON = bgServices
+	}
+	r.updateStatus(opCtx, appName, statusUpdate)
 
-	if r.deps.HealthMonitor != nil {
+	if r.deps.HealthMonitor != nil && !blueGreen {
 		r.deps.HealthMonitor.WatchApp(appName, application.Spec.SyncPolicy.HealthTimeout.Duration)
 	}
 
 	logger.Info("rollback successful", "sha", targetSHA)
-	return r.finishResult(ctx, result, app.SyncResultSuccess, "", logger)
+	return r.finishResult(opCtx, result, app.SyncResultSuccess, "", logger)
 }
 
 // hasImageChanges returns true if any ToCreate or ToUpdate diffs involve image changes.

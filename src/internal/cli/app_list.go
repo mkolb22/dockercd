@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"text/tabwriter"
 
@@ -32,7 +33,7 @@ func newAppListCmd() *cobra.Command {
 }
 
 func runAppList(serverAddr string, outputJSON bool) error {
-	resp, err := apiClient.Get(serverAddr + "/api/v1/applications")
+	resp, err := apiRequest(http.MethodGet, serverAddr+"/api/v1/applications", "", nil)
 	if err != nil {
 		return fmt.Errorf("connecting to server: %w", err)
 	}

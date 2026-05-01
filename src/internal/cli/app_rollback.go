@@ -36,7 +36,7 @@ func runAppRollback(serverAddr, name, sha string) error {
 	body := fmt.Sprintf(`{"targetSHA":%q}`, sha)
 	url := serverAddr + "/api/v1/applications/" + name + "/rollback"
 
-	resp, err := apiClient.Post(url, "application/json", strings.NewReader(body))
+	resp, err := apiRequest(http.MethodPost, url, "application/json", strings.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("connecting to server: %w", err)
 	}

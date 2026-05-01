@@ -91,7 +91,11 @@ func (bg *BlueGreenDeployer) Deploy(ctx context.Context, req DeployRequest) erro
 	}
 
 	bg.logger.Info("blue-green: waiting for new color to become healthy", "project", newProject)
-	if err := bg.waitForHealthy(ctx, newDest, bg.timeout); err != nil {
+	healthTimeout := bg.timeout
+	if req.HealthTimeout > 0 {
+		healthTimeout = req.HealthTimeout
+	}
+	if err := bg.waitForHealthy(ctx, newDest, healthTimeout); err != nil {
 		// Health check failed — tear down the failed new color deployment.
 		bg.logger.Error("blue-green: new color failed health check, tearing down",
 			"project", newProject,
@@ -132,7 +136,14 @@ func (bg *BlueGreenDeployer) Deploy(ctx context.Context, req DeployRequest) erro
 	return nil
 }
 
-// DeployServices delegates to the inner deployer (sync waves still work within a color).
+// Pull delegates to the inner deployer.
+func (bg *BlueGreenDeployer) Pull(ctx context.Context, req DeployRequest) error {
+	return bg.inner.Pull(ctx, req)
+}
+
+// DeployServices delegates to the inner deployer for interface completeness.
+// Full blue-green application deployments should use Deploy so color switching
+// and health gating remain atomic.
 func (bg *BlueGreenDeployer) DeployServices(ctx context.Context, req DeployRequest, serviceNames []string) error {
 	return bg.inner.DeployServices(ctx, req, serviceNames)
 }
@@ -167,27 +178,44 @@ func (bg *BlueGreenDeployer) RunHook(ctx context.Context, req DeployRequest, ser
 // detectActiveColor inspects {project}-blue and {project}-green to find which
 // color has running containers. Returns an empty string if neither exists (first deploy).
 func (bg *BlueGreenDeployer) detectActiveColor(ctx context.Context, req DeployRequest) (string, error) {
+	color, _, _, ok, err := ActiveBlueGreenState(ctx, bg.inspector, app.DestinationSpec{
+		DockerHost:  req.DockerHost,
+		ProjectName: req.ProjectName,
+	})
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", nil
+	}
+	return color, nil
+}
+
+// ActiveBlueGreenState inspects both color projects for a blue-green application
+// and returns the currently active color, destination, and live state. A color is
+// active when it has at least one running container.
+func ActiveBlueGreenState(ctx context.Context, insp inspector.StateInspector, dest app.DestinationSpec) (string, app.DestinationSpec, []app.ServiceState, bool, error) {
 	for _, color := range []string{colorBlue, colorGreen} {
-		dest := app.DestinationSpec{
-			DockerHost:  req.DockerHost,
-			ProjectName: coloredProject(req.ProjectName, color),
+		colorDest := app.DestinationSpec{
+			DockerHost:  dest.DockerHost,
+			ProjectName: coloredProject(dest.ProjectName, color),
 		}
 
-		states, err := bg.inspector.Inspect(ctx, dest)
+		states, err := insp.Inspect(ctx, colorDest)
 		if err != nil {
-			return "", fmt.Errorf("inspecting %s project: %w", color, err)
+			return "", app.DestinationSpec{}, nil, false, fmt.Errorf("inspecting %s project: %w", color, err)
 		}
 
 		// A color is "active" if it has at least one running container.
 		for _, s := range states {
 			if s.Status == "running" {
-				return color, nil
+				return color, colorDest, states, true, nil
 			}
 		}
 	}
 
 	// Neither color has running containers — this is the first deployment.
-	return "", nil
+	return "", app.DestinationSpec{}, nil, false, nil
 }
 
 // waitForHealthy polls the inspector until all containers in the given project

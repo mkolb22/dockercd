@@ -28,7 +28,7 @@ func newAppSyncCmd() *cobra.Command {
 }
 
 func runAppSync(serverAddr, name string) error {
-	resp, err := apiClient.Post(serverAddr+"/api/v1/applications/"+name+"/sync", "application/json", nil)
+	resp, err := apiRequest(http.MethodPost, serverAddr+"/api/v1/applications/"+name+"/sync", "application/json", nil)
 	if err != nil {
 		return fmt.Errorf("connecting to server: %w", err)
 	}

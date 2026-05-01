@@ -53,6 +53,7 @@ func NewServer(addr string, deps ServerDeps) *Server {
 		sseHub:        deps.SSEHub,
 		eventWatcher:  deps.EventWatcher,
 		webhookSecret: deps.WebhookSecret,
+		apiToken:      deps.APIToken,
 	}
 
 	router := chi.NewRouter()
@@ -62,11 +63,18 @@ func NewServer(addr string, deps ServerDeps) *Server {
 	router.Use(middleware.RealIP)
 	router.Use(slogRequestLogger(deps.Logger))
 	router.Use(middleware.Recoverer)
-	router.Use(middleware.Timeout(30 * time.Second))
 
 	// Probes (no JSON content-type enforcement)
 	router.Get("/healthz", h.Healthz)
 	router.Get("/readyz", h.Readyz)
+
+	// Browser session endpoint for the embedded UI. The UI cannot attach
+	// Authorization headers to native EventSource connections, so a verified
+	// HttpOnly cookie is used when API auth is enabled.
+	if deps.APIToken != "" {
+		router.Post("/api/v1/auth/session", h.Login)
+		router.Delete("/api/v1/auth/session", h.Logout)
+	}
 
 	// API routes
 	router.Route("/api/v1", func(r chi.Router) {
@@ -88,6 +96,7 @@ func NewServer(addr string, deps ServerDeps) *Server {
 				r.Post("/rollback", h.RollbackApplication)
 				r.Post("/adopt", h.AdoptApplication)
 				r.Get("/diff", h.DiffApplication)
+				r.Get("/desired", h.GetRenderedDesired)
 				r.Get("/events", h.GetEvents)
 				r.Get("/history", h.GetHistory)
 				r.Get("/metrics", h.GetAppMetrics)
@@ -107,7 +116,9 @@ func NewServer(addr string, deps ServerDeps) *Server {
 		router.Get("/api/v1/events/stream", h.StreamEvents)
 	}
 
-	// Git webhook (outside JSON middleware — accepts arbitrary push payloads)
+	// Git webhook (outside JSON middleware — accepts arbitrary push payloads).
+	// Keep the singular route for compatibility with existing docs/configs.
+	router.Post("/api/v1/webhook/git", h.HandleGitWebhook)
 	router.Post("/api/v1/webhooks/git", h.HandleGitWebhook)
 
 	// Web UI — embedded SPA
@@ -128,14 +139,14 @@ func NewServer(addr string, deps ServerDeps) *Server {
 
 	return &Server{
 		httpServer: &http.Server{
-			Addr:    addr,
-			Handler: router,
+			Addr:              addr,
+			Handler:           router,
 			ReadHeaderTimeout: 10 * time.Second,
 			ReadTimeout:       30 * time.Second,
 			IdleTimeout:       120 * time.Second,
 			// WriteTimeout is intentionally omitted: SSE streams are long-lived
-			// connections. Per-request write deadlines are handled by the
-			// middleware.Timeout(30s) applied to non-SSE routes.
+			// connections. Long-running sync handlers are bounded by each
+			// application's syncTimeout policy.
 		},
 		handler: h,
 		logger:  deps.Logger,
@@ -220,17 +231,24 @@ func serveIndex(w http.ResponseWriter, r *http.Request, fileServer http.Handler)
 	fileServer.ServeHTTP(w, r2)
 }
 
+const authCookieName = "dockercd_token"
+
 // bearerAuth returns middleware that validates a Bearer token in the Authorization header.
 // Uses constant-time comparison to prevent timing attacks.
 func bearerAuth(token string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			provided := ""
 			auth := r.Header.Get("Authorization")
-			if !strings.HasPrefix(auth, "Bearer ") {
+			if strings.HasPrefix(auth, "Bearer ") {
+				provided = strings.TrimPrefix(auth, "Bearer ")
+			} else if cookie, err := r.Cookie(authCookieName); err == nil {
+				provided = cookie.Value
+			}
+			if provided == "" {
 				http.Error(w, `{"error":"missing or invalid Authorization header"}`, http.StatusUnauthorized)
 				return
 			}
-			provided := strings.TrimPrefix(auth, "Bearer ")
 			if subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
 				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 				return

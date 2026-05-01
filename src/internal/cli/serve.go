@@ -206,22 +206,23 @@ func runServe(_ *cobra.Command, _ []string) error {
 
 	// Initialize reconciler
 	rec := reconciler.New(reconciler.Deps{
-		GitSyncer:     gitSyncer,
-		Parser:        p,
-		Inspector:     insp,
-		Differ:        d,
-		Deployer:      dep,
-		HealthMonitor: healthMon,
-		Store:         st,
-		Logger:        logger,
-		WorkerCount:   cfg.WorkerCount,
-		Broadcaster:   sseHub,
-		Notifier:      appNotifier,
-		TLSLookup:        tlsLookup,
-		ConfigDir:        cfg.ConfigDir,
-		ManifestRepoURL:  cfg.ManifestRepoURL,
-		ManifestRepoPath: cfg.ManifestRepoPath,
-		ManifestRevision: cfg.ManifestRevision,
+		GitSyncer:           gitSyncer,
+		Parser:              p,
+		Inspector:           insp,
+		Differ:              d,
+		Deployer:            dep,
+		HealthMonitor:       healthMon,
+		Store:               st,
+		Logger:              logger,
+		WorkerCount:         cfg.WorkerCount,
+		DefaultPollInterval: cfg.DefaultPollInterval,
+		Broadcaster:         sseHub,
+		Notifier:            appNotifier,
+		TLSLookup:           tlsLookup,
+		ConfigDir:           cfg.ConfigDir,
+		ManifestRepoURL:     cfg.ManifestRepoURL,
+		ManifestRepoPath:    cfg.ManifestRepoPath,
+		ManifestRevision:    cfg.ManifestRevision,
 	})
 
 	// Initialize event watcher for self-healing
@@ -357,44 +358,44 @@ func runServe(_ *cobra.Command, _ []string) error {
 	} else {
 		// Non-cluster mode: start everything directly as before
 
-	// Start health monitor in background
-	go func() {
-		if err := healthMon.Start(ctx); err != nil {
-			logger.Error("health monitor error", "error", err)
-		}
-	}()
-
-	// Start host health monitor in background
-	go func() {
-		if err := hostMon.Start(ctx); err != nil {
-			logger.Error("host health monitor error", "error", err)
-		}
-	}()
-
-	// Start event watcher in background (Docker event stream for self-healing)
-	go func() {
-		if err := eventWatcher.Start(ctx); err != nil {
-			logger.Error("event watcher error", "error", err)
-		}
-	}()
-
-	// Start watching events on all registered remote Docker hosts
-	for _, h := range dbHosts {
-		eventWatcher.WatchHost(h.URL)
-	}
-
-	// Start image update poller in background (optional)
-	if imagePoller != nil {
+		// Start health monitor in background
 		go func() {
-			if err := imagePoller.Start(ctx); err != nil {
-				logger.Error("image poller error", "error", err)
+			if err := healthMon.Start(ctx); err != nil {
+				logger.Error("health monitor error", "error", err)
 			}
 		}()
-	}
 
-	// Start reconciler (blocks until ctx is canceled)
-	logger.Info("dockercd ready", "api_addr", addr)
-	err = rec.Start(ctx)
+		// Start host health monitor in background
+		go func() {
+			if err := hostMon.Start(ctx); err != nil {
+				logger.Error("host health monitor error", "error", err)
+			}
+		}()
+
+		// Start event watcher in background (Docker event stream for self-healing)
+		go func() {
+			if err := eventWatcher.Start(ctx); err != nil {
+				logger.Error("event watcher error", "error", err)
+			}
+		}()
+
+		// Start watching events on all registered remote Docker hosts
+		for _, h := range dbHosts {
+			eventWatcher.WatchHost(h.URL)
+		}
+
+		// Start image update poller in background (optional)
+		if imagePoller != nil {
+			go func() {
+				if err := imagePoller.Start(ctx); err != nil {
+					logger.Error("image poller error", "error", err)
+				}
+			}()
+		}
+
+		// Start reconciler (blocks until ctx is canceled)
+		logger.Info("dockercd ready", "api_addr", addr)
+		err = rec.Start(ctx)
 	} // end non-cluster mode
 
 	// Graceful shutdown
@@ -458,6 +459,11 @@ func loadApplicationManifests(ctx context.Context, configDir string, st *store.S
 
 		if application.Kind != "Application" || application.Metadata.Name == "" {
 			logger.Debug("skipping non-application file", "path", path)
+			continue
+		}
+		application.ApplyDefaults()
+		if err := application.Validate(); err != nil {
+			logger.Warn("invalid application manifest", "path", path, "name", application.Metadata.Name, "error", err)
 			continue
 		}
 

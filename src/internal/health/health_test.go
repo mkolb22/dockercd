@@ -57,9 +57,9 @@ func (m *mockInspector) InspectServiceDetail(_ context.Context, _ app.Destinatio
 func (m *mockInspector) GetServiceLogs(_ context.Context, _ app.DestinationSpec, _ string, _ int) ([]string, error) {
 	return nil, nil
 }
-func (m *mockInspector) RegisterTLS(_ string, _ inspector.TLSConfig)   {}
-func (m *mockInspector) UnregisterTLS(_ string)                        {}
-func (m *mockInspector) GetTLSCertPath(_ string) string                { return "" }
+func (m *mockInspector) RegisterTLS(_ string, _ inspector.TLSConfig) {}
+func (m *mockInspector) UnregisterTLS(_ string)                      {}
+func (m *mockInspector) GetTLSCertPath(_ string) string              { return "" }
 
 func (m *mockInspector) getCalls() int {
 	m.mu.Lock()
@@ -235,6 +235,25 @@ func TestCheckApp_PersistsStatus(t *testing.T) {
 	}
 	if appRec.ServicesJSON == "" {
 		t.Error("expected services JSON to be persisted")
+	}
+}
+
+func TestWaitForServicesHealthy_RequiresEveryRequestedService(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp")
+
+	insp := &mockInspector{
+		states: []app.ServiceState{
+			{Name: "web", Health: app.HealthStatusHealthy, Status: "running"},
+		},
+	}
+	cfg := DefaultConfig()
+	cfg.PollInterval = time.Millisecond
+
+	m := New(insp, s, testLogger(), cfg)
+	err := m.WaitForServicesHealthy(context.Background(), "myapp", []string{"web", "db"}, 5*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected timeout while requested service db is missing")
 	}
 }
 

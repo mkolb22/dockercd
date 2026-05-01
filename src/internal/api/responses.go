@@ -5,8 +5,8 @@ import "github.com/mkolb22/dockercd/internal/app"
 
 // ApplicationResponse is the API representation of an application.
 type ApplicationResponse struct {
-	Metadata app.AppMetadata `json:"metadata"`
-	Spec     app.AppSpec     `json:"spec"`
+	Metadata app.AppMetadata   `json:"metadata"`
+	Spec     app.AppSpec       `json:"spec"`
 	Status   AppStatusResponse `json:"status"`
 }
 
@@ -70,6 +70,13 @@ type DryRunResponse struct {
 	HeadSHA string          `json:"headSHA"`
 }
 
+// RenderedDesiredResponse is the response for the rendered desired-state endpoint.
+type RenderedDesiredResponse struct {
+	AppName string           `json:"appName"`
+	HeadSHA string           `json:"headSHA"`
+	Compose *app.ComposeSpec `json:"compose"`
+}
+
 // WebhookResponse is the response for POST /api/v1/webhooks/git.
 type WebhookResponse struct {
 	Message   string `json:"message"`
@@ -83,16 +90,16 @@ type RollbackRequest struct {
 
 // DockerHostResponse is the API representation of a Docker host.
 type DockerHostResponse struct {
-	Name         string             `json:"name"`
-	URL          string             `json:"url"`
-	TLSCertPath  string             `json:"tlsCertPath,omitempty"`
-	TLSVerify    bool               `json:"tlsVerify"`
-	HealthStatus string             `json:"healthStatus"`
-	LastCheck    string             `json:"lastCheck,omitempty"`
-	LastError    string             `json:"lastError,omitempty"`
+	Name         string              `json:"name"`
+	URL          string              `json:"url"`
+	TLSCertPath  string              `json:"tlsCertPath,omitempty"`
+	TLSVerify    bool                `json:"tlsVerify"`
+	HealthStatus string              `json:"healthStatus"`
+	LastCheck    string              `json:"lastCheck,omitempty"`
+	LastError    string              `json:"lastError,omitempty"`
 	Info         *app.DockerHostInfo `json:"info,omitempty"`
-	Stats        *app.HostStats     `json:"stats,omitempty"`
-	CreatedAt    string             `json:"createdAt"`
+	Stats        *app.HostStats      `json:"stats,omitempty"`
+	CreatedAt    string              `json:"createdAt"`
 }
 
 // CreateHostRequest is the request body for POST /api/v1/hosts.

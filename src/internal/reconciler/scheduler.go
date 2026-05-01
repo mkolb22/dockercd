@@ -110,7 +110,10 @@ func (r *ReconcilerImpl) reschedule(ctx context.Context, appName string) {
 // A global override (if set) takes precedence over per-app intervals.
 // Returns a default of 3 minutes if the app or interval can't be read.
 func (r *ReconcilerImpl) getAppPollInterval(ctx context.Context, appName string) time.Duration {
-	const defaultInterval = 3 * time.Minute
+	defaultInterval := r.deps.DefaultPollInterval
+	if defaultInterval <= 0 {
+		defaultInterval = 3 * time.Minute
+	}
 
 	// Check global override first
 	r.pollOverrideMu.RLock()

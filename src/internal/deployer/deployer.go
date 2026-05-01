@@ -4,7 +4,10 @@
 // users expect from `docker compose up -d`.
 package deployer
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // DeployRequest contains the parameters for a deployment operation.
 type DeployRequest struct {
@@ -36,6 +39,10 @@ type DeployRequest struct {
 	// fail the overall deployment.
 	PostSyncServices []string
 
+	// HealthTimeout is the maximum time a deployment strategy may wait for the
+	// newly applied services to become healthy.
+	HealthTimeout time.Duration
+
 	// TLSCertPath is the path to the TLS cert directory for remote Docker hosts.
 	// When set, DOCKER_TLS_VERIFY=1 and DOCKER_CERT_PATH are injected into the
 	// docker compose subprocess environment.
@@ -46,6 +53,9 @@ type DeployRequest struct {
 type Deployer interface {
 	// Deploy executes a deployment operation (pre-hooks + pull + up + post-hooks).
 	Deploy(ctx context.Context, req DeployRequest) error
+
+	// Pull fetches all images referenced by the compose files.
+	Pull(ctx context.Context, req DeployRequest) error
 
 	// DeployServices deploys only the named services (for sync wave targeting).
 	DeployServices(ctx context.Context, req DeployRequest, serviceNames []string) error
