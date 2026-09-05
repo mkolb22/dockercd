@@ -4,6 +4,7 @@
   },
   "type": "module",
   "dependencies": {
+    "@dragonflymcp/plugin": "^1.3.3",
     "better-sqlite3": "^12.6.2"
   }
 }

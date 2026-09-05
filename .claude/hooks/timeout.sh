@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zen Timeout Hook
+# Dragonfly Timeout Hook
 #
 # Called when a concept or sync rule times out.
 # Logs timeout events and can trigger recovery actions.
@@ -20,9 +20,9 @@ PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 source "$PROJECT_ROOT/.claude/hooks/lib/common.sh"
 
 # Log timeout event to SQLite
-if zen_state_available; then
+if dragonfly_state_available; then
   EVENT_ID="timeout-$(date +%s%N)"
-  zen_event_log "$EVENT_ID" "timeout" "{\"source_type\":\"${SOURCE_TYPE}\",\"source_id\":\"${SOURCE_ID}\",\"timeout_ms\":${TIMEOUT_MS}}"
+  dragonfly_event_log "$EVENT_ID" "timeout" "{\"source_type\":\"${SOURCE_TYPE}\",\"source_id\":\"${SOURCE_ID}\",\"timeout_ms\":${TIMEOUT_MS}}"
 fi
 
 # Source-specific timeout handling

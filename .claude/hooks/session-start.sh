@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zen SessionStart Hook
+# Dragonfly SessionStart Hook
 #
 # This hook runs when a Claude Code session starts.
 # It checks for available checkpoints and displays session context.
@@ -13,7 +13,7 @@ PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 source "$PROJECT_ROOT/.claude/hooks/lib/common.sh"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🧘 Zen Session Started"
+echo "🧘 Dragonfly Session Started"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Check for available checkpoints (SQLite)
@@ -21,13 +21,13 @@ CHECKPOINT_COUNT=0
 LATEST_NAME=""
 LATEST_DESC=""
 
-if zen_state_available; then
-  CHECKPOINT_COUNT=$(zen_checkpoint_count)
+if dragonfly_state_available; then
+  CHECKPOINT_COUNT=$(dragonfly_checkpoint_count)
   if [ "$CHECKPOINT_COUNT" -gt 0 ] 2>/dev/null; then
     # Output: id|name|type|created_at
-    LATEST_ROW=$(zen_checkpoint_latest)
+    LATEST_ROW=$(dragonfly_checkpoint_latest)
     LATEST_NAME=$(echo "$LATEST_ROW" | cut -d'|' -f2)
-    LATEST_DESC=$(zen_checkpoint_latest_description)
+    LATEST_DESC=$(dragonfly_checkpoint_latest_description)
     LATEST_DESC="${LATEST_DESC:-Auto-saved checkpoint}"
   fi
 fi
@@ -43,9 +43,9 @@ fi
 
 # Check health status (SQLite)
 CONTEXT_USAGE=""
-if zen_state_available; then
+if dragonfly_state_available; then
   # Output: pct|zone
-  HEALTH_ROW=$(zen_health_get)
+  HEALTH_ROW=$(dragonfly_health_get)
   if [ -n "$HEALTH_ROW" ]; then
     CONTEXT_USAGE=$(echo "$HEALTH_ROW" | cut -d'|' -f1)
   fi
@@ -57,8 +57,8 @@ fi
 
 # Set environment variables for the session
 if [ -n "$CLAUDE_ENV_FILE" ]; then
-  echo "ZEN_PROJECT_ROOT=$PROJECT_ROOT" >> "$CLAUDE_ENV_FILE"
-  echo "ZEN_SESSION_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$CLAUDE_ENV_FILE"
+  echo "DRAGONFLY_PROJECT_ROOT=$PROJECT_ROOT" >> "$CLAUDE_ENV_FILE"
+  echo "DRAGONFLY_SESSION_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$CLAUDE_ENV_FILE"
 fi
 
 echo ""

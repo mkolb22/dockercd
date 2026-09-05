@@ -1,14 +1,14 @@
 ---
 name: Concept Development
-description: Guide for creating new concepts, testing them, and integrating them into Zen workflows
+description: Guide for creating new concepts, testing them, and integrating them into Dragonfly workflows
 version: 1.0.0
 trigger_keywords: [concept, create, new, custom, extend, develop]
-author: Zen Architecture
+author: Dragonfly Architecture
 ---
 
 # Concept Development - Expert Skill
 
-Guide for creating custom concepts to extend Zen workflows.
+Guide for creating custom concepts to extend Dragonfly workflows.
 
 ## When to Create a New Concept
 
@@ -24,8 +24,8 @@ Create a concept when you have:
 ---
 name: concept-name
 type: concept
-model: sonnet|sonnet
-state_location: "koan/concept-name/"
+model: opus|sonnet
+state_location: "data/concept-name/"
 execution: task-tool
 cost_tier: low|high
 purpose: "Brief description"
@@ -33,8 +33,8 @@ purpose: "Brief description"
 
 # Concept Name
 
-**Model Assignment**: Sonnet (or Opus for architecture)
-**Cost per Action**: ~$0.003 (Sonnet) / ~$0.015 (Opus)
+**Model Assignment**: Opus (or Opus for architecture)
+**Cost per Action**: ~$0.003 (Opus) / ~$0.015 (Opus)
 **Never Calls**: No other concepts
 
 ## Purpose
@@ -62,8 +62,8 @@ purpose: "Brief description"
 ---
 name: deployment
 type: concept
-model: sonnet
-state_location: "koan/deployments/"
+model: opus
+state_location: "data/deployments/"
 execution: task-tool
 cost_tier: low
 purpose: "Deploy applications to cloud environments"
@@ -71,7 +71,7 @@ purpose: "Deploy applications to cloud environments"
 
 # Deployment Concept
 
-**Model Assignment**: Sonnet (deployment is routine)
+**Model Assignment**: Opus (deployment is routine)
 **Cost per Action**: ~$0.000175
 **Never Calls**: No other concepts
 
@@ -105,7 +105,7 @@ health_check: "passed"
 ```
 
 ## Model Rationale
-Sonnet is sufficient because deployment follows scripts and procedures.
+Opus is sufficient because deployment follows scripts and procedures.
 No deep reasoning needed.
 
 ## Integration Points
@@ -130,7 +130,7 @@ Triggers: Nothing (terminal step)
   then:
     - concept: "deployment"
       action: "deploy"
-      model: "sonnet"
+      model: "opus"
       inputs:
         implementation_id: "${implementation.id}"
         environment: "staging"
@@ -156,4 +156,4 @@ Triggers: Nothing (terminal step)
 
 ---
 
-**Use this skill when**: Creating new concepts, extending Zen functionality, or customizing workflows for specific domains.
+**Use this skill when**: Creating new concepts, extending Dragonfly functionality, or customizing workflows for specific domains.

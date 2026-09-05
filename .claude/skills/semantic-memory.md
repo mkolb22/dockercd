@@ -41,7 +41,7 @@ memory_types:
 ### Storage Structure
 
 ```
-koan/
+data/*/
 ├── memory/
 │   ├── index.yaml           # Memory index and metadata
 │   ├── semantic/            # Long-term knowledge
@@ -64,7 +64,7 @@ koan/
 Store a new memory:
 
 ```yaml
-# koan/memory/semantic/project.yaml
+# data/memory/semantic/project.yaml
 memories:
   - id: "mem-001"
     type: semantic
@@ -134,7 +134,7 @@ Periodically consolidate related memories:
 The index provides fast lookup:
 
 ```yaml
-# koan/memory/index.yaml
+# data/memory/index.yaml
 version: 1
 last_updated: "2025-01-06T14:00:00Z"
 

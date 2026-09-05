@@ -48,7 +48,7 @@ var API = (function() {
     var opts = {
       method: method,
       credentials: 'same-origin',
-      headers: { 'Accept': 'application/json' }
+      headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
     };
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';

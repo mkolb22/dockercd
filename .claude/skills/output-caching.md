@@ -3,7 +3,7 @@ name: Concept Output Caching
 description: Cache frequently accessed concept outputs for 95% cache hit rate and sub-100ms access
 version: 1.0.0
 trigger_keywords: [cache, caching, output, state, repeated, access]
-author: Zen Architecture
+author: Dragonfly Architecture
 ---
 
 # Concept Output Caching - Expert Skill
@@ -32,21 +32,21 @@ Use output caching:
 
 ```yaml
 # In-memory cache structure (conceptual, not on disk)
-koan/cache/
+data/cache/
   session-{id}.json          # Session cache (future persistent cache)
 
 Cache contents:
 {
   "story-001": {
     "data": {...},           # Cached YAML data
-    "file": "koan/stories/story-001.yaml",
+    "file": "data/stories/story-001.yaml",
     "mtime": 1699999999,     # File modification time
     "hits": 15,              # Access count
     "loaded_at": "2025-11-10T19:00:00Z"
   },
   "arch-042": {
     "data": {...},
-    "file": "koan/architecture/arch-042.yaml",
+    "file": "data/architecture/arch-042.yaml",
     "mtime": 1699999998,
     "hits": 8,
     "loaded_at": "2025-11-10T19:05:00Z"
@@ -101,7 +101,7 @@ Cache contents:
 ```bash
 # Check if file changed
 cached_mtime = cache["story-001"]["mtime"]
-current_mtime = stat("koan/stories/story-001.yaml").st_mtime
+current_mtime = stat("data/stories/story-001.yaml").st_mtime
 
 if current_mtime > cached_mtime:
     # File changed, invalidate cache
@@ -166,13 +166,13 @@ Speedup: 5x faster (2,250ms → 450ms)
 **After creating story output**:
 ```yaml
 # Save to file
-write_file("koan/stories/story-001.yaml", story_data)
+write_file("data/stories/story-001.yaml", story_data)
 
 # Add to cache immediately
 cache["story-001"] = {
   "data": story_data,
-  "file": "koan/stories/story-001.yaml",
-  "mtime": file_mtime("koan/stories/story-001.yaml"),
+  "file": "data/stories/story-001.yaml",
+  "mtime": file_mtime("data/stories/story-001.yaml"),
   "hits": 0,
   "loaded_at": current_time()
 }
@@ -341,7 +341,7 @@ Overall hit rate: 155/170 = 91%
 **Reading Summary Sections**:
 - Without cache: 100 tokens per read (progressive disclosure)
 - With cache: 0 tokens (already in memory)
-- For 100 reads: 10,000 tokens saved = $0.03 (Sonnet)
+- For 100 reads: 10,000 tokens saved = $0.03 (Opus)
 
 **Note**: Primary benefit is speed, not token savings (progressive disclosure already minimizes tokens)
 
@@ -489,7 +489,7 @@ save_and_cache("story-001", story_data, file_path)
 
 ```yaml
 # Cache survives session restarts
-# Stored in koan/cache/persistent.db
+# Stored in data/cache/persistent.db
 # TTL-based expiration
 # Faster cold starts
 ```
@@ -517,7 +517,7 @@ save_and_cache("story-001", story_data, file_path)
 - **Progressive Disclosure** (Phase 1 Day 3-4) - Summary sections enable efficient caching
 - **Incremental Loading** (Phase 2 Day 1-3) - Minimal reads benefit from caching
 - **Batch Operations** (Phase 2 Day 6-7) - Batch processing with cached data
-- **ZEN_PHASE2_PROGRESS.md** - Week 1 Day 4-5 tracking
+- **DRAGONFLY_PHASE2_PROGRESS.md** - Week 1 Day 4-5 tracking
 
 ---
 

@@ -2,7 +2,7 @@
 name: Test Generation Strategy
 description: Intelligent test generation with coverage optimization and edge case detection
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - implementation-concept
 trigger_keywords:

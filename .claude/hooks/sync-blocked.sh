@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zen Sync Blocked Hook
+# Dragonfly Sync Blocked Hook
 #
 # Called when a synchronization rule is blocked (prerequisites not met).
 # Logs blocked events to SQLite for workflow debugging and optimization.
@@ -20,8 +20,8 @@ PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 source "$PROJECT_ROOT/.claude/hooks/lib/common.sh"
 
 # Log blocked event to SQLite
-if zen_state_available; then
-  zen_event_log "sync-blocked-$(date +%s%N)" "sync_blocked" "{\"rule_id\":\"$RULE_ID\",\"reason\":\"$REASON\",\"condition\":\"$BLOCKING_CONDITION\"}" || true
+if dragonfly_state_available; then
+  dragonfly_event_log "sync-blocked-$(date +%s%N)" "sync_blocked" "{\"rule_id\":\"$RULE_ID\",\"reason\":\"$REASON\",\"condition\":\"$BLOCKING_CONDITION\"}" || true
 fi
 
 # Rule-specific handling

@@ -89,7 +89,7 @@ How to fix:
 
 Quick fix: /feature "${story.title}" --simplify
 
-Alternative: Provide architecture manually in koan/architecture/
+Alternative: Provide architecture manually in data/architecture/
 ```
 
 ```
@@ -103,7 +103,7 @@ Why this matters:
   High-risk designs may have security, scalability, or maintenance issues.
 
 How to fix:
-  1. Review risks in: koan/architecture/arch-${id}.yaml
+  1. Review risks in: data/architecture/arch-${id}.yaml
   2. Choose:
      - Approve: Accept risks and proceed
      - Revise: Request lower-risk alternative
@@ -289,9 +289,9 @@ How to fix:
 Quick fix: Copy important state to clipboard/file NOW
 
 Files to preserve:
-  - koan/flows/ (workflow state)
-  - koan/stories/ (requirements)
-  - koan/architecture/ (design decisions)
+  - data/flows/ (workflow state)
+  - data/stories/ (requirements)
+  - data/architecture/ (design decisions)
 ```
 
 ### MCP Errors

@@ -14,7 +14,7 @@ after each concept completes and automatically invoking the next concept.
 
 ### Standard Mode (default)
 - Architecture: Opus (deep reasoning)
-- All other concepts: Sonnet
+- All other concepts: Opus
 
 ### Deep Mode (`deep` prefix)
 When the description starts with "deep":
@@ -38,11 +38,11 @@ else:
 **Deep Mode Differences:**
 | Concept | Standard | Deep |
 |---------|----------|------|
-| Story | Sonnet | Sonnet + deeper analysis |
+| Story | Opus | Opus + deeper analysis |
 | Architecture | Opus (5 steps) | Opus + tree-of-thought (10 steps) |
-| Verification | Sonnet (if triggered) | Opus + 3-pass consensus |
-| Implementation | Sonnet | Sonnet + pre-review |
-| Quality | Sonnet | Sonnet + extended coverage |
+| Verification | Opus (if triggered) | Opus + 3-pass consensus |
+| Implementation | Opus | Opus + pre-review |
+| Quality | Opus | Opus + extended coverage |
 
 ## Process
 
@@ -50,7 +50,7 @@ When you run this command, you should:
 
 1. **Recall Relevant Memories** (automatic, fast)
    - Extract keywords from the feature description
-   - Search `koan/memory/semantic/*.yaml` for relevant memories:
+   - Use `memory_recall` to search for relevant memories:
      - Architecture patterns that match keywords
      - Conventions related to the feature area
      - Past patterns from similar features
@@ -62,11 +62,11 @@ When you run this command, you should:
      ```
    - Pass memories as context to subsequent concepts
 
-2. **Create Story** (Sonnet)
+2. **Create Story** (Opus)
    - Invoke Story concept to capture requirements
    - Include relevant memories as context
    - Wait for story creation
-   - Read `koan/stories/story-{id}.yaml`
+   - Use `dragonfly_story_get` with the story ID
 
 3. **Evaluate Synchronizations**
    - Read `.claude/synchronizations/feature-development.yaml`
@@ -83,7 +83,7 @@ When you run this command, you should:
    - Log provenance for each step
 
 5. **Complete Workflow Phases**:
-   - Story (Sonnet) → Architecture (Opus) → Implementation (Sonnet) → Quality (Sonnet 2x parallel) → Version (Sonnet)
+   - Story (Opus) → Architecture (Opus) → Implementation (Opus) → Quality (Opus 2x parallel) → Version (Opus)
    - **Auto-remember workflow summary** after version.commit
 
 6. **Invoke Subagents Using Task Tool**:
@@ -91,7 +91,7 @@ When you run this command, you should:
    ```
    Task tool invocation:
      subagent_type: "story-concept"
-     model: "sonnet"
+     model: "opus"
      prompt: "Create story for: {description}"
 
    Task tool invocation:
@@ -166,10 +166,10 @@ Recalling Relevant Memories
 These will be included as context throughout the workflow.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Phase 1: Story Capture (Sonnet)
+Phase 1: Story Capture (Opus)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-[Invoke Task tool → story concept → model: sonnet]
+[Invoke Task tool → story concept → model: opus]
 
 ✓ Story created: story-042
   Status: ready
@@ -202,13 +202,13 @@ Phase 2: Architecture Design (Opus)
 Evaluating synchronizations...
 ✓ Matched: arch-to-impl
   Condition: decisions.length>0 AND risk!='high'
-  Next: implementation.generate (Sonnet)
+  Next: implementation.generate (Opus)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Phase 3: Implementation (Sonnet)
+Phase 3: Implementation (Opus)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-[Invoke Task tool → implementation concept → model: sonnet]
+[Invoke Task tool → implementation concept → model: opus]
 
 ✓ Implementation created: impl-042
   Files changed: 5 (198 lines)
@@ -218,14 +218,14 @@ Phase 3: Implementation (Sonnet)
 
 Evaluating synchronizations...
 ✓ Matched: impl-to-quality-review
-  Next: quality.review (Sonnet)
+  Next: quality.review (Opus)
 ✓ Matched: impl-to-quality-test
-  Next: quality.test (Sonnet)
+  Next: quality.test (Opus)
 
 Both rules have parallel:true → executing simultaneously...
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Phase 4: Quality Assurance (Sonnet) - PARALLEL EXECUTION
+Phase 4: Quality Assurance (Opus) - PARALLEL EXECUTION
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 [Invoke 2x Task tools in single message → both quality actions]
@@ -243,13 +243,13 @@ Phase 4: Quality Assurance (Sonnet) - PARALLEL EXECUTION
 Evaluating synchronizations...
 ✓ Matched: quality-to-version
   Condition: review.status=='approved' AND tests.passed
-  Next: version.commit (Sonnet)
+  Next: version.commit (Opus)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Phase 5: Version Control (Sonnet)
+Phase 5: Version Control (Opus)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-[Invoke Task tool → version concept → model: sonnet]
+[Invoke Task tool → version concept → model: opus]
 
 ✓ Commit created: abc123def
   Branch: feature/story-042-dark-mode
@@ -276,11 +276,11 @@ Time: 18 minutes
 Memories created: 3
 
 Breakdown:
-- Story (Sonnet):          $0.003   (10%)
+- Story (Opus):          $0.003   (10%)
 - Architecture (Opus):     $0.015   (50%)
-- Implementation (Sonnet): $0.003   (10%)
-- Quality 2x (Sonnet):     $0.006   (20%)
-- Version (Sonnet):        $0.003   (10%)
+- Implementation (Opus): $0.003   (10%)
+- Quality 2x (Opus):     $0.006   (20%)
+- Version (Opus):        $0.003   (10%)
 
 Next steps:
 - Review code: See impl-042
@@ -363,7 +363,7 @@ Most time spent in Architecture phase (deep reasoning).
 ## Cost Tracking
 
 Each workflow creates complete provenance:
-- See `koan/provenance/flows/flow-{id}.yaml`
+- Use `/trace flow-{id}` for provenance details
 - Track cumulative cost
 - Analyze model usage
 - Use `/costs` for aggregated analysis

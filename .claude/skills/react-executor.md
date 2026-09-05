@@ -238,7 +238,7 @@ iteration_1:
     This is a permanent error, not transient.
   action: |
     read_security_report:
-      path: "koan/security/sec-001.yaml"
+      path: "data/security/sec-001.yaml"
   observation: |
     Found critical security issues:
     - SQL injection vulnerability
@@ -274,12 +274,12 @@ iteration_3:
 status: "unresolved"
 iterations: 3
 resolution: "Security violations require manual intervention"
-dlq_entry: "koan/dlq/dlq-123456.yaml"
+dlq_entry: "data/dlq/dlq-123456.yaml"
 ```
 
 ## Cost Management
 
-Each iteration costs ~$0.0004 (Sonnet reasoning):
+Each iteration costs ~$0.0004 (Opus reasoning):
 - 1 iteration: $0.0004
 - 3 iterations (avg): $0.0012
 - 5 iterations (max): $0.0020
@@ -338,7 +338,7 @@ react-executor --sync-id="..." --debug
 react-executor --sync-id="..." --dry-run
 
 # Resume from previous iteration
-react-executor --resume-from="koan/fallback/fb-001.yaml"
+react-executor --resume-from="data/fallback/fb-001.yaml"
 ```
 
 ## Best Practices
@@ -360,7 +360,7 @@ react-executor --resume-from="koan/fallback/fb-001.yaml"
 ## Related
 
 - Concept: `react-fallback.md`
-- Config: `koan/sync/fallback-config.yaml`
+- Config: `data/sync/fallback-config.yaml`
 - Hook: `.claude/hooks/sync-blocked.sh`
 - Sync DSL: `.claude/synchronizations/main.sync`
 - Error Policy: `.claude/synchronizations/error-policy.yaml`

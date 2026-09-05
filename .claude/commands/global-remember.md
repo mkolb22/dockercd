@@ -30,7 +30,7 @@ When you run this command:
    - If similar exists, offer to update or create new
 
 3. **Store in Global Memory**
-   - Create/update file in `~/.zen/global-memory/`
+   - Create/update file in `~/.dragonfly/global-memory/`
    - Add metadata (timestamp, source project)
 
 4. **Confirm Storage**
@@ -45,7 +45,7 @@ When you run this command:
 /global-remember "Always use single quotes in TypeScript" --category=preferences
 ```
 
-Creates/updates `~/.zen/global-memory/preferences.yaml`:
+Creates/updates `~/.dragonfly/global-memory/preferences.yaml`:
 ```yaml
 coding_style:
   quotes: single
@@ -59,7 +59,7 @@ coding_style:
 /global-remember "Use Result type for error handling in TypeScript" --category=patterns --tag=error-handling
 ```
 
-Creates `~/.zen/global-memory/patterns/result-type.yaml`:
+Creates `~/.dragonfly/global-memory/patterns/result-type.yaml`:
 ```yaml
 name: Result Type Pattern
 category: error-handling
@@ -96,7 +96,7 @@ usage: |
 /global-remember "PostgreSQL JSONB is faster than JSON for queries" --category=technologies --tech=postgresql
 ```
 
-Updates `~/.zen/global-memory/technologies/postgresql.yaml`:
+Updates `~/.dragonfly/global-memory/technologies/postgresql.yaml`:
 ```yaml
 technology: PostgreSQL
 gotchas:
@@ -112,7 +112,7 @@ gotchas:
 /global-remember "API rate limiting should be per-user AND per-endpoint" --category=learnings
 ```
 
-Updates `~/.zen/global-memory/learnings/api-design.yaml`:
+Updates `~/.dragonfly/global-memory/learnings/api-design.yaml`:
 ```yaml
 category: API Design
 learnings:
@@ -130,7 +130,7 @@ learnings:
 /global-remember "Write failing test before fixing bugs" --category=workflows
 ```
 
-Updates `~/.zen/global-memory/workflows/debugging.yaml`:
+Updates `~/.dragonfly/global-memory/workflows/debugging.yaml`:
 ```yaml
 workflow: Debugging
 optimizations:
@@ -167,7 +167,7 @@ Would you like to add this to global memory?
 
 All global memory is stored in:
 ```
-~/.zen/global-memory/
+~/.dragonfly/global-memory/
 ├── preferences.yaml
 ├── patterns/
 │   └── *.yaml

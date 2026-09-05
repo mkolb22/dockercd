@@ -2,7 +2,7 @@
 name: API Design Patterns
 description: RESTful and GraphQL API design patterns with versioning and documentation standards
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - architecture-concept
 trigger_keywords:

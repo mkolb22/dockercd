@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"sync"
@@ -20,6 +21,65 @@ type mockInspector struct {
 	states []app.ServiceState
 	err    error
 	calls  int
+}
+
+// blockingInspector records concurrent inspections and only returns when its
+// context is canceled. It makes poll timeout and concurrency behavior testable.
+type blockingInspector struct {
+	mu          sync.Mutex
+	active      int
+	maxActive   int
+	calls       int
+	deadlineSet bool
+	started     chan struct{}
+}
+
+func (m *blockingInspector) Inspect(ctx context.Context, _ app.DestinationSpec) ([]app.ServiceState, error) {
+	_, hasDeadline := ctx.Deadline()
+	m.mu.Lock()
+	m.calls++
+	m.active++
+	if m.active > m.maxActive {
+		m.maxActive = m.active
+	}
+	m.deadlineSet = m.deadlineSet || hasDeadline
+	m.mu.Unlock()
+
+	m.started <- struct{}{}
+	<-ctx.Done()
+
+	m.mu.Lock()
+	m.active--
+	m.mu.Unlock()
+	return nil, ctx.Err()
+}
+
+func (m *blockingInspector) InspectService(context.Context, app.DestinationSpec, string) (*app.ServiceState, error) {
+	return nil, nil
+}
+func (m *blockingInspector) InspectWithMetrics(context.Context, app.DestinationSpec) ([]app.ServiceStatus, error) {
+	return nil, nil
+}
+func (m *blockingInspector) SystemInfo(context.Context, string) (*app.DockerHostInfo, error) {
+	return nil, nil
+}
+func (m *blockingInspector) HostStats(context.Context, string) (*app.HostStats, error) {
+	return nil, nil
+}
+func (m *blockingInspector) InspectServiceDetail(context.Context, app.DestinationSpec, string) (*app.ServiceDetail, error) {
+	return nil, nil
+}
+func (m *blockingInspector) GetServiceLogs(context.Context, app.DestinationSpec, string, int) ([]string, error) {
+	return nil, nil
+}
+func (m *blockingInspector) RegisterTLS(string, inspector.TLSConfig) {}
+func (m *blockingInspector) UnregisterTLS(string)                    {}
+func (m *blockingInspector) GetTLSCertPath(string) string            { return "" }
+
+func (m *blockingInspector) stats() (calls, maxActive int, deadlineSet bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.calls, m.maxActive, m.deadlineSet
 }
 
 func (m *mockInspector) Inspect(_ context.Context, _ app.DestinationSpec) ([]app.ServiceState, error) {
@@ -397,4 +457,79 @@ func TestPollLoop_CalledMultipleTimes(t *testing.T) {
 	if insp.getCalls() < 2 {
 		t.Errorf("expected at least 2 poll calls, got %d", insp.getCalls())
 	}
+}
+
+func TestSweepAllApps_BoundsConcurrencyAndUsesDeadlines(t *testing.T) {
+	// A file-backed database permits concurrent reads from the worker pool. Each
+	// SQLite in-memory connection otherwise owns an independent database.
+	s, err := store.New(t.TempDir(), testLogger())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	for i := range 4 {
+		createTestApp(t, s, fmt.Sprintf("app-%d", i))
+	}
+
+	insp := &blockingInspector{started: make(chan struct{}, 4)}
+	cfg := DefaultConfig()
+	cfg.MaxConcurrentChecks = 2
+	cfg.CheckTimeout = 20 * time.Millisecond
+	m := New(insp, s, testLogger(), cfg)
+
+	done := make(chan struct{})
+	go func() {
+		m.sweepAllApps(context.Background())
+		close(done)
+	}()
+
+	for range 4 {
+		select {
+		case <-insp.started:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for sweep checks")
+		}
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("sweep did not finish after check deadlines")
+	}
+
+	calls, maxActive, deadlineSet := insp.stats()
+	if calls != 4 {
+		t.Errorf("expected 4 checks, got %d", calls)
+	}
+	if maxActive > cfg.MaxConcurrentChecks {
+		t.Errorf("max concurrent checks = %d, limit = %d", maxActive, cfg.MaxConcurrentChecks)
+	}
+	if !deadlineSet {
+		t.Error("expected each sweep check to receive a deadline")
+	}
+}
+
+func TestStartSweep_SkipsOverlappingSweep(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp")
+	insp := &blockingInspector{started: make(chan struct{}, 1)}
+	cfg := DefaultConfig()
+	cfg.CheckTimeout = time.Second
+	m := New(insp, s, testLogger(), cfg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	m.startSweep(ctx)
+	select {
+	case <-insp.started:
+	case <-time.After(time.Second):
+		t.Fatal("initial sweep did not start")
+	}
+	m.startSweep(ctx)
+	time.Sleep(20 * time.Millisecond)
+
+	calls, _, _ := insp.stats()
+	if calls != 1 {
+		t.Errorf("expected overlapping sweep to be skipped, got %d checks", calls)
+	}
+	cancel()
+	m.wg.Wait()
 }

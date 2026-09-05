@@ -211,6 +211,8 @@ func (s *SQLiteStore) RecordSync(ctx context.Context, record *SyncRecord) error 
 		record.ID = uuid.New().String()
 	}
 	record.CreatedAt = time.Now().UTC()
+	// Never persist Compose snapshots: they include resolved environment values.
+	record.ComposeSpecJSON = ""
 
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO sync_history (id, app_name, started_at, finished_at, commit_sha, operation, result, diff_json, compose_spec_json, error, duration_ms, created_at)
@@ -260,13 +262,62 @@ func (s *SQLiteStore) ListSyncHistory(ctx context.Context, appName string, limit
 		}
 		r.CommitSHA = commitSHA.String
 		r.DiffJSON = diffJSON.String
-		r.ComposeSpecJSON = composeSpecJSON.String
+		// Legacy snapshot data may contain resolved secrets. Keep the column for
+		// migration compatibility but never make its value available to callers.
+		r.ComposeSpecJSON = ""
 		r.Error = errMsg.String
 		r.DurationMs = durationMs.Int64
 
 		records = append(records, r)
 	}
 	return records, rows.Err()
+}
+
+// ListRecentSyncHistory returns the most recent records for every application
+// in one query. It avoids the dashboard's previous N+1 history query pattern.
+func (s *SQLiteStore) ListRecentSyncHistory(ctx context.Context, perApp int) (map[string][]SyncRecord, error) {
+	if perApp <= 0 {
+		perApp = 5
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`WITH ranked AS (
+			SELECT id, app_name, started_at, finished_at, commit_sha, operation, result, diff_json, compose_spec_json, error, duration_ms, created_at,
+			ROW_NUMBER() OVER (PARTITION BY app_name ORDER BY started_at DESC) AS rank
+			FROM sync_history
+		)
+		SELECT id, app_name, started_at, finished_at, commit_sha, operation, result, diff_json, compose_spec_json, error, duration_ms, created_at
+		FROM ranked WHERE rank <= ? ORDER BY app_name, started_at DESC`, perApp,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("listing recent sync history: %w", err)
+	}
+	defer rows.Close()
+
+	history := make(map[string][]SyncRecord)
+	for rows.Next() {
+		var record SyncRecord
+		var finishedAt sql.NullTime
+		var commitSHA, diffJSON, composeSpecJSON, errMsg sql.NullString
+		var durationMs sql.NullInt64
+		if err := rows.Scan(
+			&record.ID, &record.AppName, &record.StartedAt, &finishedAt,
+			&commitSHA, &record.Operation, &record.Result, &diffJSON,
+			&composeSpecJSON, &errMsg, &durationMs, &record.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning recent sync record: %w", err)
+		}
+		if finishedAt.Valid {
+			record.FinishedAt = &finishedAt.Time
+		}
+		record.CommitSHA = commitSHA.String
+		record.DiffJSON = diffJSON.String
+		// Never surface legacy Compose snapshots, which can contain secrets.
+		record.ComposeSpecJSON = ""
+		record.Error = errMsg.String
+		record.DurationMs = durationMs.Int64
+		history[record.AppName] = append(history[record.AppName], record)
+	}
+	return history, rows.Err()
 }
 
 // GetSyncBySHA returns the most recent sync record for the given app and commit SHA.
@@ -300,7 +351,9 @@ func (s *SQLiteStore) GetSyncBySHA(ctx context.Context, appName, sha string) (*S
 	}
 	r.CommitSHA = commitSHA.String
 	r.DiffJSON = diffJSON.String
-	r.ComposeSpecJSON = composeSpecJSON.String
+	// Legacy snapshot data may contain resolved secrets. Keep the column for
+	// migration compatibility but never make its value available to callers.
+	r.ComposeSpecJSON = ""
 	r.Error = errMsg.String
 	r.DurationMs = durationMs.Int64
 

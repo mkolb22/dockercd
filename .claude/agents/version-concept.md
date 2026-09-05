@@ -2,9 +2,9 @@
 name: version-concept
 type: workflow
 execution: task-tool
-model: sonnet
+model: opus
 color: orange
-description: Version Concept - Manages git operations (branches, commits, tags) using Sonnet for intelligent version control
+description: Version Concept - Manages git operations (branches, commits, tags) using Opus for intelligent version control
 tools: "*"
 
 # Enhanced Metadata (Phase 3)
@@ -99,7 +99,7 @@ details:
       - Review: review-001 (approved)
       - Tests: test-001 (12/12 passing, 94% coverage)
 
-      🤖 Generated with Claude Code + Zen WYSIWID Architecture
+      🤖 Generated with Claude Code + Dragonfly WYSIWID Architecture
       Co-Authored-By: Claude <noreply@anthropic.com>
 
   files_committed:
@@ -112,7 +112,7 @@ details:
   metadata:
     created_at: "2025-11-11T10:45:00Z"
     concept: "version"
-    model: "sonnet"
+    model: "opus"
     cost: 0.003
 ```
 
@@ -132,7 +132,7 @@ Provenance:
 - Review: review-id (status)
 - Tests: test-id (results)
 
-🤖 Generated with Claude Code + Zen WYSIWID Architecture
+🤖 Generated with Claude Code + Dragonfly WYSIWID Architecture
 Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
@@ -148,7 +148,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 ## Always Do This
 
-- ✅ Use Sonnet model exclusively
+- ✅ Use Opus model exclusively
 - ✅ Create feature branches
 - ✅ Use conventional commit format
 - ✅ Include complete provenance
@@ -157,7 +157,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 ---
 
-**Model Assignment**: Sonnet
+**Model Assignment**: Opus
 **Cost Tier**: Low ($0.003)
 **Purpose**: Automated git operations
 **Integration**: Triggered by quality, completes workflow

@@ -3,7 +3,7 @@ name: Provenance Analysis
 description: Expert techniques for querying, analyzing, and understanding provenance data to trace workflows, debug issues, and optimize costs
 version: 1.0.0
 trigger_keywords: [provenance, trace, flow, action, triggered_by, debugging, audit, history]
-author: Zen Architecture
+author: Dragonfly Architecture
 ---
 
 # Provenance Analysis - Expert Skill
@@ -26,11 +26,11 @@ Master the art of querying and analyzing provenance data to understand workflow 
 ### Action-Level Provenance
 
 ```yaml
-# koan/provenance/actions/act-001.yaml
+# data/provenance/actions/act-001.yaml
 action_id: "act-001"
 timestamp: "2025-11-09T22:00:00Z"
 concept: "story"
-model: "sonnet"
+model: "opus"
 action: "create"
 status: "completed"
 
@@ -59,7 +59,7 @@ outputs:
 ### Flow-Level Provenance
 
 ```yaml
-# koan/provenance/flows/flow-2025-11-09-22h00m00s.yaml
+# data/provenance/flows/flow-2025-11-09-22h00m00s.yaml
 flow_id: "flow-2025-11-09-22h00m00s"
 initiated_at: "2025-11-09T22:00:00Z"
 initiated_by: "user"
@@ -90,7 +90,7 @@ models_used: {"sonnet": 5, "sonnet": 1}
 ### 1. Find All Actions
 
 ```bash
-ls koan/provenance/actions/
+ls data/provenance/actions/
 # act-001.yaml
 # act-002.yaml
 # act-003.yaml
@@ -100,28 +100,28 @@ ls koan/provenance/actions/
 ### 2. Find Latest Action
 
 ```bash
-ls -t koan/provenance/actions/ | head -n 1
+ls -t data/provenance/actions/ | head -n 1
 # act-042.yaml (most recent)
 ```
 
 ### 3. Find Actions by Concept
 
 ```bash
-grep -l 'concept: "story"' koan/provenance/actions/*.yaml
+grep -l 'concept: "story"' data/provenance/actions/*.yaml
 # Lists all story actions
 ```
 
 ### 4. Find Actions in Flow
 
 ```bash
-grep -l 'flow_id: "flow-2025-11-09"' koan/provenance/actions/*.yaml
+grep -l 'flow_id: "flow-2025-11-09"' data/provenance/actions/*.yaml
 # All actions in that flow
 ```
 
 ### 5. Calculate Total Cost
 
 ```bash
-grep 'cost_usd:' koan/provenance/actions/*.yaml | \
+grep 'cost_usd:' data/provenance/actions/*.yaml | \
 awk '{sum += $2} END {printf "Total: $%.4f\n", sum}'
 ```
 
@@ -138,11 +138,11 @@ action="act-006"
 while [ -n "$action" ]; do
   echo "Action: $action"
   grep -h "action_id:\|concept:\|triggered_by:" \
-    koan/provenance/actions/${action}.yaml
+    data/provenance/actions/${action}.yaml
 
   # Get parent action
   action=$(grep 'triggered_by:' \
-           koan/provenance/actions/${action}.yaml | \
+           data/provenance/actions/${action}.yaml | \
            awk '{print $2}' | sed 's/"//g')
 
   [ "$action" = "null" ] && break
@@ -169,7 +169,7 @@ Action: act-001 (story.create)
 
 ```bash
 # Aggregate costs by concept
-grep -h 'concept:\|cost_usd:' koan/provenance/actions/*.yaml | \
+grep -h 'concept:\|cost_usd:' data/provenance/actions/*.yaml | \
 awk '
   /concept:/ {concept=$2; gsub(/"/, "", concept)}
   /cost_usd:/ {costs[concept] += $2}
@@ -194,7 +194,7 @@ context: $0.0003  (<1%)
 ### Cost by Model
 
 ```bash
-grep -h 'model:\|cost_usd:' koan/provenance/actions/*.yaml | \
+grep -h 'model:\|cost_usd:' data/provenance/actions/*.yaml | \
 awk '
   /^model:/ {model=$2; gsub(/"/, "", model)}
   /cost_usd:/ {costs[model] += $2}
@@ -218,11 +218,11 @@ sonnet: $0.0227 (9%)
 ### Actions per Day
 
 ```bash
-for date in $(ls koan/provenance/actions/*.yaml | \
+for date in $(ls data/provenance/actions/*.yaml | \
               sed 's/.*\/act-//;s/\.yaml//' | \
               cut -d- -f1-3 | sort -u); do
   count=$(grep -l "timestamp.*$date" \
-          koan/provenance/actions/*.yaml | wc -l)
+          data/provenance/actions/*.yaml | wc -l)
   echo "$date: $count actions"
 done
 ```
@@ -230,7 +230,7 @@ done
 ### Failed Actions
 
 ```bash
-grep -l 'status: "failed"' koan/provenance/actions/*.yaml | \
+grep -l 'status: "failed"' data/provenance/actions/*.yaml | \
 while read file; do
   echo "=== $(basename $file) ==="
   grep -A5 'status: "failed"' "$file"
@@ -241,7 +241,7 @@ done
 
 ```bash
 # Which syncs triggered most often
-grep 'sync_id:' koan/provenance/actions/*.yaml | \
+grep 'sync_id:' data/provenance/actions/*.yaml | \
 awk '{print $2}' | sort | uniq -c | sort -nr
 ```
 
@@ -302,15 +302,15 @@ awk '{print $2}' | sort | uniq -c | sort -nr
 **Investigation**:
 ```bash
 # 1. Find last action
-ls -t koan/provenance/actions/ | head -n 1
+ls -t data/provenance/actions/ | head -n 1
 # act-003.yaml
 
 # 2. Check its status
-grep 'status:' koan/provenance/actions/act-003.yaml
+grep 'status:' data/provenance/actions/act-003.yaml
 # status: "completed"
 
 # 3. Check what should trigger next
-grep 'sync_id:' koan/provenance/actions/act-003.yaml
+grep 'sync_id:' data/provenance/actions/act-003.yaml
 # sync_id: null (manually invoked, no auto-trigger)
 
 # 4. Check synchronization rules
@@ -330,7 +330,7 @@ grep -A10 "when:.*implementation" \
 ```bash
 # 1. Find today's actions
 today=$(date +%Y-%m-%d)
-grep -l "timestamp.*$today" koan/provenance/actions/*.yaml | \
+grep -l "timestamp.*$today" data/provenance/actions/*.yaml | \
 while read file; do
   grep -h 'concept:\|cost_usd:' "$file"
 done | awk '
@@ -351,7 +351,7 @@ implementation: $0.0002
 **Investigation Continues**:
 ```bash
 # 2. Find the expensive architecture action
-grep -l 'concept: "architecture"' koan/provenance/actions/*.yaml | \
+grep -l 'concept: "architecture"' data/provenance/actions/*.yaml | \
 while read file; do
   cost=$(grep 'cost_usd:' "$file" | awk '{print $2}')
   if (( $(echo "$cost > 0.02" | bc -l) )); then
@@ -379,8 +379,8 @@ output_tokens: 5000
 **Investigation**:
 ```bash
 # 1. Check last completed action
-last=$(ls -t koan/provenance/actions/ | head -n 1)
-grep 'concept:\|action:\|status:' koan/provenance/actions/$last
+last=$(ls -t data/provenance/actions/ | head -n 1)
+grep 'concept:\|action:\|status:' data/provenance/actions/$last
 ```
 
 **Output**:
@@ -410,9 +410,9 @@ where:
 **Investigation Continues**:
 ```bash
 # 3. Check architecture output
-arch_id=$(grep 'architecture_id:' koan/provenance/actions/$last | \
+arch_id=$(grep 'architecture_id:' data/provenance/actions/$last | \
           awk '{print $2}' | sed 's/"//g')
-grep 'estimated_risk:' koan/architecture/${arch_id}.yaml
+grep 'estimated_risk:' data/architecture/${arch_id}.yaml
 ```
 
 **Output**:
@@ -430,15 +430,15 @@ estimated_risk: "high"
 
 ```bash
 # Group by flow_id (feature)
-for flow in $(grep 'flow_id:' koan/provenance/flows/*.yaml | \
+for flow in $(grep 'flow_id:' data/provenance/flows/*.yaml | \
               awk '{print $2}' | sed 's/"//g' | sort -u); do
-  cost=$(grep -h "flow_id: \"$flow\"" koan/provenance/actions/*.yaml | \
+  cost=$(grep -h "flow_id: \"$flow\"" data/provenance/actions/*.yaml | \
          head -n 1 | xargs -I{} dirname {} | xargs -I{} basename {} | \
-         xargs -I{} grep -h 'cost_usd:' koan/provenance/actions/*.yaml | \
+         xargs -I{} grep -h 'cost_usd:' data/provenance/actions/*.yaml | \
          awk '{sum += $2} END {print sum}')
-  story=$(grep "flow_id: \"$flow\"" koan/provenance/actions/*.yaml | \
+  story=$(grep "flow_id: \"$flow\"" data/provenance/actions/*.yaml | \
           head -n 1 | xargs dirname | xargs basename | \
-          xargs -I{} grep 'story_id:' koan/provenance/actions/{} | \
+          xargs -I{} grep 'story_id:' data/provenance/actions/{} | \
           awk '{print $2}')
   echo "$story: \$$cost"
 done
@@ -449,7 +449,7 @@ done
 If provenance tracks user:
 
 ```bash
-grep -h 'initiated_by:\|total_cost:' koan/provenance/flows/*.yaml | \
+grep -h 'initiated_by:\|total_cost:' data/provenance/flows/*.yaml | \
 awk '
   /initiated_by:/ {user=$2; gsub(/"/, "", user)}
   /total_cost:/ {costs[user] += $2}
@@ -469,7 +469,7 @@ for week in $(seq 1 52); do
   [ $? -ne 0 ] && continue
 
   cost=$(grep "timestamp.*$year-.*-$start" \
-         koan/provenance/actions/*.yaml | \
+         data/provenance/actions/*.yaml | \
          xargs -I{} grep 'cost_usd:' {} | \
          awk '{sum += $2} END {print sum}')
 
@@ -483,7 +483,7 @@ done
 
 ```bash
 # Requires timestamps in provenance
-grep -h 'concept:\|duration_ms:' koan/provenance/actions/*.yaml | \
+grep -h 'concept:\|duration_ms:' data/provenance/actions/*.yaml | \
 awk '
   /concept:/ {c=$2; gsub(/"/, "", c)}
   /duration_ms:/ {
@@ -503,7 +503,7 @@ awk '
 
 ```bash
 # Find slowest actions
-grep -h 'action_id:\|duration_ms:' koan/provenance/actions/*.yaml | \
+grep -h 'action_id:\|duration_ms:' data/provenance/actions/*.yaml | \
 awk '
   /action_id:/ {id=$2}
   /duration_ms:/ {printf "%s: %dms\n", id, $2}
@@ -514,11 +514,11 @@ awk '
 
 ```bash
 # Find actions with same parent (parallel execution)
-for parent in $(grep 'triggered_by:' koan/provenance/actions/*.yaml | \
+for parent in $(grep 'triggered_by:' data/provenance/actions/*.yaml | \
                 awk '{print $2}' | sed 's/"//g' | sort | uniq -c | \
                 awk '$1 > 1 {print $2}'); do
   echo "Parallel from $parent:"
-  grep -l "triggered_by: \"$parent\"" koan/provenance/actions/*.yaml | \
+  grep -l "triggered_by: \"$parent\"" data/provenance/actions/*.yaml | \
   while read file; do
     grep 'concept:\|action:' "$file" | tr '\n' ' '
     echo
@@ -532,7 +532,7 @@ done
 
 ```bash
 # In post-concept-action hook
-cat > koan/provenance/actions/${ACTION_ID}.yaml << EOF
+cat > data/provenance/actions/${ACTION_ID}.yaml << EOF
 action_id: "$ACTION_ID"
 timestamp: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 concept: "$CONCEPT"
@@ -567,15 +567,15 @@ git_commit: "$(git rev-parse HEAD)"
 
 # Environment
 claude_version: "..."
-zen_version: "1.0.0"
+dragonfly_version: "1.0.0"
 ```
 
 ### 5. Archive Old Provenance
 
 ```bash
 # Move old actions to archive
-find koan/provenance/actions/ -name "*.yaml" -mtime +90 \
-  -exec mv {} koan/provenance/archive/ \;
+find data/provenance/actions/ -name "*.yaml" -mtime +90 \
+  -exec mv {} data/provenance/archive/ \;
 ```
 
 ## Tools and Commands
@@ -593,14 +593,14 @@ find koan/provenance/actions/ -name "*.yaml" -mtime +90 \
 
 ```bash
 # Find expensive actions
-grep 'cost_usd:' koan/provenance/actions/*.yaml | \
+grep 'cost_usd:' data/provenance/actions/*.yaml | \
 sort -t: -k3 -nr | head -n 10
 
 # Find failed actions
-grep -l 'status: "failed"' koan/provenance/actions/*.yaml
+grep -l 'status: "failed"' data/provenance/actions/*.yaml
 
 # Count actions by concept
-grep 'concept:' koan/provenance/actions/*.yaml | \
+grep 'concept:' data/provenance/actions/*.yaml | \
 awk '{print $2}' | sort | uniq -c
 ```
 

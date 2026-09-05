@@ -25,7 +25,7 @@ When you run `/estimate "<task>"`:
 
 1. **Load Historical Data**
    ```bash
-   cat koan/slo/metrics/*/*.yaml  # Monthly performance data
+   cat data/metrics/*/*.yaml  # Monthly performance data
    ```
 
 2. **Classify Task**
@@ -140,7 +140,7 @@ Updated Model:
 
 Estimates work best with historical data in:
 ```
-koan/slo/metrics/
+data/metrics/
 ├── architecture/
 │   └── 2025-01.yaml
 ├── implementation/

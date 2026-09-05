@@ -2,7 +2,7 @@
 name: Acceptance Criteria Generation
 description: Generate comprehensive, testable acceptance criteria from user stories
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - story-concept
 trigger_keywords:

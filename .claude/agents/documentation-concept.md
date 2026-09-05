@@ -2,9 +2,9 @@
 name: documentation-concept
 type: workflow
 execution: task-tool
-model: sonnet
+model: opus
 color: magenta
-description: Documentation Concept - Generates comprehensive documentation at every workflow phase using Sonnet
+description: Documentation Concept - Generates comprehensive documentation at every workflow phase using Opus
 
 tools: "*"
 
@@ -46,7 +46,7 @@ Generates user-facing requirements documentation.
 **Triggers**: After story.create completes
 
 **Process**:
-1. Read story from upstream workflow results (via `zen_story_get`)
+1. Read story from upstream workflow results (via `dragonfly_story_get`)
 2. Extract title, description, acceptance criteria
 3. Generate feature specification
 4. Generate requirements summary
@@ -75,7 +75,7 @@ documents:
 
 metadata:
   generated_at: "2025-01-10T10:00:00Z"
-  model: "sonnet"
+  model: "opus"
   cost: 0.0003
 ```
 
@@ -277,7 +277,7 @@ Updates documentation index and navigation.
 
 ## Always Do This
 
-- ✅ Use Sonnet model exclusively
+- ✅ Use Opus model exclusively
 - ✅ Generate docs at each workflow phase
 - ✅ Validate before version commit
 - ✅ Update index after generation
@@ -288,7 +288,7 @@ Updates documentation index and navigation.
 
 ---
 
-**Model Assignment**: Sonnet
+**Model Assignment**: Opus
 **Cost Tier**: Low (~$0.002 per feature)
 **Purpose**: Comprehensive documentation generation
 **Integration**: Triggered at every workflow phase

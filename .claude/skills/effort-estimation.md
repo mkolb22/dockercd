@@ -2,7 +2,7 @@
 name: Effort Estimation
 description: Estimate implementation effort using multiple estimation techniques
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - story-concept
 trigger_keywords:

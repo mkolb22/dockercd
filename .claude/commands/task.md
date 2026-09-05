@@ -1,6 +1,6 @@
 # /task - Task Management Command
 
-Manage tasks for GitOps-based Kanban tracking. Tasks are stored in `koan/tasks/` and can be visualized in Kanflow.
+Manage tasks for GitOps-based Kanban tracking. Tasks are stored in `data/tasks/` and can be visualized in Kanflow.
 
 ## Usage
 
@@ -15,10 +15,10 @@ Manage tasks for GitOps-based Kanban tracking. Tasks are stored in `koan/tasks/`
 ## Actions
 
 ### Create Task
-Create a new task in `koan/tasks/`:
+Create a new task in `data/tasks/`:
 
 ```yaml
-# Generated: koan/tasks/task-{id}.yaml
+# Generated: data/tasks/task-{id}.yaml
 task_id: "task-001"
 title: "Implement user authentication"
 status: "todo"
@@ -52,14 +52,14 @@ View full task information including subtasks and provenance:
 
 ## GitOps Flow
 
-1. Tasks are YAML files in `koan/tasks/`
+1. Tasks are YAML files in `data/tasks/`
 2. Status changes update the YAML file
 3. Kanflow polls/watches for changes
 4. Dashboard reflects current state
 
-## Integration with Zen Workflow
+## Integration with Dragonfly Workflow
 
-Tasks can link to Zen workflow artifacts:
+Tasks can link to Dragonfly workflow artifacts:
 
 ```yaml
 provenance:

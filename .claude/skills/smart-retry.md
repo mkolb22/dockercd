@@ -3,7 +3,7 @@ name: Smart Retry Logic
 description: Automatically retry failed operations with intelligent backoff for 80% retry cost reduction
 version: 1.0.0
 trigger_keywords: [retry, failure, transient, backoff, resilience, error]
-author: Zen Architecture
+author: Dragonfly Architecture
 ---
 
 # Smart Retry Logic - Expert Skill
@@ -279,7 +279,7 @@ except RateLimitError as e:
 
 **Retry with circuit breaker** (expensive operation):
 ```yaml
-# Protect expensive Sonnet calls
+# Protect expensive Opus calls
 sonnet_breaker = CircuitBreaker(
     failure_threshold=3,
     timeout=300  # 5 minutes
@@ -290,7 +290,7 @@ try:
         lambda: generate_architecture(story)
     )
 except CircuitOpenError:
-    # Sonnet API down, fallback or notify
+    # Opus API down, fallback or notify
     print("Architecture service unavailable")
     raise
 ```
@@ -440,7 +440,7 @@ Developer investigates: 15 minutes
 Developer retries: 5 minutes (re-run steps 1-3)
 Total: 20 minutes
 
-If Sonnet was used:
+If Opus was used:
   Step 1: $0.002
   Step 2: $0.015 (architecture)
   Step 3: $0.003
@@ -669,7 +669,7 @@ if state == "HALF_OPEN":
 
 - **/replay Command** (Phase 1 Day 8-9) - Debugging failed workflows
 - **Batch Operations** (Phase 2 Day 6-7) - Batch retry strategies
-- **ZEN_PHASE2_PROGRESS.md** - Week 2 Day 8-10 tracking
+- **DRAGONFLY_PHASE2_PROGRESS.md** - Week 2 Day 8-10 tracking
 
 ---
 

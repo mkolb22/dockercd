@@ -63,35 +63,35 @@ When you run this command:
 %%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4a90d9'}}}%%
 flowchart LR
     subgraph Capture
-        S[Story<br/>Sonnet]
+        S[Story<br/>Opus]
     end
 
     subgraph Design
-        P[Planning<br/>Sonnet]
+        P[Planning<br/>Opus]
         A[Architecture<br/>Opus]
     end
 
     subgraph Build
-        I[Implementation<br/>Sonnet]
+        I[Implementation<br/>Opus]
     end
 
     subgraph Verify
-        V1[Verification 1<br/>Sonnet]
-        V2[Verification 2<br/>Sonnet]
-        VC[Consensus<br/>Sonnet]
+        V1[Verification 1<br/>Opus]
+        V2[Verification 2<br/>Opus]
+        VC[Consensus<br/>Opus]
     end
 
     subgraph Quality
-        QR[Review<br/>Sonnet]
-        QT[Test<br/>Sonnet]
+        QR[Review<br/>Opus]
+        QT[Test<br/>Opus]
     end
 
     subgraph Release
-        VE[Version<br/>Sonnet]
+        VE[Version<br/>Opus]
     end
 
     subgraph Learn
-        R[Retrospective<br/>Sonnet]
+        R[Retrospective<br/>Opus]
     end
 
     S -->|"ready & complex"| P
@@ -193,14 +193,14 @@ flowchart TB
 
 | Concept | Color | Model |
 |---------|-------|-------|
-| Story | Green | Sonnet |
+| Story | Green | Opus |
 | Architecture | Purple | Opus |
-| Implementation | Green | Sonnet |
-| Quality | Green | Sonnet |
-| Version | Green | Sonnet |
-| Planning | Blue | Sonnet |
-| Verification | Blue | Sonnet |
-| Retrospective | Blue | Sonnet |
+| Implementation | Green | Opus |
+| Quality | Green | Opus |
+| Version | Green | Opus |
+| Planning | Blue | Opus |
+| Verification | Blue | Opus |
+| Retrospective | Blue | Opus |
 
 ## Integration
 

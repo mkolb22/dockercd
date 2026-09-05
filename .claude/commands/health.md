@@ -16,9 +16,9 @@ This command helps:
 
 ## What to Do
 
-1. Read `koan/health/status.yaml`
-2. Read `koan/anchors/rules.anchor.yaml`
-3. Read `koan/anchors/directory.anchor.yaml`
+1. Read `data/status.yaml`
+2. Read `data/anchors/rules.anchor.yaml`
+3. Read `data/anchors/directory.anchor.yaml`
 4. Display a formatted summary
 
 ## Output Format
@@ -87,7 +87,7 @@ Confidence: MEDIUM
 • High token usage - consider /checkpoint before major operations.
 
 Recommendations:
-• Re-read koan/anchors/rules.anchor.yaml before destructive operations
+• Re-read data/anchors/rules.anchor.yaml before destructive operations
 • Verify assumptions about file paths and previous decisions
 • Create checkpoint before next major change
 ```

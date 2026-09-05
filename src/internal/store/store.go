@@ -30,6 +30,7 @@ type Store interface {
 	// Sync history
 	RecordSync(ctx context.Context, record *SyncRecord) error
 	ListSyncHistory(ctx context.Context, appName string, limit int) ([]SyncRecord, error)
+	ListRecentSyncHistory(ctx context.Context, perApp int) (map[string][]SyncRecord, error)
 	GetSyncBySHA(ctx context.Context, appName, sha string) (*SyncRecord, error)
 
 	// Events

@@ -63,12 +63,12 @@ func TestValidate_MissingName(t *testing.T) {
 
 func TestValidate_InvalidDNSName(t *testing.T) {
 	cases := []string{
-		"My-App",       // uppercase
-		"-starts-dash", // starts with dash
-		"ends-dash-",   // ends with dash
-		"has spaces",   // spaces
+		"My-App",         // uppercase
+		"-starts-dash",   // starts with dash
+		"ends-dash-",     // ends with dash
+		"has spaces",     // spaces
 		"has_underscore", // underscores
-		"a",            // valid single char — should pass
+		"a",              // valid single char — should pass
 	}
 
 	for _, name := range cases[:5] {
@@ -93,6 +93,22 @@ func TestValidate_MissingRepoURL(t *testing.T) {
 	err := app.Validate()
 	if err == nil {
 		t.Fatal("expected error for missing repoURL")
+	}
+}
+
+func TestValidate_RejectsEmbeddedRepoCredentials(t *testing.T) {
+	app := validApp()
+	app.Spec.Source.RepoURL = "https://user:password@example.com/org/repo.git"
+	if err := app.Validate(); err == nil {
+		t.Fatal("expected embedded repository credentials to be rejected")
+	}
+}
+
+func TestValidate_AllowsSSHRepositoryIdentity(t *testing.T) {
+	app := validApp()
+	app.Spec.Source.RepoURL = "ssh://git@github.com/org/repo.git"
+	if err := app.Validate(); err != nil {
+		t.Fatalf("expected SSH repository identity to be valid: %v", err)
 	}
 }
 

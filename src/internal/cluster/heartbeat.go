@@ -3,6 +3,7 @@ package cluster
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"strings"
@@ -19,8 +20,9 @@ const (
 )
 
 const (
-	dialTimeout = 2 * time.Second
-	readTimeout = 3 * time.Second
+	dialTimeout    = 2 * time.Second
+	readTimeout    = 3 * time.Second
+	maxMessageSize = 4 << 10
 )
 
 // Message represents a parsed cluster protocol message.
@@ -49,6 +51,9 @@ func ParseMessage(raw string) (Message, error) {
 
 	switch msg.Type {
 	case MsgHeartbeat, MsgPromote, MsgDemote, MsgStatus, MsgAck:
+		if msg.NodeID == "" {
+			return Message{}, fmt.Errorf("cluster message %q is missing node ID", msg.Type)
+		}
 		return msg, nil
 	default:
 		return Message{}, fmt.Errorf("unknown message type: %q", msg.Type)
@@ -63,39 +68,70 @@ func FormatMessage(msgType, nodeID, extra string) string {
 	return fmt.Sprintf("%s %s\n", msgType, nodeID)
 }
 
-// sendMessage opens a TCP connection to addr, sends a message, and reads the response.
-// Each message is a fresh TCP connection (simpler, more resilient).
-func sendMessage(addr, msgType, nodeID string) (Message, error) {
-	conn, err := net.DialTimeout("tcp", addr, dialTimeout)
+// sendMessage opens a mutually authenticated TLS connection to the configured
+// peer, sends a message, and validates the response identity. Each message is
+// a fresh connection, keeping the small control protocol bounded and simple.
+func (n *ClusterNode) sendMessage(msgType string) (Message, error) {
+	if n.clientTLS == nil {
+		return Message{}, fmt.Errorf("cluster TLS is not configured")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout+readTimeout)
+	defer cancel()
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: dialTimeout}, "tcp", n.config.PeerAddr, n.clientTLS)
 	if err != nil {
-		return Message{}, fmt.Errorf("dial %s: %w", addr, err)
+		return Message{}, fmt.Errorf("dial cluster peer: %w", err)
 	}
 	defer conn.Close()
 
-	_ = conn.SetDeadline(time.Now().Add(readTimeout))
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
 
-	_, err = fmt.Fprint(conn, FormatMessage(msgType, nodeID, ""))
+	_, err = fmt.Fprint(conn, FormatMessage(msgType, n.config.NodeID, ""))
 	if err != nil {
-		return Message{}, fmt.Errorf("write to %s: %w", addr, err)
+		return Message{}, fmt.Errorf("write to cluster peer: %w", err)
 	}
 
 	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 512), maxMessageSize)
 	if scanner.Scan() {
-		return ParseMessage(scanner.Text())
+		response, err := ParseMessage(scanner.Text())
+		if err != nil {
+			return Message{}, err
+		}
+		if response.NodeID != n.config.PeerID {
+			return Message{}, fmt.Errorf("cluster response node ID %q does not match configured peer %q", response.NodeID, n.config.PeerID)
+		}
+		return response, nil
 	}
 	if err := scanner.Err(); err != nil {
-		return Message{}, fmt.Errorf("read from %s: %w", addr, err)
+		return Message{}, fmt.Errorf("read from cluster peer: %w", err)
 	}
-	return Message{}, fmt.Errorf("no response from %s", addr)
+	return Message{}, fmt.Errorf("no response from cluster peer")
 }
 
 // handleHeartbeat runs the TCP listener that accepts heartbeat and control messages.
 func (n *ClusterNode) handleHeartbeat(ctx context.Context) {
-	listener, err := net.Listen("tcp", n.config.ListenAddr)
+	listener, err := n.startHeartbeatListener()
 	if err != nil {
 		n.logger.Error("failed to start heartbeat listener", "addr", n.config.ListenAddr, "error", err)
 		return
 	}
+	n.serveHeartbeat(ctx, listener)
+}
+
+func (n *ClusterNode) startHeartbeatListener() (net.Listener, error) {
+	if n.serverTLS == nil {
+		return nil, fmt.Errorf("cluster TLS is not configured")
+	}
+	listener, err := tls.Listen("tcp", n.config.ListenAddr, n.serverTLS)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %s: %w", n.config.ListenAddr, err)
+	}
+	return listener, nil
+}
+
+func (n *ClusterNode) serveHeartbeat(ctx context.Context, listener net.Listener) {
 	defer listener.Close()
 
 	n.logger.Info("heartbeat listener started", "addr", n.config.ListenAddr)
@@ -115,7 +151,17 @@ func (n *ClusterNode) handleHeartbeat(ctx context.Context) {
 			n.logger.Debug("heartbeat accept error", "error", err)
 			continue
 		}
-		go n.handleConnection(conn)
+		select {
+		case n.connections <- struct{}{}:
+			go func() {
+				defer func() { <-n.connections }()
+				n.handleConnection(conn)
+			}()
+		default:
+			// Do not create unbounded goroutines for unauthenticated network input.
+			_ = conn.Close()
+			n.logger.Debug("cluster connection rejected: admission limit reached")
+		}
 	}
 }
 
@@ -124,7 +170,27 @@ func (n *ClusterNode) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(readTimeout))
 
+	tlsConn, ok := conn.(*tls.Conn)
+	if !ok {
+		n.logger.Debug("rejected non-TLS cluster connection")
+		return
+	}
+	if err := tlsConn.Handshake(); err != nil {
+		n.logger.Debug("cluster TLS handshake failed", "error", err)
+		return
+	}
+	state := tlsConn.ConnectionState()
+	if len(state.PeerCertificates) == 0 {
+		n.logger.Debug("cluster peer did not present a certificate")
+		return
+	}
+	if err := state.PeerCertificates[0].VerifyHostname(n.config.PeerID); err != nil {
+		n.logger.Debug("cluster peer TLS identity rejected", "error", err)
+		return
+	}
+
 	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 512), maxMessageSize)
 	if !scanner.Scan() {
 		return
 	}
@@ -132,6 +198,10 @@ func (n *ClusterNode) handleConnection(conn net.Conn) {
 	msg, err := ParseMessage(scanner.Text())
 	if err != nil {
 		n.logger.Debug("invalid cluster message", "error", err)
+		return
+	}
+	if msg.NodeID != n.config.PeerID {
+		n.logger.Debug("cluster protocol identity rejected", "node_id", msg.NodeID)
 		return
 	}
 
@@ -175,7 +245,7 @@ func (n *ClusterNode) monitorPeer(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			resp, err := sendMessage(n.config.PeerAddr, MsgHeartbeat, n.config.NodeID)
+			resp, err := n.sendMessage(MsgHeartbeat)
 			if err != nil {
 				n.mu.Lock()
 				n.missedBeats++

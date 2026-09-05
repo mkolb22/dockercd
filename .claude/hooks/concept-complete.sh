@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zen Concept Complete Hook
+# Dragonfly Concept Complete Hook
 #
 # Called by agent frontmatter when a concept completes.
 # Records concept-specific completion data via SQLite events.
@@ -16,8 +16,8 @@ PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 source "$PROJECT_ROOT/.claude/hooks/lib/common.sh"
 
 # Log concept completion to SQLite
-if zen_state_available; then
-  zen_event_log "concept-complete-$(date +%s%N)" "concept_complete_frontmatter" "{\"concept\":\"$CONCEPT_NAME\"}" || true
+if dragonfly_state_available; then
+  dragonfly_event_log "concept-complete-$(date +%s%N)" "concept_complete_frontmatter" "{\"concept\":\"$CONCEPT_NAME\"}" || true
 fi
 
 # Concept-specific post-processing

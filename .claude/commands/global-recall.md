@@ -151,7 +151,7 @@ Git:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 These preferences will be applied to code generation.
-Override in project with koan/memory/preferences.yaml
+Override in project with data/memory/preferences.yaml
 ```
 
 ### Search Learnings
@@ -241,7 +241,7 @@ Apply to current context? [Y/n]
 
 Global memory is read from:
 ```
-~/.zen/global-memory/
+~/.dragonfly/global-memory/
 ├── preferences.yaml
 ├── patterns/
 ├── technologies/

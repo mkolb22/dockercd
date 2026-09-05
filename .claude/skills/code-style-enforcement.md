@@ -2,7 +2,7 @@
 name: Code Style Enforcement
 description: Ensure consistent code style with project-aware formatting and linting
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - implementation-concept
 trigger_keywords:

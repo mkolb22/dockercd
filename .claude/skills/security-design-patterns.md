@@ -3,7 +3,7 @@ name: Security Design Patterns
 description: Apply OWASP-aligned security patterns during architecture design to prevent vulnerabilities from the start
 version: 1.0.0
 trigger_keywords: [security, auth, authorization, encryption, OWASP, vulnerability, authentication, password, token, session]
-author: Zen Architecture
+author: Dragonfly Architecture
 applies_to: [architecture-concept]
 priority: P0
 impact: critical

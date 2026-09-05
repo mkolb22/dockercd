@@ -20,13 +20,13 @@ Rebuild Claude's context from a checkpoint after context compression or a new se
 ### 1. Handle --list flag
 
 If the user passed `--list`:
-- Call `zen_checkpoint_list` with limit 20
+- Call `dragonfly_checkpoint_list` with limit 20
 - Display checkpoints with name, type, and creation time
 - Stop here
 
 ### 2. Load the checkpoint
 
-Call `zen_checkpoint_restore` with either:
+Call `dragonfly_checkpoint_restore` with either:
 - `latest: true` (default, no argument)
 - `checkpoint_id: "<id>"` (specific checkpoint)
 

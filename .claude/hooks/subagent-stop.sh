@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zen SubagentStop Hook
+# Dragonfly SubagentStop Hook
 #
 # This hook runs when a subagent (concept) completes execution.
 # It tracks costs via SQLite events.
@@ -29,8 +29,8 @@ esac
 CONCEPT_NAME=$(echo "$CLAUDE_AGENT_NAME" | sed 's/-concept//')
 
 # Log concept completion to SQLite
-if zen_state_available; then
-  zen_event_log "concept-$(date +%s%N)" "concept_complete" "{\"concept\":\"$CONCEPT_NAME\",\"duration_ms\":${CLAUDE_AGENT_DURATION_MS:-0},\"input_tokens\":${CLAUDE_AGENT_INPUT_TOKENS:-0},\"output_tokens\":${CLAUDE_AGENT_OUTPUT_TOKENS:-0}}" || true
+if dragonfly_state_available; then
+  dragonfly_event_log "concept-$(date +%s%N)" "concept_complete" "{\"concept\":\"$CONCEPT_NAME\",\"duration_ms\":${CLAUDE_AGENT_DURATION_MS:-0},\"input_tokens\":${CLAUDE_AGENT_INPUT_TOKENS:-0},\"output_tokens\":${CLAUDE_AGENT_OUTPUT_TOKENS:-0}}" || true
 fi
 
 # Output confirmation (visible in transcript)

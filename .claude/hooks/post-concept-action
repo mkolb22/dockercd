@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zen Post-Concept-Action Hook
+# Dragonfly Post-Concept-Action Hook
 #
 # This hook runs after any concept completes an action.
 # It logs provenance to SQLite events and can trigger synchronizations.
@@ -10,15 +10,15 @@
 # - Must complete quickly (<100ms)
 #
 # Environment Variables (set by Claude Code):
-# - ZEN_CONCEPT: Which concept performed the action
-# - ZEN_ACTION: Which action was performed
-# - ZEN_ACTION_ID: Unique action identifier
-# - ZEN_STATUS: Action status (completed/blocked/failed)
-# - ZEN_FLOW_ID: Parent flow identifier (if part of workflow)
-# - ZEN_TRIGGERED_BY: Parent action ID (if triggered by sync)
-# - ZEN_SYNC_ID: Synchronization rule ID (if triggered by sync)
-# - ZEN_MODEL: Which model was used (haiku/sonnet)
-# - ZEN_COST_USD: Estimated cost in USD
+# - DRAGONFLY_CONCEPT: Which concept performed the action
+# - DRAGONFLY_ACTION: Which action was performed
+# - DRAGONFLY_ACTION_ID: Unique action identifier
+# - DRAGONFLY_STATUS: Action status (completed/blocked/failed)
+# - DRAGONFLY_FLOW_ID: Parent flow identifier (if part of workflow)
+# - DRAGONFLY_TRIGGERED_BY: Parent action ID (if triggered by sync)
+# - DRAGONFLY_SYNC_ID: Synchronization rule ID (if triggered by sync)
+# - DRAGONFLY_MODEL: Which model was used (haiku/opus)
+# - DRAGONFLY_COST_USD: Estimated cost in USD
 
 set -e
 
@@ -26,13 +26,13 @@ PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 source "$PROJECT_ROOT/.claude/hooks/lib/common.sh"
 
 # Generate action ID if not provided
-ACTION_ID="${ZEN_ACTION_ID:-act-$(date +%s)}"
-GIT_BRANCH="$(zen_git_branch)"
-GIT_COMMIT="$(zen_git_short_hash)"
+ACTION_ID="${DRAGONFLY_ACTION_ID:-act-$(date +%s)}"
+GIT_BRANCH="$(dragonfly_git_branch)"
+GIT_COMMIT="$(dragonfly_git_short_hash)"
 
 # Log provenance event to SQLite
-if zen_state_available; then
-  zen_event_log "$ACTION_ID" "concept_action" "{\"concept\":\"${ZEN_CONCEPT:-unknown}\",\"action\":\"${ZEN_ACTION:-unknown}\",\"status\":\"${ZEN_STATUS:-unknown}\",\"flow_id\":\"${ZEN_FLOW_ID:-null}\",\"triggered_by\":\"${ZEN_TRIGGERED_BY:-null}\",\"sync_id\":\"${ZEN_SYNC_ID:-null}\",\"model\":\"${ZEN_MODEL:-unknown}\",\"cost_usd\":${ZEN_COST_USD:-0.0},\"git_branch\":\"$GIT_BRANCH\",\"git_commit\":\"$GIT_COMMIT\"}" || true
+if dragonfly_state_available; then
+  dragonfly_event_log "$ACTION_ID" "concept_action" "{\"concept\":\"${DRAGONFLY_CONCEPT:-unknown}\",\"action\":\"${DRAGONFLY_ACTION:-unknown}\",\"status\":\"${DRAGONFLY_STATUS:-unknown}\",\"flow_id\":\"${DRAGONFLY_FLOW_ID:-null}\",\"triggered_by\":\"${DRAGONFLY_TRIGGERED_BY:-null}\",\"sync_id\":\"${DRAGONFLY_SYNC_ID:-null}\",\"model\":\"${DRAGONFLY_MODEL:-unknown}\",\"cost_usd\":${DRAGONFLY_COST_USD:-0.0},\"git_branch\":\"$GIT_BRANCH\",\"git_commit\":\"$GIT_COMMIT\"}" || true
 fi
 
 # Success

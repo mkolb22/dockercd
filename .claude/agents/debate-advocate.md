@@ -2,7 +2,7 @@
 name: debate-advocate
 type: debate
 execution: task-tool
-model: sonnet
+model: opus
 color: green
 description: Advocate Agent - Proposes and defends architectural approach in multi-agent debate
 tools: "*"

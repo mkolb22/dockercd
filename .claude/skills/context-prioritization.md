@@ -2,7 +2,7 @@
 name: Context Prioritization
 description: Intelligently prioritize and select context based on task relevance and token budget
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - context-concept
 trigger_keywords:

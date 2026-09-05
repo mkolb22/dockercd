@@ -2,7 +2,7 @@
 name: Changelog Generation
 description: Automatically generate structured changelogs from commits and semantic versioning
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - version-concept
 trigger_keywords:
@@ -351,7 +351,7 @@ changelog_quality:
 ### Command Output
 
 ```
-$ zen changelog generate --from v2.0.0
+$ dragonfly changelog generate --from v2.0.0
 
 Analyzing 47 commits from v2.0.0 to HEAD...
 
@@ -377,7 +377,7 @@ Generated CHANGELOG.md entry (prepended to existing file)
 release_workflow:
   steps:
     1. generate_changelog:
-       command: "zen changelog generate --from last-tag"
+       command: "dragonfly changelog generate --from last-tag"
        
     2. review_changelog:
        action: "human review or automated check"

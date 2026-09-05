@@ -2,7 +2,7 @@
 name: Cross-Project Knowledge
 description: Apply learnings and patterns from other projects
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - all-concepts
 trigger_keywords:

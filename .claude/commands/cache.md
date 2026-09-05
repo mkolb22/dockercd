@@ -103,7 +103,7 @@ Cache Entry: story-001
 
 Concept Type: Story
 Status: ready
-File: koan/stories/story-001.yaml
+File: data/stories/story-001.yaml
 
 Cache Info:
   Loaded At: 2025-11-10 19:05:32

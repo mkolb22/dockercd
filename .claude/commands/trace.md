@@ -2,7 +2,7 @@ Trace provenance chain for an action, story, or flow.
 
 When the user runs this command, you should:
 
-1. Read the provenance files from koan/provenance/
+1. Read the provenance files from data/provenance/
 2. Build the complete chain of actions
 3. Show the workflow visually with costs and timing
 
@@ -13,7 +13,7 @@ Usage:
 
 Process:
 1. Identify what the user wants to trace (story ID, flow ID, or action ID)
-2. Read relevant provenance files from koan/provenance/
+2. Read relevant provenance files from data/provenance/
 3. Build the dependency chain (triggered_by relationships)
 4. Present in chronological order with:
    - Action ID and timestamp
@@ -72,8 +72,8 @@ Summary:
 - Total actions: 6
 - Model usage: 1 sonnet, 5 sonnet
 - Total cost: $0.0165
-- Sonnet cost: $0.015 (91% of total)
-- Cost efficiency: 83% savings vs all-sonnet
+- Opus cost: $0.015 (91% of total)
+- Cost efficiency: 83% savings vs all-opus
 
 Synchronizations triggered:
 - story-to-arch

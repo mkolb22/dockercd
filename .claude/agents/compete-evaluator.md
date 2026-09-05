@@ -2,7 +2,7 @@
 name: compete-evaluator
 type: workflow
 execution: task-tool
-model: sonnet
+model: opus
 color: cyan
 description: Competitive Evaluator - Scores generated code across 6 quality dimensions using Go toolchain analysis
 

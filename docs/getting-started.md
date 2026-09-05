@@ -205,10 +205,17 @@ cd src && make docker && docker tag dockercd:dev dockercd:latest && cd ..
 Run the installer:
 
 ```bash
+export DOCKERCD_API_TOKEN="$(openssl rand -base64 48)"
 ./install.sh --mode standalone
 ```
 
 When prompted for your Git token, provide a GitHub PAT with `repo` read access to your config repo.
+
+Git remotes are restricted to an explicit host allowlist. The standalone
+deployment allows `github.com` by default. To use another deliberate Git host,
+set `DOCKERCD_GIT_ALLOWED_HOSTS` to a comma-separated list before starting the
+service (for example, `github.com,gitea`). Do not embed a username or password
+in `repoURL`; use `DOCKERCD_GIT_TOKEN` or a credential provider instead.
 
 ### 4. Register your application
 
@@ -216,6 +223,7 @@ After dockercd starts, register your app by pointing it at your config repo mani
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/applications \
+	-H "Authorization: Bearer $DOCKERCD_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "apiVersion": "dockercd/v1",
@@ -270,13 +278,13 @@ Log into Gitea and create a new repository — for example `my-infra`.
 ### 3. Push your config
 
 ```bash
-git remote add gitea http://your-user:your-pass@localhost:3003/your-user/my-infra.git
+git remote add gitea http://localhost:3003/your-user/my-infra.git
 git push gitea main
 ```
 
 ### 4. Register your application using Gitea as the source
 
-The key difference from standalone mode is the `repoURL` — use the internal Gitea hostname (`gitea:3000`) so that dockercd can reach it from inside Docker:
+The key difference from standalone mode is the `repoURL` — use the internal Gitea hostname (`gitea:3000`) so that dockercd can reach it from inside Docker. Do not embed credentials in the URL; configure `DOCKERCD_GIT_TOKEN` as the controller credential instead:
 
 ```yaml
 apiVersion: dockercd/v1
@@ -285,7 +293,7 @@ metadata:
   name: my-app
 spec:
   source:
-    repoURL: http://your-user:your-pass@gitea:3000/your-user/my-infra.git
+    repoURL: http://gitea:3000/your-user/my-infra.git
     targetRevision: main
     path: apps/my-app/
     composeFiles:

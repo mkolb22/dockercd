@@ -1,11 +1,11 @@
-Run a competitive evaluation comparing Zen-assisted vs vanilla Claude Code generation.
+Run a competitive evaluation comparing Dragonfly-assisted vs vanilla Claude Code generation.
 
 When the user runs this command, you should:
 
 1. **Resolve the spec**
    - If the user provides a spec ID directly, use it
-   - If they provide a spec name, use `zen_spec_get` with `name` to find the ID
-   - If no argument, use `zen_spec_get` with `latest: true`
+   - If they provide a spec name, use `dragonfly_spec_get` with `name` to find the ID
+   - If no argument, use `dragonfly_spec_get` with `latest: true`
 
 2. **Start the competition**
    - Call `compete_start` with the spec_id
@@ -14,10 +14,10 @@ When the user runs this command, you should:
 
 3. **Run rounds in parallel**
    For each round (1 to N):
-   - Launch a **control arm** subagent (worktree, model: sonnet) with the control_prompt
+   - Launch a **control arm** subagent (worktree, model: opus) with the control_prompt
      - The control agent generates code from the spec with NO MCP tools
-   - Launch a **treatment arm** subagent (worktree, model: sonnet) with the treatment_prompt
-     - The treatment agent uses full zen MCP tools
+   - Launch a **treatment arm** subagent (worktree, model: opus) with the treatment_prompt
+     - The treatment agent uses full dragonfly MCP tools
    - Both run in parallel via Task tool with `isolation: "worktree"`
 
 4. **Evaluate each arm**

@@ -101,11 +101,10 @@
       state.apps = results[0].items || [];
       state.systemInfo = results[1];
       state.hostStats = results[2];
+	  fetchCardHistories();
       renderDashboard();
       startRefresh(refreshDashboard);
       startStatsPoll();
-      // Async-fetch history for mini timeline dots on cards
-      fetchCardHistories();
     }).catch(function(err) {
       setContent('<div class="empty-state"><h2>Error loading applications</h2><p>' + Components.esc(err.message) + '</p></div>');
     });
@@ -113,14 +112,7 @@
 
   function fetchCardHistories() {
     state.apps.forEach(function(app) {
-      var name = app.metadata.name;
-      API.getHistory(name).then(function(data) {
-        app._history = (data.items || []).slice(0, 5);
-        // Re-render just the mini timeline if card exists
-        if (getRoute().page === 'dashboard') {
-          renderDashboard();
-        }
-      }).catch(function() {});
+	  app._history = app.recentHistory || [];
     });
   }
 
@@ -145,6 +137,7 @@
     ]).then(function(results) {
       state.apps = results[0].items || [];
       state.systemInfo = results[1];
+	  fetchCardHistories();
       if (getRoute().page === 'dashboard') {
         renderDashboard();
         initHealthHistoryFromApps();

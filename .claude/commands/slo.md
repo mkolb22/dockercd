@@ -171,8 +171,8 @@ When you run this command:
    - `concept` → `slo.report` with concept filter
 
 3. **Load Data**
-   - Monthly metrics from `koan/slo/metrics/{concept}/metrics-{YYYY-MM}.yaml`
-   - Violations from `koan/slo/violations/viol-*.yaml`
+   - Monthly metrics from `data/metrics/{concept}/metrics-{YYYY-MM}.yaml`
+   - Violations from `data/violations/viol-*.yaml`
    - SLO configs from `.claude/synchronizations/*.yaml`
 
 4. **Format Output**
@@ -186,7 +186,7 @@ When you run this command:
 SLO data is stored in:
 
 ```
-koan/slo/
+data/
 ├── metrics/
 │   ├── architecture/
 │   │   └── metrics-2025-12.yaml

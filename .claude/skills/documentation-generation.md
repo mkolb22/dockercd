@@ -2,7 +2,7 @@
 name: Documentation Generation
 description: Auto-generate documentation from code, comments, and types
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - implementation-concept
 trigger_keywords:

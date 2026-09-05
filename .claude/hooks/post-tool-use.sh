@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zen PostToolUse Hook
+# Dragonfly PostToolUse Hook
 #
 # This hook runs after tool execution completes.
 # It tracks provenance for concept actions (Task tool) via SQLite events.
@@ -37,12 +37,12 @@ esac
 
 # Determine concept name from subagent type
 CONCEPT_NAME=$(echo "$SUBAGENT_TYPE" | sed 's/-concept//')
-GIT_BRANCH="$(zen_git_branch)"
-GIT_COMMIT="$(zen_git_short_hash)"
+GIT_BRANCH="$(dragonfly_git_branch)"
+GIT_COMMIT="$(dragonfly_git_short_hash)"
 
 # Log task invocation to SQLite
-if zen_state_available; then
-  zen_event_log "task-$(date +%s%N)" "task_invocation" "{\"concept\":\"$CONCEPT_NAME\",\"subagent_type\":\"$SUBAGENT_TYPE\",\"git_branch\":\"$GIT_BRANCH\",\"git_commit\":\"$GIT_COMMIT\"}" || true
+if dragonfly_state_available; then
+  dragonfly_event_log "task-$(date +%s%N)" "task_invocation" "{\"concept\":\"$CONCEPT_NAME\",\"subagent_type\":\"$SUBAGENT_TYPE\",\"git_branch\":\"$GIT_BRANCH\",\"git_commit\":\"$GIT_COMMIT\"}" || true
 fi
 
 # Output confirmation (visible in transcript)

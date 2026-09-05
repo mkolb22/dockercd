@@ -3,7 +3,7 @@ name: Error Classification
 description: Classify errors to determine appropriate response strategy (retry, fail, escalate)
 version: 1.0.0
 trigger_keywords: [error, exception, failure, crash, bug, issue, classify, retry, transient]
-author: Zen Architecture
+author: Dragonfly Architecture
 applies_to: [all-concepts]
 priority: P0
 impact: high
@@ -565,7 +565,7 @@ async def execute_action(action, inputs):
 ### Error Classification in Provenance
 
 ```yaml
-# koan/provenance/actions/act-{id}.yaml
+# data/provenance/actions/act-{id}.yaml
 
 action_id: "act-003"
 concept: "implementation"

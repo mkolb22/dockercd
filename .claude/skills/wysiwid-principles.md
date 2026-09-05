@@ -3,7 +3,7 @@ name: WYSIWID Principles
 description: Expert knowledge of WYSIWID (What You See Is What It Does) architecture pattern for legible software systems
 version: 1.0.0
 trigger_keywords: [WYSIWID, legibility, modularity, concepts, synchronizations, declarative, behavioral transparency]
-author: Zen Architecture
+author: Dragonfly Architecture
 references:
   - "What You See Is What It Does: A Structural Pattern for Legible Software (Eagon Meng & Daniel Jackson, MIT)"
 ---
@@ -30,7 +30,7 @@ Deep expertise in the WYSIWID (What You See Is What It Does) architectural patte
 - **State**: Maintain their own state in isolated storage
 - **Actions**: Well-defined operations they can perform
 
-**In Zen**:
+**In Dragonfly**:
 ```
 story       - Captures requirements (any requirements system)
 architecture - Designs solutions (any architecture approach)
@@ -96,7 +96,7 @@ Supports:
 action_id: "act-001"
 timestamp: "2025-11-09T22:00:00Z"
 concept: "story"
-model: "sonnet"
+model: "opus"
 action: "create"
 status: "completed"
 triggered_by: null  # or parent action_id
@@ -355,7 +355,7 @@ The story concept also validates technical feasibility...
 ## Further Reading
 
 - Original WYSIWID paper: "What You See Is What It Does" (Meng & Jackson, MIT)
-- Zen synchronization documentation: `.claude/synchronizations/`
+- Dragonfly synchronization documentation: `.claude/synchronizations/`
 - Concept development guide: See `concept-development` skill
 - Provenance analysis: See `provenance-analysis` skill
 

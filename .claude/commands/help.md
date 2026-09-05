@@ -1,4 +1,4 @@
-Display context-aware help for Zen WYSIWID workflows and commands.
+Display context-aware help for Dragonfly WYSIWID workflows and commands.
 
 When the user runs this command, you should:
 
@@ -31,7 +31,7 @@ When the user runs this command, you should:
 When user runs `/help` with no arguments:
 
 ```
-Zen WYSIWID Architecture - Quick Reference
+Dragonfly WYSIWID Architecture - Quick Reference
 
 WHAT YOU SEE IS WHAT IT DOES
 
@@ -61,7 +61,7 @@ Need More Help?
 When user runs `/help commands`:
 
 ```
-Zen Commands Reference
+Dragonfly Commands Reference
 
 WORKFLOW COMMANDS
   /feature <description>   Create feature story, evaluate syncs
@@ -103,38 +103,38 @@ UTILITIES
 When user runs `/help concepts`:
 
 ```
-Zen Concepts (10 Total)
+Dragonfly Concepts (10 Total)
 
 CORE WORKFLOW CONCEPTS
-  story          Captures user requirements (Sonnet)
+  story          Captures user requirements (Opus)
                  Actions: create, update, clarify, cancel
 
   architecture   Designs technical approach (Opus)
                  Actions: design, revise, validate
 
-  implementation Generates code from specs (Sonnet)
+  implementation Generates code from specs (Opus)
                  Actions: generate, refactor, fix
 
-  quality        Reviews code and runs tests (Sonnet)
+  quality        Reviews code and runs tests (Opus)
                  Actions: review, test, benchmark
 
-  version        Manages git operations (Sonnet)
+  version        Manages git operations (Opus)
                  Actions: commit, tag, release
 
-  context        Manages context window (Sonnet)
+  context        Manages context window (Opus)
                  Actions: compress, snapshot, restore
 
 INTEGRATION CONCEPTS
-  code-analysis  Gathers codebase context via MCP (Sonnet)
+  code-analysis  Gathers codebase context via MCP (Opus)
                  Actions: context, impact, profile
 
-  security       Validates security at each phase (Sonnet)
+  security       Validates security at each phase (Opus)
                  Actions: threat_model, validate, scan
 
-  verification   Multi-pass independent review (Sonnet)
+  verification   Multi-pass independent review (Opus)
                  Actions: verify_architecture, verify_implementation
 
-  documentation  Generates docs at each phase (Sonnet)
+  documentation  Generates docs at each phase (Opus)
                  Actions: generate, update, validate
 
 KEY PRINCIPLE:
@@ -146,7 +146,7 @@ KEY PRINCIPLE:
 
 When user runs `/help state`:
 
-First, check current state by reading koan/ files:
+First, check current state by reading data/ files:
 
 ```
 Current Workflow State
@@ -185,13 +185,13 @@ ACTIONS YOU CAN TAKE
 When user runs `/help troubleshooting`:
 
 ```
-Zen Troubleshooting Guide
+Dragonfly Troubleshooting Guide
 
 COMMON ISSUES
 
 1. "Sync rule not firing"
    Cause: Prerequisites not met
-   Fix: Check koan/ state files
+   Fix: Check data/ state files
    - /trace <id> to see what's missing
    - Ensure previous concept completed successfully
 
@@ -210,19 +210,19 @@ COMMON ISSUES
 4. "Architecture has high risk"
    Cause: Design detected risky patterns
    Fix: Review and approve or revise
-   - Read koan/architecture/arch-{id}.yaml
+   - Read data/architecture/arch-{id}.yaml
    - User decision required
 
 5. "Quality review failed"
    Cause: Code issues found
    Fix: Check review findings
-   - Read koan/reviews/review-{id}.yaml
+   - Read data/reviews/review-{id}.yaml
    - Fix issues and re-run quality
 
 6. "Missing state file"
    Cause: Concept didn't complete
    Fix: Re-run previous step
-   - Check koan/ for existing state
+   - Check data/ for existing state
    - /replay <id> to restart from failure
 
 DIAGNOSTIC COMMANDS
@@ -233,7 +233,7 @@ DIAGNOSTIC COMMANDS
 
 GETTING HELP
   - Read .claude/synchronizations/*.yaml for workflow logic
-  - Check koan/provenance/ for action history
+  - Check data/provenance/ for action history
   - Review CLAUDE.md for project context
 ```
 
@@ -242,7 +242,7 @@ GETTING HELP
 When providing help, check:
 
 1. **Active Workflow**: If there's an in-progress flow, offer relevant next steps
-2. **Recent Errors**: If koan/health/ shows issues, suggest fixes
+2. **Recent Errors**: If data/ shows issues, suggest fixes
 3. **Context Usage**: If high (>75%), suggest checkpoint
 4. **MCP Status**: If unavailable, note graceful degradation
 

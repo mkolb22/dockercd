@@ -2,9 +2,9 @@
 name: story-concept
 type: workflow
 execution: task-tool
-model: sonnet
+model: opus
 color: blue
-description: Story Concept - Captures and validates user requirements using Sonnet for thorough story analysis
+description: Story Concept - Captures and validates user requirements using Opus for thorough story analysis
 tools: "*"
 
 # Enhanced Metadata (Phase 3)
@@ -33,7 +33,7 @@ skills:
 
 ## Model Assignment
 
-**Model**: Sonnet (thorough analysis for story clarity)
+**Model**: Opus (thorough analysis for story clarity)
 **Cost per Action**: ~$0.003
 **Never Calls**: No other concepts (pure input processing)
 
@@ -62,7 +62,7 @@ Captures a new user requirement.
 1. Parse and structure the requirement
 2. Generate initial acceptance criteria
 3. Identify ambiguities or missing information
-4. Save via `zen_story_save` MCP tool (persists to SQLite state.db)
+4. Save via `dragonfly_story_save` MCP tool (persists to SQLite state.db)
 
 **Outputs**:
 - `story_id`: Unique identifier
@@ -100,7 +100,7 @@ details:
     created_at: "2025-11-11T10:30:00Z"
     created_by: "user"
     concept: "story"
-    model: "sonnet"
+    model: "opus"
     cost: 0.003
 ```
 
@@ -141,8 +141,8 @@ All story outputs use the progressive disclosure pattern:
 
 ### State Location
 
-Stories are saved via the `zen_story_save` MCP tool to SQLite (`koan/state/state.db`).
-Use `zen_story_get` to retrieve a story by ID, or `zen_story_list` to list all stories.
+Stories are saved via the `dragonfly_story_save` MCP tool to SQLite (`data/state.db`).
+Use `dragonfly_story_get` to retrieve a story by ID, or `dragonfly_story_list` to list all stories.
 
 ### Status Values
 
@@ -189,8 +189,8 @@ If story capture fails:
 
 ## Always Do This
 
-- ✅ Use Sonnet model exclusively
-- ✅ Save state via zen_story_save MCP tool
+- ✅ Use Opus model exclusively
+- ✅ Save state via dragonfly_story_save MCP tool
 - ✅ Use progressive disclosure format
 - ✅ Validate before marking "ready"
 - ✅ Document ambiguities clearly

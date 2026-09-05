@@ -26,18 +26,34 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/mkolb22/dockercd/internal/app"
+	"github.com/mkolb22/dockercd/internal/config"
 )
 
 // TLSConfig holds paths for TLS client certificates used to connect to a remote Docker daemon.
 type TLSConfig struct {
 	// CertPath is the directory containing cert.pem, key.pem, and ca.pem.
 	CertPath string
-	// Verify controls whether the server certificate is verified against the CA.
-	Verify bool
+	// InsecureSkipVerify is a loopback-only local-development escape hatch.
+	// Server verification remains enabled unless it is explicitly acknowledged.
+	InsecureSkipVerify bool
+	// DevelopmentAcknowledgement must equal config.InsecureTLSDevelopmentAcknowledgement
+	// when InsecureSkipVerify is set.
+	DevelopmentAcknowledgement string
 }
 
-// LoadTLSConfig loads TLS certificates from CertPath and returns a *tls.Config.
-func (c TLSConfig) LoadTLSConfig() (*tls.Config, error) {
+// LoadTLSConfig loads client certificates for host. It always verifies server
+// certificates by default, requires a parseable CA, and refuses the local-only
+// verification escape hatch unless its acknowledgement and host policy pass.
+func (c TLSConfig) LoadTLSConfig(host string) (*tls.Config, error) {
+	if err := (config.TLSHostConfig{
+		Host:                       host,
+		CertPath:                   c.CertPath,
+		InsecureSkipVerify:         c.InsecureSkipVerify,
+		DevelopmentAcknowledgement: c.DevelopmentAcknowledgement,
+	}).Validate(); err != nil {
+		return nil, fmt.Errorf("validating TLS configuration: %w", err)
+	}
+
 	certFile := filepath.Join(c.CertPath, "cert.pem")
 	keyFile := filepath.Join(c.CertPath, "key.pem")
 	caFile := filepath.Join(c.CertPath, "ca.pem")
@@ -47,19 +63,25 @@ func (c TLSConfig) LoadTLSConfig() (*tls.Config, error) {
 		return nil, fmt.Errorf("loading client certificate: %w", err)
 	}
 
+	caCert, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading TLS CA certificate: %w", err)
+	}
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return nil, fmt.Errorf("parsing TLS CA certificate: no certificates found")
+	}
+
 	tlsCfg := &tls.Config{
+		MinVersion:   tls.VersionTLS12,
 		Certificates: []tls.Certificate{cert},
+		RootCAs:      caCertPool,
 	}
 
-	// Load CA certificate if present
-	if caCert, err := os.ReadFile(caFile); err == nil {
-		caCertPool := x509.NewCertPool()
-		caCertPool.AppendCertsFromPEM(caCert)
-		tlsCfg.RootCAs = caCertPool
-	}
-
-	if !c.Verify {
-		tlsCfg.InsecureSkipVerify = true //nolint:gosec // intentionally configurable
+	if c.InsecureSkipVerify {
+		// The config validation above makes this a loopback-only, explicitly
+		// acknowledged development exception rather than an insecure default.
+		tlsCfg.InsecureSkipVerify = true //nolint:gosec // constrained local-development exception
 	}
 
 	return tlsCfg, nil
@@ -176,7 +198,7 @@ func (d *DockerInspector) tlsAwareClientFactory(host string) (DockerClient, erro
 	d.tlsMu.RUnlock()
 
 	if hasTLS {
-		tlsConfig, err := cfg.LoadTLSConfig()
+		tlsConfig, err := cfg.LoadTLSConfig(host)
 		if err != nil {
 			return nil, fmt.Errorf("loading TLS config for %q: %w", host, err)
 		}

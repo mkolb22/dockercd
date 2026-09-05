@@ -3,7 +3,7 @@ name: Incremental Context Loading
 description: Load only necessary context using MCP-first approach for 70% additional token savings
 version: 1.0.0
 trigger_keywords: [incremental, loading, context, mcp, serena, symbols, overview]
-author: Zen Architecture
+author: Dragonfly Architecture
 ---
 
 # Incremental Context Loading - Expert Skill
@@ -123,7 +123,7 @@ Read: src/auth/session.ts    # 4500 tokens
 Read: src/auth/providers.ts  # 3000 tokens
 ...
 Total: 50,000 tokens
-Cost: $0.15 (Sonnet)
+Cost: $0.15 (Opus)
 ```
 
 **✅ New Way (MCP-First)**:
@@ -134,7 +134,7 @@ get_symbols_overview: src/auth/session.ts    # 100 tokens
 get_symbols_overview: src/auth/providers.ts  # 80 tokens
 ...
 Total: 1,000 tokens
-Cost: $0.003 (Sonnet)
+Cost: $0.003 (Opus)
 
 Savings: 98% ($0.147 saved)
 ```
@@ -393,8 +393,8 @@ This targets review effort precisely where needed.
 ### Cost Savings
 
 **Per-Architecture**:
-- Before: $0.15 (50K tokens @ Sonnet)
-- After: $0.003 (1K tokens @ Sonnet)
+- Before: $0.15 (50K tokens @ Opus)
+- After: $0.003 (1K tokens @ Opus)
 - **Savings: $0.147 (98%)**
 
 **Per-Feature Workflow**:
@@ -567,7 +567,7 @@ Read:
 - **MCP Integration** (Phase 1 Day 1-2) - MCP tools documentation
 - **architecture.md.template** - Updated with incremental loading
 - **implementation.md.template** - Updated with targeted symbol loading
-- **ZEN_PHASE2_PROGRESS.md** - Week 1 Day 1-3 tracking
+- **DRAGONFLY_PHASE2_PROGRESS.md** - Week 1 Day 1-3 tracking
 
 ---
 

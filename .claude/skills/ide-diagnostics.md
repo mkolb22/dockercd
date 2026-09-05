@@ -3,7 +3,7 @@ name: IDE Diagnostics
 description: Interpret and act on IDE diagnostics (TypeScript, ESLint errors) during quality review
 version: 1.0.0
 trigger_keywords: [diagnostics, typescript, eslint, build error, type error, lint, compiler]
-author: Zen Architecture
+author: Dragonfly Architecture
 applies_to: [quality-concept]
 priority: P0
 impact: critical
@@ -304,7 +304,7 @@ quality_review_workflow:
 ### Review State Output
 
 ```yaml
-# koan/reviews/review-{id}.yaml
+# data/reviews/review-{id}.yaml
 
 review_id: "review-001"
 impl_id: "impl-001"

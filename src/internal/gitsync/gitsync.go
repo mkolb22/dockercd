@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	gohttp "net/http"
 	"net/url"
 	"os"
 	"sync"
@@ -14,7 +15,8 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	gitclient "github.com/go-git/go-git/v5/plumbing/transport/client"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/mkolb22/dockercd/internal/app"
 )
 
@@ -47,6 +49,7 @@ type GoGitSyncer struct {
 	cache  *RepoCache
 	logger *slog.Logger
 	auth   transport.AuthMethod
+	policy *HostPolicy
 
 	// urlMu serializes git operations per repo URL to prevent concurrent
 	// clone/pull races. Distinct from reposMu which guards the repos cache.
@@ -56,6 +59,27 @@ type GoGitSyncer struct {
 	// git.PlainOpen calls which re-read the .git object database.
 	repos   map[string]*git.Repository
 	reposMu sync.Mutex
+}
+
+// NewWithHostPolicy creates a syncer that permits network access only to the
+// supplied explicit Git host allowlist.
+func NewWithHostPolicy(cacheDir string, logger *slog.Logger, gitToken string, allowedHosts []string) (*GoGitSyncer, error) {
+	policy, err := NewHostPolicy(allowedHosts)
+	if err != nil {
+		return nil, err
+	}
+	syncer, err := New(cacheDir, logger, gitToken)
+	if err != nil {
+		return nil, err
+	}
+	syncer.policy = policy
+	// go-git selects protocol transports globally. The daemon creates one
+	// production syncer, so install an HTTP client that rejects redirects to a
+	// host outside this syncer's explicit allowlist.
+	httpClient := &gohttp.Client{CheckRedirect: policy.CheckRedirect}
+	gitclient.InstallProtocol("http", githttp.NewClient(httpClient))
+	gitclient.InstallProtocol("https", githttp.NewClient(httpClient))
+	return syncer, nil
 }
 
 // New creates a new GoGitSyncer with the given cache directory for cloned repos.
@@ -68,7 +92,7 @@ func New(cacheDir string, logger *slog.Logger, gitToken string) (*GoGitSyncer, e
 
 	var auth transport.AuthMethod
 	if gitToken != "" {
-		auth = &http.BasicAuth{
+		auth = &githttp.BasicAuth{
 			Username: "x-access-token",
 			Password: gitToken,
 		}
@@ -91,7 +115,7 @@ func (g *GoGitSyncer) authFor(repoURL string) transport.AuthMethod {
 	if err == nil && parsed.User != nil {
 		password, _ := parsed.User.Password()
 		if parsed.User.Username() != "" || password != "" {
-			return &http.BasicAuth{
+			return &githttp.BasicAuth{
 				Username: parsed.User.Username(),
 				Password: password,
 			}
@@ -112,6 +136,11 @@ func cleanURL(repoURL string) string {
 
 // Sync clones or pulls the repository and returns the HEAD SHA.
 func (g *GoGitSyncer) Sync(ctx context.Context, source app.SourceSpec) (string, error) {
+	if g.policy != nil {
+		if err := g.policy.ValidateRepoURL(source.RepoURL); err != nil {
+			return "", err
+		}
+	}
 	// Serialize access per repo URL
 	mu := g.repoMutex(source.RepoURL)
 	mu.Lock()
@@ -132,7 +161,7 @@ func (g *GoGitSyncer) Sync(ctx context.Context, source app.SourceSpec) (string, 
 		if err != nil {
 			// If pull fails (corrupted repo, etc.), wipe and re-clone
 			g.logger.Warn("pull failed, re-cloning",
-				"repo", source.RepoURL,
+				"repo", cleanURL(source.RepoURL),
 				"error", err,
 			)
 			g.evictRepo(repoPath)
@@ -160,7 +189,7 @@ func (g *GoGitSyncer) Sync(ctx context.Context, source app.SourceSpec) (string, 
 
 	sha := head.Hash().String()
 	g.logger.Debug("git sync complete",
-		"repo", source.RepoURL,
+		"repo", cleanURL(source.RepoURL),
 		"branch", branch,
 		"sha", sha,
 	)
@@ -172,6 +201,11 @@ func (g *GoGitSyncer) Sync(ctx context.Context, source app.SourceSpec) (string, 
 // Because normal syncs use Depth: 1, the target SHA may not exist locally.
 // If so, we fetch full history first (unshallow), then checkout.
 func (g *GoGitSyncer) CheckoutSHA(ctx context.Context, repoURL string, sha string) error {
+	if g.policy != nil {
+		if err := g.policy.ValidateRepoURL(repoURL); err != nil {
+			return err
+		}
+	}
 	mu := g.repoMutex(repoURL)
 	mu.Lock()
 	defer mu.Unlock()
@@ -213,7 +247,7 @@ func (g *GoGitSyncer) CheckoutSHA(ctx context.Context, repoURL string, sha strin
 		return fmt.Errorf("checking out %s: %w", sha, err)
 	}
 
-	g.logger.Info("checked out commit", "repo", repoURL, "sha", sha)
+	g.logger.Info("checked out commit", "repo", cleanURL(repoURL), "sha", sha)
 	return nil
 }
 
@@ -312,6 +346,11 @@ func (g *GoGitSyncer) pull(ctx context.Context, path string, ref plumbing.Refere
 
 // Commit stages the given files and creates a commit in the local repository for repoURL.
 func (g *GoGitSyncer) Commit(ctx context.Context, repoURL string, message string, files []string) error {
+	if g.policy != nil {
+		if err := g.policy.ValidateRepoURL(repoURL); err != nil {
+			return err
+		}
+	}
 	mu := g.repoMutex(repoURL)
 	mu.Lock()
 	defer mu.Unlock()
@@ -338,12 +377,17 @@ func (g *GoGitSyncer) Commit(ctx context.Context, repoURL string, message string
 		return fmt.Errorf("creating commit: %w", err)
 	}
 
-	g.logger.Info("created commit", "repo", repoURL, "message", message)
+	g.logger.Info("created commit", "repo", cleanURL(repoURL), "message", message)
 	return nil
 }
 
 // Push pushes the current branch to origin for the repository at repoURL.
 func (g *GoGitSyncer) Push(ctx context.Context, repoURL string) error {
+	if g.policy != nil {
+		if err := g.policy.ValidateRepoURL(repoURL); err != nil {
+			return err
+		}
+	}
 	mu := g.repoMutex(repoURL)
 	mu.Lock()
 	defer mu.Unlock()
@@ -362,7 +406,7 @@ func (g *GoGitSyncer) Push(ctx context.Context, repoURL string) error {
 		return fmt.Errorf("pushing to origin: %w", err)
 	}
 
-	g.logger.Info("pushed to origin", "repo", repoURL)
+	g.logger.Info("pushed to origin", "repo", cleanURL(repoURL))
 	return nil
 }
 

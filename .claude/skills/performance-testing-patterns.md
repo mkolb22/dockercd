@@ -2,7 +2,7 @@
 name: Performance Testing Patterns
 description: Load testing, stress testing, and performance benchmarking strategies
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - quality-concept
 trigger_keywords:

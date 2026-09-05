@@ -2,7 +2,7 @@
 name: Refactoring Patterns
 description: Safe refactoring patterns with automated detection and transformation guidance
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - implementation-concept
 trigger_keywords:

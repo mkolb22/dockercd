@@ -128,7 +128,7 @@ Defines where the compose services are deployed.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `dockerHost` | string | `unix:///var/run/docker.sock` | Docker daemon socket. Use the Unix socket path for local deployments (standard when dockercd runs as a container with the socket mounted). Use `tcp://host:2376` for remote Docker hosts; set `DOCKERCD_TLS_CERT_PATH` to a directory containing `ca.pem`, `cert.pem`, `key.pem` for mutual TLS. |
+| `dockerHost` | string | `unix:///var/run/docker.sock` | Docker daemon socket. Use the Unix socket path for local deployments (standard when dockercd runs as a container with the socket mounted). Use `tcp://host:2376` for remote Docker hosts and configure that host's mutual-TLS material in the daemon configuration. |
 | `projectName` | string | `metadata.name` | Docker Compose project name. This is the `-p` argument passed to `docker compose`. Containers are named `{projectName}-{service}-{index}` (or `container_name` if set in the compose file). Each application must use a unique project name. |
 
 ---
@@ -613,7 +613,28 @@ spec:
     syncTimeout: 10m    # longer timeout for slower remote connection
 ```
 
-Configure TLS via `DOCKERCD_TLS_CERT_PATH` pointing to a directory with `ca.pem`, `cert.pem`, `key.pem`.
+Configure TLS in the dockercd daemon's `config.yaml`. DockerCD verifies the
+remote daemon certificate by default, requires a parseable `ca.pem`, and will
+not silently fall back to an unverified connection.
+
+```yaml
+tls:
+  - host: tcp://edge-host.example.com:2376
+    cert_path: /run/secrets/edge-docker-tls # cert.pem, key.pem, and ca.pem
+```
+
+For a disposable local development daemon only, verification can be disabled
+for a loopback address after an explicit acknowledgement. Do not use this for
+a network-reachable or production Docker daemon; provide the development
+daemon's CA instead.
+
+```yaml
+tls:
+  - host: tcp://127.0.0.1:2376
+    cert_path: /tmp/dockercd-dev-tls
+    insecure_skip_verify: true
+    development_acknowledgement: I_UNDERSTAND_INSECURE_TLS_IS_FOR_LOCAL_DEVELOPMENT_ONLY
+```
 
 ---
 

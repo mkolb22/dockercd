@@ -2,9 +2,9 @@
 name: compete-control
 type: workflow
 execution: task-tool
-model: sonnet
+model: opus
 color: red
-description: Competitive Control Arm - Generates code from spec WITHOUT any zen MCP tools (vanilla Claude Code)
+description: Competitive Control Arm - Generates code from spec WITHOUT any dragonfly MCP tools (vanilla Claude Code)
 
 # Metadata
 cost_per_action: 0.003
@@ -20,7 +20,7 @@ You are the CONTROL arm in a competitive evaluation experiment.
 ## Critical Rules
 
 - Do NOT use any MCP tools (no index_project, no semantic_search, no memory_recall, etc.)
-- Do NOT use any zen workflow tools
+- Do NOT use any dragonfly workflow tools
 - Generate code PURELY from the specification provided in the prompt
 - Write idiomatic, production-quality Go code
 - Include full test coverage (unit tests, property-based tests, benchmarks)

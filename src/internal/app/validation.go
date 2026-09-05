@@ -100,14 +100,18 @@ var allowedRepoSchemes = map[string]bool{
 
 // validateRepoURL checks a repository URL for security issues (SSRF, local file access).
 func validateRepoURL(repoURL string) error {
-	// Handle git@ SSH shorthand (not a standard URL).
+	// Handle git@ SSH shorthand (not a standard URL). The operational Git-host
+	// allowlist is enforced by the syncer before it opens any network connection.
 	if strings.HasPrefix(repoURL, "git@") {
-		return nil // git@host:org/repo.git — no SSRF risk
+		return nil
 	}
 
 	u, err := url.Parse(repoURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.User != nil && (u.Scheme != "ssh" || u.User.Username() == "" || repoURLHasPassword(u)) {
+		return fmt.Errorf("embedded credentials are not allowed; configure DOCKERCD_GIT_TOKEN instead")
 	}
 
 	if !allowedRepoSchemes[u.Scheme] {
@@ -127,4 +131,9 @@ func validateRepoURL(repoURL string) error {
 	}
 
 	return nil
+}
+
+func repoURLHasPassword(u *url.URL) bool {
+	_, ok := u.User.Password()
+	return ok
 }

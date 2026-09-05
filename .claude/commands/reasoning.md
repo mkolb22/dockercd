@@ -197,7 +197,7 @@ Configuration: .claude/config/reasoning-modes.yaml
 When invoked, this command:
 
 1. **View reasoning chain**:
-   - Read `koan/architecture/arch-{id}.yaml`
+   - Read `data/architecture/arch-{id}.yaml`
    - Extract `reasoning_chain` section
    - Format as hierarchical tree view
    - Show tokens/timing per step
@@ -210,7 +210,7 @@ When invoked, this command:
    - Suggest which mode was more appropriate
 
 3. **Show statistics**:
-   - Scan all `koan/architecture/arch-*.yaml` files
+   - Scan all `data/architecture/arch-*.yaml` files
    - Aggregate by reasoning mode
    - Calculate averages and distributions
    - Analyze auto-mode selection accuracy

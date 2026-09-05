@@ -19,12 +19,12 @@ When the user runs this command, you should:
 2. **Invoke Story Concept**
    - Extract title from user input
    - Use the Task tool with subagent_type matching the story concept
-   - Explicitly request model="sonnet" for cost efficiency
+   - Explicitly request model="opus" for cost efficiency
    - Include relevant memories as context for the story concept
    - The concept will prompt for additional details if needed
 
 3. **Read Story Output**
-   - Use `zen_story_get` with the story ID to retrieve the story
+   - Use `dragonfly_story_get` with the story ID to retrieve the story
    - Check the status field
 
 4. **Evaluate Synchronizations Automatically**
@@ -54,9 +54,9 @@ Recall relevant memories (fast, ~5ms cached)
   ↓
 Display relevant context (if any)
   ↓
-Invoke Story concept (Sonnet) with memory context
+Invoke Story concept (Opus) with memory context
   ↓
-Story saved via zen_story_save
+Story saved via dragonfly_story_save
   ↓
 Read story output and sync rules
   ↓
@@ -64,7 +64,7 @@ Evaluate story-to-arch rule
   ↓ (if matched)
 Ask user: Continue with architecture? (y/n)
   ↓ (if yes)
-Invoke Architecture concept (Sonnet)
+Invoke Architecture concept (Opus)
   ↓
 Auto-remember architecture decisions
   ↓
@@ -94,7 +94,7 @@ These will be included as context for story capture.
 Phase 1: Story Capture
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-[Invoke Task tool → story concept → model: sonnet]
+[Invoke Task tool → story concept → model: opus]
 
 ✓ Story created: story-042
   Status: ready
@@ -106,7 +106,7 @@ Evaluating synchronizations...
 
 ✓ Matched rule: story-to-arch
   Condition: status=='ready' AND criteria.length>0
-  Next step: architecture.design (Sonnet, ~$0.015)
+  Next step: architecture.design (Opus, ~$0.015)
 
 Continue with architecture design? (y/n)
 
@@ -116,7 +116,7 @@ User: y
 Phase 2: Architecture Design
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-[Invoke Task tool → architecture concept → model: sonnet]
+[Invoke Task tool → architecture concept → model: opus]
 
 ✓ Architecture created: arch-042
   Approach: OAuth2 with Passport.js
@@ -131,7 +131,7 @@ Phase 2: Architecture Design
 Evaluating synchronizations...
 
 ✓ Matched rule: arch-to-impl
-  Next step: implementation.generate (Sonnet, ~$0.000175)
+  Next step: implementation.generate (Opus, ~$0.000175)
 
 Continue with implementation? (y/n)
 
@@ -150,7 +150,7 @@ User: /feature "Add dark mode support"
 
 You: I'll create a new feature story.
 
-[Invoke Task tool → story concept → model: sonnet]
+[Invoke Task tool → story concept → model: opus]
 
 ✓ Story created: story-001
   Status: ready
@@ -160,7 +160,7 @@ You: I'll create a new feature story.
 Evaluating synchronizations...
 
 ✓ Matched rule: story-to-arch
-  Next step: architecture.design (Sonnet, ~$0.015)
+  Next step: architecture.design (Opus, ~$0.015)
 
 Continue with architecture design? (y/n)
 

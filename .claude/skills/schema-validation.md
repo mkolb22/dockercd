@@ -3,7 +3,7 @@ name: Schema Validation
 description: Validate concept outputs against JSON schemas for early error detection
 version: 1.0.0
 trigger_keywords: [schema, validation, validate, format, output, json schema]
-author: Zen Architecture
+author: Dragonfly Architecture
 ---
 
 # Schema Validation - Expert Skill
@@ -44,7 +44,7 @@ Use schema validation:
 Create the YAML output as usual:
 
 ```yaml
-# koan/stories/story-001.yaml
+# data/stories/story-001.yaml
 story_id: "story-001"
 status: "ready"
 summary: "Add OAuth - ready, 5 criteria, 0 ambiguities"
@@ -62,7 +62,7 @@ details:
 Use the validation script:
 
 ```bash
-./scripts/validate-concept-output.sh story koan/stories/story-001.yaml
+./scripts/validate-concept-output.sh story data/stories/story-001.yaml
 ```
 
 ### 3. Handle Results
@@ -164,7 +164,7 @@ Add validation step to all concept templates:
 
 1. **Save to temporary file**
    ```yaml
-   temp_file = "koan/stories/.story-001.tmp.yaml"
+   temp_file = "data/stories/.story-001.tmp.yaml"
    ```
 
 2. **Validate output**
@@ -178,7 +178,7 @@ Add validation step to all concept templates:
 
 3. **Move to final location**
    ```bash
-   mv "$temp_file" "koan/stories/story-001.yaml"
+   mv "$temp_file" "data/stories/story-001.yaml"
    echo "✅ Story created and validated: story-001"
    ```
 ```
@@ -313,8 +313,8 @@ npm install -g ajv-cli
 ## Related Documents
 
 - **schemas/README.md** - Complete schema documentation
-- **ZEN_IMPLEMENTATION_PHASES.md** - Day 6-7 implementation
-- **ZEN_IMPROVEMENT_PROPOSALS.md** - Proposal #6
+- **DRAGONFLY_IMPLEMENTATION_PHASES.md** - Day 6-7 implementation
+- **DRAGONFLY_IMPROVEMENT_PROPOSALS.md** - Proposal #6
 
 ---
 

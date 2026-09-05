@@ -29,7 +29,7 @@ Remove memories from semantic storage.
 When invoked, I:
 
 1. Parse the arguments to determine what to forget
-2. Find matching memories in `koan/memory/`
+2. Find matching memories in `data/memory/`
 3. If `--dry-run`, show what would be removed
 4. Otherwise, remove the matching memories
 5. Log the removal in provenance
@@ -86,10 +86,10 @@ Memories are stored in:
 
 | Category | Location |
 |----------|----------|
-| Architecture | `koan/memory/semantic/architecture.yaml` |
-| Patterns | `koan/memory/semantic/patterns.yaml` |
-| Preferences | `koan/memory/semantic/preferences.yaml` |
-| Conventions | `koan/memory/semantic/conventions.yaml` |
+| Architecture | `data/memory/semantic/architecture.yaml` |
+| Patterns | `data/memory/semantic/patterns.yaml` |
+| Preferences | `data/memory/semantic/preferences.yaml` |
+| Conventions | `data/memory/semantic/conventions.yaml` |
 
 ## Safety
 

@@ -56,6 +56,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [ -z "${DOCKERCD_API_TOKEN:-}" ] || [ "${#DOCKERCD_API_TOKEN}" -lt 32 ]; then
+  echo "DOCKERCD_API_TOKEN must be set to a random value of at least 32 characters."
+  echo "For example: export DOCKERCD_API_TOKEN=\"\$(openssl rand -base64 48)\""
+  exit 1
+fi
+export DOCKERCD_API_TOKEN
+
 # --- Helper Functions ---------------------------------------------------------
 
 log_info()  { echo -e "${BLUE}[INFO]${NC}  $*"; }
@@ -75,7 +82,9 @@ register_app() {
   local automated="${6:-true}"
 
   local status_code
-  status_code=$(curl -s -o /dev/null -w "%{http_code}" "${DOCKERCD_API}/applications/${name}")
+  status_code=$(curl -s -o /dev/null -w "%{http_code}" \
+    -H "Authorization: Bearer ${DOCKERCD_API_TOKEN}" \
+    "${DOCKERCD_API}/applications/${name}")
   if [ "$status_code" = "200" ]; then
     log_ok "Application '${name}' already registered"
     return 0
@@ -118,6 +127,7 @@ EOF
 
   local resp
   resp=$(curl -s -w "\n%{http_code}" -X POST "${DOCKERCD_API}/applications" \
+    -H "Authorization: Bearer ${DOCKERCD_API_TOKEN}" \
     -H "Content-Type: application/json" \
     -d "$payload")
 
@@ -169,7 +179,9 @@ check_port() {
 sync_app() {
   local name="$1"
   local resp
-  resp=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${DOCKERCD_API}/applications/${name}/sync")
+  resp=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+    -H "Authorization: Bearer ${DOCKERCD_API_TOKEN}" \
+    "${DOCKERCD_API}/applications/${name}/sync")
   if [ "$resp" = "200" ] || [ "$resp" = "202" ]; then
     log_ok "Triggered sync for '${name}'"
   else

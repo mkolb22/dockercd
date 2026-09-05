@@ -2,7 +2,7 @@
 name: Branch Strategy
 description: Git branching strategies and workflow patterns
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - version-concept
 trigger_keywords:

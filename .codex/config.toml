@@ -1,0 +1,6 @@
+# Repository-local Codex configuration. This file is loaded only for trusted
+# projects. Authentication, provider selection, notification, and telemetry
+# settings remain user- or organization-managed and must not be committed here.
+
+# Keep enough room for the root AGENTS.md and future narrowly scoped guidance.
+project_doc_max_bytes = 32768

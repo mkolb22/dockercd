@@ -132,7 +132,7 @@ No hidden logic - what you see is what it does.
 ## Logging
 
 Classifications are logged to:
-- `koan/routing/history.yaml` - All classification decisions
-- `koan/routing/classification-{id}.yaml` - Individual classification details
+- `data/routing/history.yaml` - All classification decisions
+- `data/routing/classification-{id}.yaml` - Individual classification details
 
 This enables analysis of classification accuracy and workflow efficiency.

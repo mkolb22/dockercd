@@ -2,7 +2,7 @@
 name: debate-critic
 type: debate
 execution: task-tool
-model: sonnet
+model: opus
 color: red
 description: Critic Agent - Challenges assumptions and identifies weaknesses in architectural proposals
 tools: "*"

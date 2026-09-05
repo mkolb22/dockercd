@@ -39,18 +39,21 @@ func StringPtr(s string) *string { return &s }
 
 // SyncRecord is the database representation of a sync attempt.
 type SyncRecord struct {
-	ID              string     `json:"id"`
-	AppName         string     `json:"appName"`
-	StartedAt       time.Time  `json:"startedAt"`
-	FinishedAt      *time.Time `json:"finishedAt,omitempty"`
-	CommitSHA       string     `json:"commitSHA,omitempty"`
-	Operation       string     `json:"operation"`
-	Result          string     `json:"result"`
-	DiffJSON        string     `json:"diffJson,omitempty"`
-	ComposeSpecJSON string     `json:"composeSpecJson,omitempty"`
-	Error           string     `json:"error,omitempty"`
-	DurationMs      int64      `json:"durationMs,omitempty"`
-	CreatedAt       time.Time  `json:"createdAt"`
+	ID         string     `json:"id"`
+	AppName    string     `json:"appName"`
+	StartedAt  time.Time  `json:"startedAt"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+	CommitSHA  string     `json:"commitSHA,omitempty"`
+	Operation  string     `json:"operation"`
+	Result     string     `json:"result"`
+	DiffJSON   string     `json:"diffJson,omitempty"`
+	// ComposeSpecJSON is retained only for database compatibility. It must not
+	// be written or returned because resolved Compose environments can contain
+	// secrets.
+	ComposeSpecJSON string    `json:"-"`
+	Error           string    `json:"error,omitempty"`
+	DurationMs      int64     `json:"durationMs,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
 }
 
 // EventRecord is the database representation of an application event.

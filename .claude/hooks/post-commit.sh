@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zen Post-Commit Hook
+# Dragonfly Post-Commit Hook
 #
 # Called after version.commit completes successfully.
 # Logs commit data to SQLite events.
@@ -26,10 +26,10 @@ if [ "$COMMIT_HASH" != "unknown" ]; then
 fi
 
 # Log commit to SQLite
-if zen_state_available; then
+if dragonfly_state_available; then
   # Escape commit message for JSON (replace quotes and newlines)
   SAFE_MSG=$(echo "$COMMIT_MSG" | tr '"' "'" | tr '\n' ' ')
-  zen_event_log "commit-$(date +%s)" "git_commit" "{\"story_id\":\"$STORY_ID\",\"commit_hash\":\"$COMMIT_HASH\",\"flow_id\":\"$FLOW_ID\",\"message\":\"$SAFE_MSG\"}" || true
+  dragonfly_event_log "commit-$(date +%s)" "git_commit" "{\"story_id\":\"$STORY_ID\",\"commit_hash\":\"$COMMIT_HASH\",\"flow_id\":\"$FLOW_ID\",\"message\":\"$SAFE_MSG\"}" || true
 fi
 
 # Output for hook runner

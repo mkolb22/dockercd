@@ -30,6 +30,7 @@ import (
 const (
 	defaultSyncTimeout   = 300 * time.Second
 	resultPersistTimeout = 10 * time.Second
+	queueRetryInterval   = time.Second
 )
 
 // Reconciler orchestrates the reconciliation loop for all applications.
@@ -106,6 +107,7 @@ type ReconcilerImpl struct {
 
 	// Scheduling
 	schedule   map[string]time.Time
+	queued     map[string]bool
 	scheduleMu sync.RWMutex
 	trigger    chan string
 
@@ -137,6 +139,7 @@ func New(deps Deps) *ReconcilerImpl {
 		workQueue: make(chan string, workers*2),
 		workers:   workers,
 		schedule:  make(map[string]time.Time),
+		queued:    make(map[string]bool),
 		trigger:   make(chan string, 16),
 		logger:    deps.Logger,
 	}
@@ -499,13 +502,6 @@ func (r *ReconcilerImpl) reconcileApp(ctx context.Context, appName string, force
 
 	result.CommitSHA = headSHA
 
-	// Serialize compose spec for rollback snapshots
-	if composeSpec != nil {
-		if specJSON, err := json.Marshal(composeSpec); err == nil {
-			result.ComposeSpecJSON = string(specJSON)
-		}
-	}
-
 	// computeDiff returns nil diffResult when change detection skips (no SHA change)
 	if diffResult == nil {
 		return r.finishResult(opCtx, result, app.SyncResultSkipped, "", logger)
@@ -746,19 +742,18 @@ func (r *ReconcilerImpl) finishResult(ctx context.Context, result *app.SyncResul
 
 	// Record sync history
 	syncRec := &store.SyncRecord{
-		AppName:         result.AppName,
-		StartedAt:       result.StartedAt,
-		FinishedAt:      &result.FinishedAt,
-		CommitSHA:       result.CommitSHA,
-		Operation:       string(result.Operation),
-		Result:          string(result.Result),
-		Error:           result.Error,
-		DurationMs:      result.DurationMs,
-		ComposeSpecJSON: result.ComposeSpecJSON,
+		AppName:    result.AppName,
+		StartedAt:  result.StartedAt,
+		FinishedAt: &result.FinishedAt,
+		CommitSHA:  result.CommitSHA,
+		Operation:  string(result.Operation),
+		Result:     string(result.Result),
+		Error:      result.Error,
+		DurationMs: result.DurationMs,
 	}
 
 	if result.Diff != nil {
-		if diffJSON, err := json.Marshal(result.Diff); err == nil {
+		if diffJSON, err := json.Marshal(app.RedactDiff(result.Diff)); err == nil {
 			syncRec.DiffJSON = string(diffJSON)
 		}
 	}
@@ -1086,14 +1081,6 @@ func (r *ReconcilerImpl) Rollback(ctx context.Context, appName string, targetSHA
 			LastError:    store.StringPtr(fmt.Sprintf("rollback deploy error: %v", errMsg)),
 		})
 		return r.finishResult(opCtx, result, app.SyncResultFailure, fmt.Sprintf("deploy error: %v", errMsg), logger)
-	}
-
-	// Prefer the target sync snapshot for audit continuity, but fall back to
-	// the freshly parsed target state if the older record did not include one.
-	if syncRec.ComposeSpecJSON != "" {
-		result.ComposeSpecJSON = syncRec.ComposeSpecJSON
-	} else if specJSON, err := json.Marshal(composeSpec); err == nil {
-		result.ComposeSpecJSON = string(specJSON)
 	}
 
 	now := time.Now()

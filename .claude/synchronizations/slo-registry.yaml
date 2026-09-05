@@ -1,0 +1,229 @@
+# SLO Registry - Central definitions for all workflow SLOs
+# Consolidates 186 duplicate SLO definitions across 20 sync files
+#
+# Usage in sync rules: @slo:architecture, @slo:quick, etc.
+
+version: "1.0.0"
+
+# Default SLO (fallback when no profile specified)
+defaults:
+  expected_duration_ms: 5000
+  max_duration_ms: 60000
+  expected_cost_usd: 0.002
+  max_cost_usd: 0.02
+  expected_context_tokens: 1500
+  success_rate_target: 0.95
+  on_timeout:
+    action: retry
+    max_retries: 1
+    backoff_ms: 2000
+    on_exhausted: escalate
+  on_cost_exceeded:
+    action: alert
+    continue: true
+
+# Named SLO profiles
+slos:
+  # Architecture design with Opus (deep reasoning)
+  architecture:
+    expected_duration_ms: 15000
+    max_duration_ms: 90000
+    expected_cost_usd: 0.015
+    max_cost_usd: 0.050
+    expected_context_tokens: 1500
+    success_rate_target: 0.95
+    on_timeout:
+      action: retry
+      max_retries: 1
+      backoff_ms: 2000
+      on_exhausted: escalate
+    on_cost_exceeded:
+      action: alert
+      continue: true
+
+  # Verification passes (Opus reasoning)
+  verification:
+    expected_duration_ms: 12000
+    max_duration_ms: 60000
+    expected_cost_usd: 0.003
+    max_cost_usd: 0.015
+    expected_context_tokens: 2500
+    success_rate_target: 0.95
+    on_timeout:
+      action: skip
+      fallback: "Proceed without verification"
+
+  # Implementation generation (Opus)
+  implementation:
+    expected_duration_ms: 3000
+    max_duration_ms: 30000
+    expected_cost_usd: 0.000175
+    max_cost_usd: 0.001
+    expected_context_tokens: 1000
+    success_rate_target: 0.90
+    on_timeout:
+      action: retry
+      max_retries: 1
+      backoff_ms: 1000
+      on_exhausted: escalate
+
+  # Quality review/test (Opus)
+  quality:
+    expected_duration_ms: 2500
+    max_duration_ms: 20000
+    expected_cost_usd: 0.000175
+    max_cost_usd: 0.001
+    expected_context_tokens: 800
+    success_rate_target: 0.95
+    on_timeout:
+      action: retry
+      max_retries: 1
+      backoff_ms: 1000
+      on_exhausted: escalate
+
+  # Quick operations (commit, context inject, etc.)
+  quick:
+    expected_duration_ms: 1000
+    max_duration_ms: 10000
+    expected_cost_usd: 0.000175
+    max_cost_usd: 0.0005
+    expected_context_tokens: 300
+    success_rate_target: 0.99
+    on_timeout:
+      action: retry
+      max_retries: 2
+      backoff_ms: 500
+      on_exhausted: escalate
+
+  # Context operations (compression, snapshot)
+  context:
+    expected_duration_ms: 1500
+    max_duration_ms: 10000
+    expected_cost_usd: 0.000175
+    max_cost_usd: 0.0005
+    expected_context_tokens: 500
+    success_rate_target: 0.99
+    on_timeout:
+      action: escalate
+
+  # MCP-based code analysis
+  mcp:
+    expected_duration_ms: 2000
+    max_duration_ms: 10000
+    expected_cost_usd: 0.0002
+    max_cost_usd: 0.001
+    expected_context_tokens: 500
+    success_rate_target: 0.90
+    on_timeout:
+      action: skip
+      fallback: "Proceed without MCP analysis"
+    on_mcp_unavailable:
+      action: skip
+      fallback: "MCP server unavailable"
+
+  # Zero-cost operations (inject context, set flag)
+  zero:
+    expected_duration_ms: 100
+    max_duration_ms: 500
+    expected_cost_usd: 0.0
+    max_cost_usd: 0.0
+    expected_context_tokens: 200
+    on_timeout:
+      action: skip
+      fallback: "Proceed without context"
+
+  # Test generation via MCP
+  test_generation:
+    expected_duration_ms: 5000
+    max_duration_ms: 30000
+    expected_cost_usd: 0.0005
+    max_cost_usd: 0.002
+    expected_context_tokens: 800
+    success_rate_target: 0.90
+    on_timeout:
+      action: skip
+      fallback: "Proceed without auto-generated tests"
+    on_mcp_unavailable:
+      action: skip
+      fallback: "MCP server unavailable - manual test creation needed"
+
+  # Execution loop / self-repair via MCP
+  execution_loop:
+    expected_duration_ms: 15000
+    max_duration_ms: 120000
+    expected_cost_usd: 0.001
+    max_cost_usd: 0.005
+    expected_context_tokens: 1500
+    success_rate_target: 0.85
+    on_timeout:
+      action: escalate
+      message: "Self-repair loop exceeded timeout"
+    on_mcp_unavailable:
+      action: fallback
+      fallback_rule: "quality-tests-failed"
+
+  # Coverage analysis via MCP
+  coverage:
+    expected_duration_ms: 3000
+    max_duration_ms: 20000
+    expected_cost_usd: 0.0002
+    max_cost_usd: 0.001
+    expected_context_tokens: 500
+    success_rate_target: 0.95
+    on_timeout:
+      action: skip
+      fallback: "Proceed without coverage analysis"
+
+  # Security scanning
+  security:
+    expected_duration_ms: 8000
+    max_duration_ms: 45000
+    expected_cost_usd: 0.002
+    max_cost_usd: 0.01
+    expected_context_tokens: 1200
+    success_rate_target: 0.95
+    on_timeout:
+      action: retry
+      max_retries: 1
+      backoff_ms: 2000
+      on_exhausted: escalate
+
+  # Documentation generation
+  documentation:
+    expected_duration_ms: 2000
+    max_duration_ms: 15000
+    expected_cost_usd: 0.0005
+    max_cost_usd: 0.002
+    expected_context_tokens: 600
+    success_rate_target: 0.95
+    on_timeout:
+      action: skip
+      fallback: "Proceed without documentation"
+
+# Workflow profiles (combine SLOs for common patterns)
+profiles:
+  standard:
+    story: quick
+    code-analysis: mcp
+    security: security
+    architecture: architecture
+    verification: verification
+    implementation: implementation
+    quality: quality
+    version: quick
+
+  fast:
+    story: quick
+    implementation: quick
+    quality: quick
+    version: quick
+
+  thorough:
+    story: quick
+    code-analysis: mcp
+    security: security
+    architecture: architecture
+    verification: verification  # Will run 2 passes
+    implementation: implementation
+    quality: quality
+    version: quick

@@ -2,7 +2,7 @@
 name: Smart Summarization
 description: Intelligent context summarization preserving key information while reducing token usage
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - context-concept
 trigger_keywords:

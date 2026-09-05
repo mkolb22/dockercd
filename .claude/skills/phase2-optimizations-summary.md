@@ -3,7 +3,7 @@ name: Phase 2 Optimizations Summary
 description: Complete guide to all Phase 2 optimizations and how to use them together
 version: 1.0.0
 trigger_keywords: [phase2, optimizations, summary, guide, integration]
-author: Zen Architecture
+author: Dragonfly Architecture
 ---
 
 # Phase 2 Optimizations Summary
@@ -30,7 +30,7 @@ Complete reference for all Phase 2 advanced optimizations and their combined imp
 story = retry_with_backoff(
     lambda: create_story(requirements)
 )
-# Cost: $0.002 (Sonnet)
+# Cost: $0.002 (Opus)
 # Time: 2min (or 6sec on retry)
 
 # 2. Architecture with incremental loading
@@ -38,7 +38,7 @@ architecture = create_architecture(story_id)
   # Stage 1: Overview existing code (100 tokens)
   # Stage 2: Find similar patterns (400 tokens)
   # Stage 3: Read specific files (5K tokens IF needed)
-# Cost: $0.003 (Sonnet, 99% reduction from baseline)
+# Cost: $0.003 (Opus, 99% reduction from baseline)
 # Time: 3min (down from 8min with full context)
 
 # 3. Cache architecture output
@@ -49,7 +49,7 @@ cache["arch-042"] = architecture
 impl = create_implementation(arch_id="arch-042")
   # Gets architecture from cache (5ms)
   # Uses incremental loading for codebase
-# Cost: $0.003 (Sonnet)
+# Cost: $0.003 (Opus)
 # Time: 3min
 
 # 5. Quality checks in parallel + batch
@@ -232,7 +232,7 @@ Start: Need to process concept
 
 ```bash
 # Test incremental loading
-cd koan
+cd data
 
 # Create feature requiring architecture
 /feature "Add complex OAuth flow"
@@ -303,7 +303,7 @@ done
 
 ```bash
 # Full workflow test
-cd koan
+cd data
 
 # Create 5 features
 /workflow "Add OAuth"
@@ -335,13 +335,13 @@ time /sync --execute
 mcp__serena__get_symbols_overview --help
 
 # Check concept templates updated
-grep "incremental" zen/templates/concepts/architecture.md.template
+grep "incremental" dragonfly/templates/concepts/architecture.md.template
 ```
 
 **Fix**:
 ```bash
-# Update zen submodule
-cd .zen && git pull origin main
+# Update dragonfly submodule
+cd .dragonfly && git pull origin main
 ./install.sh
 ```
 
@@ -450,8 +450,8 @@ After migration, verify:
 - **Output Caching** - Phase 2 Day 4-5
 - **Batch Processing** - Phase 2 Day 6-7
 - **Smart Retry** - Phase 2 Day 8-10
-- **ZEN_PHASE2_PROGRESS.md** - Implementation tracking
-- **ZEN_IMPROVEMENT_PROPOSALS.md** - All 12 proposals
+- **DRAGONFLY_PHASE2_PROGRESS.md** - Implementation tracking
+- **DRAGONFLY_IMPROVEMENT_PROPOSALS.md** - All 12 proposals
 
 ---
 

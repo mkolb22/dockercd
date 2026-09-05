@@ -2,7 +2,7 @@
 name: Code Coverage Analysis
 description: Intelligent coverage analysis with gap identification and prioritized test recommendations
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - quality-concept
 trigger_keywords:
@@ -342,11 +342,11 @@ coverage_commands:
     nyc: "nyc --reporter=json report"
     
   analyze_gaps:
-    command: "zen coverage analyze"
+    command: "dragonfly coverage analyze"
     output: "coverage-gaps.json"
     
   check_threshold:
-    command: "zen coverage check --threshold 80"
+    command: "dragonfly coverage check --threshold 80"
     ci_integration: true
     fail_on_decrease: true
 ```

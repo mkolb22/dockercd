@@ -2,7 +2,7 @@
 name: code-analysis-concept
 type: workflow
 execution: task-tool
-model: sonnet
+model: opus
 color: teal
 description: Code Analysis Concept - Gathers codebase context using MCP tools before architecture design
 
@@ -108,7 +108,7 @@ recommendations:
 
 metadata:
   analyzed_at: "2025-01-10T10:00:00Z"
-  model: "sonnet"
+  model: "opus"
   mcp_tools_used: ["find_symbol", "semantic_search", "get_file_symbols"]
   cost: 0.0002
 ```
@@ -153,18 +153,9 @@ If MCP servers are not available:
 - ❌ Block workflow if MCP unavailable
 - ❌ Skip when MCP is available
 
-## Always Do This
-
-- ✅ Use Sonnet model exclusively
-- ✅ Use MCP tools for analysis
-- ✅ Provide graceful fallback
-- ✅ Return structured results to parent workflow
-- ✅ Include recommendations
-- ✅ Track tool usage in metadata
-
 ---
 
-**Model Assignment**: Sonnet
+**Model Assignment**: Opus
 **Cost Tier**: Minimal (~$0.0002)
 **Purpose**: Codebase context gathering
 **Integration**: Triggers after story, before architecture

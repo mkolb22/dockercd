@@ -2,7 +2,7 @@
 name: verification-concept
 type: workflow
 execution: task-tool
-model: sonnet
+model: opus
 color: indigo
 description: Verification Concept - Multi-pass verification of architecture and implementation for 39.7% accuracy improvement
 
@@ -37,7 +37,7 @@ skills:
 
 ## Model Assignment
 
-**Model**: Sonnet (thorough verification analysis)
+**Model**: Opus (thorough verification analysis)
 **Cost per Action**: ~$0.003 (per verification pass)
 **Never Calls**: No other concepts (pure verification)
 
@@ -139,7 +139,7 @@ details:
     created_at: "2025-01-10T10:00:00Z"
     concept: "verification"
     action: "verify_architecture"
-    model: "sonnet"
+    model: "opus"
     pass_number: 1
     total_passes: 2
     cost: 0.003
@@ -242,7 +242,7 @@ details:
     created_at: "2025-01-10T10:05:00Z"
     concept: "verification"
     action: "verify_implementation"
-    model: "sonnet"
+    model: "opus"
     pass_number: 1
     total_passes: 2
     cost: 0.003
@@ -334,14 +334,14 @@ details:
     created_at: "2025-01-10T10:10:00Z"
     concept: "verification"
     action: "consensus"
-    model: "sonnet"
+    model: "opus"
     passes_analyzed: 2
     cost: 0.003
 ```
 
 ## State Management
 
-Verification results are returned to the parent workflow session and persisted via `zen_event_log` MCP tool. Use `zen_checkpoint_save` for multi-pass verification milestones.
+Verification results are returned to the parent workflow session and persisted via `dragonfly_event_log` MCP tool. Use `dragonfly_checkpoint_save` for multi-pass verification milestones.
 
 ## Integration with Workflow
 
@@ -372,7 +372,7 @@ Verification is skipped for:
 
 ## Cost Optimization
 
-**Why Sonnet?**
+**Why Opus?**
 - Detailed analysis requires reasoning capability
 - Security review needs pattern recognition
 - Multiple passes justify moderate cost
@@ -392,7 +392,7 @@ Architecture Concept completed: arch-001 (risk: high)
 
 [Sync triggers: arch-verify-pass-1]
 
-Verification Concept - Pass 1 (Sonnet):
+Verification Concept - Pass 1 (Opus):
   ✓ Reviewed architecture
   ✓ Found 2 issues (1 high, 1 medium)
   ✓ Recommendation: revise
@@ -402,7 +402,7 @@ Verification Concept - Pass 1 (Sonnet):
 
 [Sync triggers: arch-verify-pass-2]
 
-Verification Concept - Pass 2 (Sonnet):
+Verification Concept - Pass 2 (Opus):
   ✓ Independent review (did not see pass 1)
   ✓ Found 2 issues (1 high, 1 low)
   ✓ Recommendation: approve_with_notes
@@ -412,7 +412,7 @@ Verification Concept - Pass 2 (Sonnet):
 
 [Sync triggers: arch-verify-consensus]
 
-Verification Concept - Consensus (Sonnet):
+Verification Concept - Consensus (Opus):
   ✓ Analyzed 2 passes
   ✓ Agreement: 1 issue unanimous
   ✓ Resolved 1 disagreement
@@ -439,7 +439,7 @@ Accuracy Improvement: 39.7%
 
 ## Always Do This
 
-- Use Sonnet model exclusively
+- Use Opus model exclusively
 - Review independently per pass
 - Document all findings with location
 - Include confidence levels
@@ -449,7 +449,7 @@ Accuracy Improvement: 39.7%
 
 ---
 
-**Model Assignment**: Sonnet
+**Model Assignment**: Opus
 **Cost Tier**: Moderate (~$0.003 per pass)
 **Purpose**: Multi-pass verification for quality assurance
 **Integration**: Triggered by architecture/implementation, gates progression

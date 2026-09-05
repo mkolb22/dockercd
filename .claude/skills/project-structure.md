@@ -1,12 +1,12 @@
 # Project Structure Skill
 
-Expert knowledge for maintaining clean project organization when Zen is used as a submodule or standalone installation.
+Expert knowledge for maintaining clean project organization when Dragonfly is used as a submodule or standalone installation.
 
 ## Core Principle: Separation of Concerns
 
-Zen infrastructure and project code must remain cleanly separated. This ensures:
-- Zen can be updated without affecting project code
-- Project code doesn't pollute Zen state directories
+Dragonfly infrastructure and project code must remain cleanly separated. This ensures:
+- Dragonfly can be updated without affecting project code
+- Project code doesn't pollute Dragonfly state directories
 - Clear boundaries make debugging easier
 - Submodule updates don't cause merge conflicts
 
@@ -14,11 +14,11 @@ Zen infrastructure and project code must remain cleanly separated. This ensures:
 
 ## Directory Boundaries
 
-### Protected Zen Directories (NEVER add project code here)
+### Protected Dragonfly Directories (NEVER add project code here)
 
-#### `koan/` - State Storage Only
+#### `data/` - State Storage Only
 ```
-koan/
+data/*/
 ├── stories/          # ONLY story-*.yaml files
 ├── architecture/     # ONLY arch-*.yaml files
 ├── implementations/  # ONLY impl-*.yaml files (metadata, NOT code)
@@ -30,15 +30,15 @@ koan/
 └── ...               # ALL subdirs: YAML state files only
 ```
 
-**Rules for `koan/`:**
+**Rules for `data/`:**
 - ONLY `.yaml` files allowed
 - NEVER put source code here
 - NEVER put generated code here
 - NEVER put test files here
 - NEVER create new subdirectories for project code
-- This is Zen's "database" - treat it as read-only for project code
+- This is Dragonfly's "database" - treat it as read-only for project code
 
-#### `.claude/` - Zen Configuration Only
+#### `.claude/` - Dragonfly Configuration Only
 ```
 .claude/
 ├── concepts/         # Concept definitions (*.md)
@@ -46,30 +46,30 @@ koan/
 ├── skills/           # Skill definitions (*.md)
 ├── commands/         # Command definitions (*.md)
 ├── synchronizations/ # Sync rules (*.yaml)
-├── hooks/            # Zen hooks (shell scripts)
+├── hooks/            # Dragonfly hooks (shell scripts)
 ├── prompts/          # Prompt templates (*.yaml)
 ├── schemas/          # JSON schemas (*.json)
 ├── examples/         # Example architectures (*.yaml)
-├── config.yaml       # Zen configuration
+├── config.yaml       # Dragonfly configuration
 └── settings.local.json # Claude Code settings
 ```
 
 **Rules for `.claude/`:**
-- ONLY Zen configuration files
+- ONLY Dragonfly configuration files
 - NEVER put project source code here
 - NEVER put project tests here
 - NEVER put project documentation here
 
-#### `.zen/` - Submodule (Read-Only)
+#### `.dragonfly/` - Submodule (Read-Only)
 ```
-.zen/                 # Git submodule - DO NOT MODIFY
+.dragonfly/                 # Git submodule - DO NOT MODIFY
 ├── install.sh
 ├── templates/
 ├── mcp-servers/
 └── docs/
 ```
 
-**Rules for `.zen/`:**
+**Rules for `.dragonfly/`:**
 - NEVER modify files in this directory
 - NEVER add files to this directory
 - Update only via `git submodule update`
@@ -129,9 +129,9 @@ project/
 ├── node_modules/     # Dependencies (gitignored)
 ├── package.json
 ├── tsconfig.json
-├── koan/             # Zen state (YAML only)
-├── .claude/          # Zen config
-└── .zen/             # Zen submodule
+├── data/             # Dragonfly state (YAML only)
+├── .claude/          # Dragonfly config
+└── .dragonfly/             # Dragonfly submodule
 ```
 
 #### Python
@@ -144,9 +144,9 @@ project/
 ├── tests/
 │   └── test_*.py
 ├── pyproject.toml
-├── koan/             # Zen state (YAML only)
-├── .claude/          # Zen config
-└── .zen/             # Zen submodule
+├── data/             # Dragonfly state (YAML only)
+├── .claude/          # Dragonfly config
+└── .dragonfly/             # Dragonfly submodule
 ```
 
 #### Go
@@ -159,9 +159,9 @@ project/
 ├── pkg/              # Public packages
 ├── *_test.go         # Tests alongside code
 ├── go.mod
-├── koan/             # Zen state (YAML only)
-├── .claude/          # Zen config
-└── .zen/             # Zen submodule
+├── data/             # Dragonfly state (YAML only)
+├── .claude/          # Dragonfly config
+└── .dragonfly/             # Dragonfly submodule
 ```
 
 #### Rust
@@ -173,9 +173,9 @@ project/
 ├── tests/            # Integration tests
 ├── benches/          # Benchmarks
 ├── Cargo.toml
-├── koan/             # Zen state (YAML only)
-├── .claude/          # Zen config
-└── .zen/             # Zen submodule
+├── data/             # Dragonfly state (YAML only)
+├── .claude/          # Dragonfly config
+└── .dragonfly/             # Dragonfly submodule
 ```
 
 ---
@@ -185,11 +185,11 @@ project/
 When creating a new file, follow this decision tree:
 
 ```
-Is it a Zen state file (story, arch, impl metadata, review)?
-  YES → koan/{appropriate-subdir}/*.yaml
+Is it a Dragonfly state file (story, arch, impl metadata, review)?
+  YES → data/{appropriate-subdir}/*.yaml
   NO  ↓
 
-Is it Zen configuration (concept, agent, skill, sync)?
+Is it Dragonfly configuration (concept, agent, skill, sync)?
   YES → .claude/{appropriate-subdir}/*
   NO  ↓
 
@@ -205,32 +205,32 @@ Is it a test file?
 
 Is it documentation?
   YES → docs/ (project docs) or README.md
-        NEVER .claude/ or koan/
+        NEVER .claude/ or data/
   NO  ↓
 
 Is it configuration?
   YES → Project root (package.json, tsconfig, etc.)
-        NEVER koan/ or .claude/
+        NEVER data/ or .claude/
   NO  ↓
 
 Is it a build artifact?
   YES → dist/, build/, target/ (should be gitignored)
-        NEVER koan/ or .claude/
+        NEVER data/ or .claude/
 ```
 
 ---
 
 ## Anti-Patterns to Avoid
 
-### 1. Code in koan/
+### 1. Code in data/
 ```yaml
 # WRONG - Never do this
-koan/
+data/*/
 ├── implementations/
 │   └── auth.ts          # NO! This is source code
 
 # CORRECT
-koan/
+data/*/
 ├── implementations/
 │   └── impl-001.yaml    # Metadata about implementation
 
@@ -253,30 +253,30 @@ src/
 
 ### 3. Generated Code in Wrong Location
 ```yaml
-# WRONG - Generating code inside Zen directories
-Write file: koan/implementations/oauth-controller.ts
+# WRONG - Generating code inside Dragonfly directories
+Write file: data/implementations/oauth-controller.ts
 
 # CORRECT - Generate in project source directory
 Write file: src/controllers/oauth-controller.ts
 # Then record metadata in:
-Write file: koan/implementations/impl-001.yaml
+Write file: data/implementations/impl-001.yaml
 ```
 
-### 4. Modifying .zen/ Submodule
+### 4. Modifying .dragonfly/ Submodule
 ```yaml
 # WRONG - Never modify the submodule
-Edit: .zen/templates/agents/story-concept.md
+Edit: templates/agents/story-concept.md
 
 # CORRECT - Override in project's .claude/
 Edit: .claude/agents/story-concept.md
 ```
 
-### 5. Creating New Directories in koan/
+### 5. Creating New Directories in data/
 ```yaml
 # WRONG - Don't create arbitrary directories
-mkdir: koan/my-feature-code/
+mkdir: data/my-feature-code/
 
-# CORRECT - Only use predefined koan/ subdirectories
+# CORRECT - Only use predefined data/ subdirectories
 # If new state type needed, it should be YAML files only
 ```
 
@@ -286,10 +286,10 @@ mkdir: koan/my-feature-code/
 
 Before completing any file operation, verify:
 
-- [ ] Source code is NOT in `koan/`, `.claude/`, or `.zen/`
-- [ ] Test files are NOT in `koan/`, `.claude/`, or `.zen/`
-- [ ] Only `.yaml` files are being written to `koan/`
-- [ ] `.zen/` directory is not being modified
+- [ ] Source code is NOT in `data/`, `.claude/`, or `.dragonfly/`
+- [ ] Test files are NOT in `data/`, `.claude/`, or `.dragonfly/`
+- [ ] Only `.yaml` files are being written to `data/`
+- [ ] `.dragonfly/` directory is not being modified
 - [ ] New files follow project's existing structure patterns
 - [ ] Generated code goes to appropriate `src/` or equivalent directory
 
@@ -297,14 +297,14 @@ Before completing any file operation, verify:
 
 ## Recovery Procedures
 
-### If Code Was Added to koan/
+### If Code Was Added to data/
 
 ```bash
 # 1. Identify misplaced files
-find koan/ -type f ! -name "*.yaml" ! -name "*.md"
+find data/ -type f ! -name "*.yaml" ! -name "*.md"
 
 # 2. Move to correct location
-mv koan/implementations/auth.ts src/auth.ts
+mv data/implementations/auth.ts src/auth.ts
 
 # 3. Update any references
 # 4. Commit the fix
@@ -330,7 +330,7 @@ mv .claude/my-code.ts src/my-code.ts
 ### Architecture Concept
 When designing file structure:
 - Recommend directories that follow project conventions
-- Never suggest placing code in Zen directories
+- Never suggest placing code in Dragonfly directories
 - Document intended file locations in arch-*.yaml
 
 ### Implementation Concept
@@ -338,12 +338,12 @@ When generating code:
 - ALWAYS check project structure first
 - Place source files in detected/standard src/ directories
 - Place tests in detected/standard test/ directories
-- Record metadata (not code) in koan/implementations/
+- Record metadata (not code) in data/implementations/
 
 ### Quality Concept
 When reviewing:
 - Verify files are in correct locations
-- Flag any code in koan/, .claude/, or .zen/
+- Flag any code in data/, .claude/, or .dragonfly/
 - Check for structure anti-patterns
 
 ---
@@ -352,21 +352,21 @@ When reviewing:
 
 | File Type | Correct Location | NEVER Here |
 |-----------|-----------------|------------|
-| Source code | `src/`, `lib/`, `app/` | `koan/`, `.claude/`, `.zen/` |
-| Tests | `tests/`, `test/`, `__tests__/` | `koan/`, `.claude/`, `.zen/` |
-| Zen state | `koan/**/*.yaml` | anywhere else |
-| Zen config | `.claude/` | `koan/`, `.zen/`, `src/` |
-| Documentation | `docs/`, `README.md` | `koan/`, `.claude/` |
-| Build artifacts | `dist/`, `build/` | `koan/`, `.claude/`, `.zen/` |
+| Source code | `src/`, `lib/`, `app/` | `data/`, `.claude/`, `.dragonfly/` |
+| Tests | `tests/`, `test/`, `__tests__/` | `data/`, `.claude/`, `.dragonfly/` |
+| Dragonfly state | `data/*/**/*.yaml` | anywhere else |
+| Dragonfly config | `.claude/` | `data/`, `.dragonfly/`, `src/` |
+| Documentation | `docs/`, `README.md` | `data/`, `.claude/` |
+| Build artifacts | `dist/`, `build/` | `data/`, `.claude/`, `.dragonfly/` |
 
 ---
 
 ## Summary
 
-**Golden Rule**: Zen directories (`koan/`, `.claude/`, `.zen/`) are for Zen. Project code belongs in project directories (`src/`, `tests/`, `docs/`, etc.).
+**Golden Rule**: Dragonfly directories (`data/`, `.claude/`, `.dragonfly/`) are for Dragonfly. Project code belongs in project directories (`src/`, `tests/`, `docs/`, etc.).
 
 When in doubt:
 1. Check existing project structure
 2. Follow established conventions
-3. Keep Zen and project code completely separate
-4. Only YAML state files go in `koan/`
+3. Keep Dragonfly and project code completely separate
+4. Only YAML state files go in `data/`

@@ -37,7 +37,7 @@ Extract:
 ### 2. Generate Memory Entry
 
 ```yaml
-# koan/memory/semantic/{category}.yaml
+# data/memory/semantic/{category}.yaml
 - id: "mem-{timestamp}"
   type: semantic
   category: "{category}"
@@ -51,7 +51,7 @@ Extract:
 
 ### 3. Update Memory Index
 
-Add entry to `koan/memory/index.yaml`:
+Add entry to `data/memory/index.yaml`:
 - Increment total count
 - Add to tag index
 - Add to recent additions

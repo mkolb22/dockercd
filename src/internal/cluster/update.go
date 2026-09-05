@@ -107,7 +107,7 @@ func (n *ClusterNode) RollingUpdate(ctx context.Context, cli *client.Client, myC
 
 	// Step 2: Tell the peer to promote (become active)
 	n.logger.Info("step 2: promoting peer to active")
-	resp, err := sendMessage(n.config.PeerAddr, MsgPromote, n.config.NodeID)
+	resp, err := n.sendMessage(MsgPromote)
 	if err != nil {
 		return fmt.Errorf("requesting peer promotion: %w", err)
 	}
@@ -141,7 +141,7 @@ func (n *ClusterNode) waitForPeerHealth(ctx context.Context) error {
 		case <-deadline:
 			return fmt.Errorf("peer did not become healthy within %s", healthCheckTimeout)
 		case <-ticker.C:
-			_, err := sendMessage(n.config.PeerAddr, MsgStatus, n.config.NodeID)
+			_, err := n.sendMessage(MsgStatus)
 			if err == nil {
 				return nil
 			}

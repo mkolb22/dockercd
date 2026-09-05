@@ -87,7 +87,7 @@ Workflow Optimizations:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Profile saved to: koan/profile.yaml
+Profile saved to: data/profile.yaml
 ```
 
 ## Recommendations
@@ -125,11 +125,11 @@ Workflow Suggestions:
 
 ## Storage
 
-Profile stored at: `koan/profile.yaml`
+Profile stored at: `data/profile.yaml`
 
 ## Integration
 
-Profile auto-triggers on first Zen install if not exists.
+Profile auto-triggers on first Dragonfly install if not exists.
 Profile informs:
 - Task classification weights
 - Architecture phase behavior
@@ -139,4 +139,4 @@ Profile informs:
 
 All detection rules and optimizations are visible in:
 - `.claude/concepts/project-profile.md`
-- `koan/profile.yaml` (actual detected values)
+- `data/profile.yaml` (actual detected values)

@@ -29,6 +29,7 @@ type Handler struct {
 	eventWatcher  *events.Watcher
 	webhookSecret string
 	apiToken      string
+	hostStats     *hostStatsCache
 }
 
 // Healthz is the liveness probe.
@@ -203,6 +204,11 @@ func (h *Handler) ListApplications(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "listing applications: "+err.Error(), CodeInternalError)
 		return
 	}
+	history, err := h.store.ListRecentSyncHistory(r.Context(), 5)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "listing recent sync history: "+err.Error(), CodeInternalError)
+		return
+	}
 
 	items := make([]ApplicationResponse, 0, len(apps))
 	for _, a := range apps {
@@ -211,6 +217,7 @@ func (h *Handler) ListApplications(w http.ResponseWriter, r *http.Request) {
 			h.logger.Error("failed to build app response", "app", a.Name, "error", err)
 			continue
 		}
+		resp.RecentHistory = history[a.Name]
 		items = append(items, resp)
 	}
 
@@ -267,7 +274,7 @@ func (h *Handler) SyncApplication(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "dry-run failed: "+err.Error(), CodeInternalError)
 			return
 		}
-		writeJSON(w, http.StatusOK, DryRunResponse{Diff: diff, HeadSHA: headSHA})
+		writeJSON(w, http.StatusOK, DryRunResponse{Diff: app.RedactDiff(diff), HeadSHA: headSHA})
 		return
 	}
 
@@ -276,14 +283,14 @@ func (h *Handler) SyncApplication(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// The result still contains useful info even on error
 		if result != nil {
-			writeJSON(w, http.StatusOK, result)
+			writeJSON(w, http.StatusOK, app.RedactSyncResult(result))
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "sync failed: "+err.Error(), CodeInternalError)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, app.RedactSyncResult(result))
 }
 
 // DiffApplication computes and returns the current diff for an application.
@@ -305,7 +312,7 @@ func (h *Handler) DiffApplication(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "diff failed: "+err.Error(), CodeInternalError)
 		return
 	}
-	writeJSON(w, http.StatusOK, diff)
+	writeJSON(w, http.StatusOK, app.RedactDiff(diff))
 }
 
 // GetRenderedDesired returns the parsed desired compose state from Git without
@@ -331,7 +338,7 @@ func (h *Handler) GetRenderedDesired(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, RenderedDesiredResponse{
 		AppName: name,
 		HeadSHA: headSHA,
-		Compose: compose,
+		Compose: app.RedactComposeSpec(compose),
 	})
 }
 
@@ -398,7 +405,7 @@ func (h *Handler) GetHostStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := h.inspector.HostStats(r.Context(), "")
+	stats, err := h.hostStats.get(r.Context(), h.inspector)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "getting host stats: "+err.Error(), CodeInternalError)
 		return
@@ -480,7 +487,7 @@ func (h *Handler) GetServiceDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, detail)
+	writeJSON(w, http.StatusOK, app.RedactServiceDetail(detail))
 }
 
 // GetServiceMetrics returns refreshed metrics for a single service.
@@ -595,29 +602,6 @@ func (h *Handler) AdoptApplication(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert live state to a compose spec snapshot
-	services := make([]app.ServiceSpec, 0, len(liveStates))
-	for _, s := range liveStates {
-		services = append(services, app.ServiceSpec{
-			Name:          s.Name,
-			Image:         s.Image,
-			Environment:   s.Environment,
-			Ports:         s.Ports,
-			Volumes:       s.Volumes,
-			Networks:      s.Networks,
-			Labels:        s.Labels,
-			RestartPolicy: s.RestartPolicy,
-			Command:       s.Command,
-			Entrypoint:    s.Entrypoint,
-		})
-	}
-	composeSpec := &app.ComposeSpec{Services: services}
-	specJSON, err := json.Marshal(composeSpec)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "serializing compose spec: "+err.Error(), CodeInternalError)
-		return
-	}
-
 	// Build service statuses for persisting
 	serviceStatuses := make([]app.ServiceStatus, 0, len(liveStates))
 	for _, s := range liveStates {
@@ -638,13 +622,12 @@ func (h *Handler) AdoptApplication(w http.ResponseWriter, r *http.Request) {
 	// Record sync with operation=adopt
 	now := time.Now()
 	syncRec := &store.SyncRecord{
-		AppName:         name,
-		StartedAt:       now,
-		FinishedAt:      &now,
-		CommitSHA:       appRec.HeadSHA,
-		Operation:       string(app.SyncOperationAdopt),
-		Result:          string(app.SyncResultSuccess),
-		ComposeSpecJSON: string(specJSON),
+		AppName:    name,
+		StartedAt:  now,
+		FinishedAt: &now,
+		CommitSHA:  appRec.HeadSHA,
+		Operation:  string(app.SyncOperationAdopt),
+		Result:     string(app.SyncResultSuccess),
 	}
 	if err := h.store.RecordSync(r.Context(), syncRec); err != nil {
 		writeError(w, http.StatusInternalServerError, "recording sync: "+err.Error(), CodeInternalError)
@@ -767,9 +750,14 @@ func buildAppResponse(rec store.ApplicationRecord) (ApplicationResponse, error) 
 
 	return ApplicationResponse{
 		Metadata: application.Metadata,
-		Spec:     application.Spec,
+		Spec:     redactAppSpec(application.Spec),
 		Status:   status,
 	}, nil
+}
+
+func redactAppSpec(spec app.AppSpec) app.AppSpec {
+	spec.Source.RepoURL = app.RedactRepoURL(spec.Source.RepoURL)
+	return spec
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

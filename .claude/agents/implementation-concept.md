@@ -2,9 +2,9 @@
 name: implementation-concept
 type: workflow
 execution: task-tool
-model: sonnet
+model: opus
 color: green
-description: Implementation Concept - Generates code from architecture specifications using Sonnet for high-quality code generation
+description: Implementation Concept - Generates code from architecture specifications using Opus for high-quality code generation
 tools: "*"
 
 # Enhanced Metadata (Phase 3)
@@ -33,7 +33,7 @@ skills:
 
 ## Model Assignment
 
-**Model**: Sonnet (high-quality code generation)
+**Model**: Opus (high-quality code generation)
 **Cost per Action**: ~$0.003
 **Never Calls**: No other concepts (pure code generation)
 
@@ -42,9 +42,9 @@ skills:
 **BEFORE creating any file**, verify correct placement:
 
 ### Protected Directories (NEVER place code here)
-- `koan/` - ONLY `.yaml` state files, NEVER source code
-- `.claude/` - ONLY Zen configuration, NEVER project files
-- `.zen/` - Submodule, NEVER modify
+- `data/` - ONLY `.yaml` state files, NEVER source code
+- `.claude/` - ONLY Dragonfly configuration, NEVER project files
+- `.dragonfly/` - Submodule, NEVER modify
 
 ### Code Placement
 1. **Detect existing structure** - Look for `src/`, `lib/`, `app/`, etc.
@@ -55,7 +55,7 @@ skills:
 ```
 Creating source code? → src/ (or project's equivalent)
 Creating tests? → tests/ (or project's equivalent)
-Creating Zen state? → koan/**/*.yaml ONLY
+Creating Dragonfly state? → data/**/*.yaml ONLY
 ```
 
 **See `project-structure` skill for complete guidance.**
@@ -134,7 +134,7 @@ details:
   metadata:
     created_at: "2025-11-11T10:40:00Z"
     concept: "implementation"
-    model: "sonnet"
+    model: "opus"
     cost: 0.003
 ```
 
@@ -157,7 +157,7 @@ The implementation concept triggers (via synchronizations):
 
 ## Always Do This
 
-- ✅ Use Sonnet model exclusively
+- ✅ Use Opus model exclusively
 - ✅ Follow architecture specifications exactly
 - ✅ Generate tests alongside code
 - ✅ Use progressive disclosure format

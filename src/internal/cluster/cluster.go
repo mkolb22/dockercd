@@ -5,22 +5,34 @@ package cluster
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
 	"log/slog"
+	"net"
+	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
+const maxConcurrentConnections = 32
+
 // ClusterConfig holds all configuration for the two-node cluster.
 type ClusterConfig struct {
 	Enabled           bool          `mapstructure:"enabled"`
-	NodeID            string        `mapstructure:"node_id"`             // "node0" or "node1"
-	PeerAddr          string        `mapstructure:"peer_addr"`           // e.g., "node1:9090"
-	ListenAddr        string        `mapstructure:"listen_addr"`         // e.g., ":9090"
-	HeartbeatInterval time.Duration `mapstructure:"heartbeat_interval"`  // default 60s
-	MaxMissedBeats    int           `mapstructure:"max_missed_beats"`    // default 3
-	PreferredLeader   string        `mapstructure:"preferred_leader"`    // e.g., "node0"
-	DataDir           string        `mapstructure:"data_dir"`            // for SQLite backup sync
+	NodeID            string        `mapstructure:"node_id"`            // "node0" or "node1"
+	PeerID            string        `mapstructure:"peer_id"`            // expected TLS identity and protocol node ID of the peer
+	PeerAddr          string        `mapstructure:"peer_addr"`          // e.g., "node1:9090"
+	ListenAddr        string        `mapstructure:"listen_addr"`        // e.g., ":9090"
+	HeartbeatInterval time.Duration `mapstructure:"heartbeat_interval"` // default 60s
+	MaxMissedBeats    int           `mapstructure:"max_missed_beats"`   // default 3
+	PreferredLeader   string        `mapstructure:"preferred_leader"`   // e.g., "node0"
+	DataDir           string        `mapstructure:"data_dir"`           // for SQLite backup sync
+	TLSCertFile       string        `mapstructure:"tls_cert_file"`      // PEM certificate whose SAN contains NodeID
+	TLSKeyFile        string        `mapstructure:"tls_key_file"`       // PEM private key for TLSCertFile
+	TLSCAFile         string        `mapstructure:"tls_ca_file"`        // PEM CA used to authenticate the peer certificate
 }
 
 // ClusterNode manages the active/passive state machine for one node.
@@ -35,6 +47,43 @@ type ClusterNode struct {
 	logger      *slog.Logger
 	cancel      context.CancelFunc
 	done        chan struct{}
+	serverTLS   *tls.Config
+	clientTLS   *tls.Config
+	connections chan struct{}
+}
+
+// Validate ensures that enabled cluster control has the identity and mutual
+// TLS material needed to reject untrusted nodes. Cluster mode has no plaintext
+// compatibility path because promotion controls Docker-backed workloads.
+func (c ClusterConfig) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(c.NodeID) == "" {
+		return fmt.Errorf("cluster.node_id must not be empty when cluster is enabled")
+	}
+	if strings.TrimSpace(c.PeerID) == "" {
+		return fmt.Errorf("cluster.peer_id must not be empty when cluster is enabled")
+	}
+	if c.NodeID == c.PeerID {
+		return fmt.Errorf("cluster.node_id and cluster.peer_id must differ")
+	}
+	if _, _, err := net.SplitHostPort(c.PeerAddr); err != nil {
+		return fmt.Errorf("cluster.peer_addr must be host:port: %w", err)
+	}
+	if _, _, err := net.SplitHostPort(c.ListenAddr); err != nil {
+		return fmt.Errorf("cluster.listen_addr must be host:port: %w", err)
+	}
+	if c.HeartbeatInterval <= 0 {
+		return fmt.Errorf("cluster.heartbeat_interval must be positive")
+	}
+	if c.MaxMissedBeats < 1 {
+		return fmt.Errorf("cluster.max_missed_beats must be at least 1")
+	}
+	if strings.TrimSpace(c.TLSCertFile) == "" || strings.TrimSpace(c.TLSKeyFile) == "" || strings.TrimSpace(c.TLSCAFile) == "" {
+		return fmt.Errorf("cluster TLS certificate, key, and CA files are required when cluster is enabled")
+	}
+	return nil
 }
 
 // NewClusterNode creates a new cluster node with the given callbacks.
@@ -42,11 +91,12 @@ type ClusterNode struct {
 // onDemote is called when this node transitions to passive.
 func NewClusterNode(cfg ClusterConfig, onPromote, onDemote func(), logger *slog.Logger) *ClusterNode {
 	n := &ClusterNode{
-		config:    cfg,
-		onPromote: onPromote,
-		onDemote:  onDemote,
-		logger:    logger.With("component", "cluster", "node_id", cfg.NodeID),
-		done:      make(chan struct{}),
+		config:      cfg,
+		onPromote:   onPromote,
+		onDemote:    onDemote,
+		logger:      logger.With("component", "cluster", "node_id", cfg.NodeID),
+		done:        make(chan struct{}),
+		connections: make(chan struct{}, maxConcurrentConnections),
 	}
 
 	// The preferred leader starts as active; the other starts as passive
@@ -62,6 +112,17 @@ func NewClusterNode(cfg ClusterConfig, onPromote, onDemote func(), logger *slog.
 // Start begins the heartbeat listener and peer monitor goroutines.
 // It blocks until ctx is canceled.
 func (n *ClusterNode) Start(ctx context.Context) error {
+	if err := n.config.Validate(); err != nil {
+		return fmt.Errorf("invalid cluster configuration: %w", err)
+	}
+	if err := n.configureTLS(); err != nil {
+		return err
+	}
+	listener, err := n.startHeartbeatListener()
+	if err != nil {
+		return err
+	}
+
 	ctx, n.cancel = context.WithCancel(ctx)
 
 	n.logger.Info("cluster node starting",
@@ -83,8 +144,9 @@ func (n *ClusterNode) Start(ctx context.Context) error {
 		n.logger.Info("starting as passive node")
 	}
 
-	// Start heartbeat listener in background
-	go n.handleHeartbeat(ctx)
+	// The listener was bound before role activation, so a node cannot enter
+	// cluster service with a missing control listener.
+	go n.serveHeartbeat(ctx, listener)
 
 	// Start DB replication in background
 	go n.replicateDB(ctx)
@@ -93,6 +155,38 @@ func (n *ClusterNode) Start(ctx context.Context) error {
 	n.monitorPeer(ctx)
 
 	close(n.done)
+	return nil
+}
+
+// configureTLS creates separate immutable client and server configurations.
+// TLS 1.3 plus certificate verification protects the role-control plane from
+// eavesdropping and from peers that do not present the configured identity.
+func (n *ClusterNode) configureTLS() error {
+	certificate, err := tls.LoadX509KeyPair(n.config.TLSCertFile, n.config.TLSKeyFile)
+	if err != nil {
+		return fmt.Errorf("loading cluster TLS certificate: %w", err)
+	}
+	caPEM, err := os.ReadFile(n.config.TLSCAFile)
+	if err != nil {
+		return fmt.Errorf("reading cluster TLS CA: %w", err)
+	}
+	caPool := x509.NewCertPool()
+	if !caPool.AppendCertsFromPEM(caPEM) {
+		return fmt.Errorf("parsing cluster TLS CA: no certificates found")
+	}
+
+	n.serverTLS = &tls.Config{
+		MinVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{certificate},
+		ClientCAs:    caPool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+	}
+	n.clientTLS = &tls.Config{
+		MinVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{certificate},
+		RootCAs:      caPool,
+		ServerName:   n.config.PeerID,
+	}
 	return nil
 }
 
@@ -158,7 +252,7 @@ func (n *ClusterNode) demote() {
 // Sends a PROMOTE message to the peer, then promotes locally on ACK.
 func (n *ClusterNode) RequestPromotion() error {
 	n.logger.Info("requesting promotion from peer")
-	resp, err := sendMessage(n.config.PeerAddr, MsgPromote, n.config.NodeID)
+	resp, err := n.sendMessage(MsgPromote)
 	if err != nil {
 		return err
 	}

@@ -1,27 +1,27 @@
 ---
 name: Cost Optimization
-description: Expert strategies for optimizing AI model costs in Zen WYSIWID workflows through smart model selection and efficient execution
+description: Expert strategies for optimizing AI model costs in Dragonfly WYSIWID workflows through smart model selection and efficient execution
 version: 1.0.0
 trigger_keywords: [cost, budget, haiku, sonnet, optimization, tokens, spending, efficiency]
-author: Zen Architecture
+author: Dragonfly Architecture
 ---
 
 # Cost Optimization - Expert Skill
 
-Master strategies for minimizing AI costs while maintaining quality in Zen workflows.
+Master strategies for minimizing AI costs while maintaining quality in Dragonfly workflows.
 
-## The Zen Cost Philosophy
+## The Dragonfly Cost Philosophy
 
 **Smart Model Assignment**: Use the right model for the right task
-- **Sonnet**: Fast, cheap ($0.00025 input, $0.00125 output per 1K tokens)
-- **Sonnet**: Deep reasoning ($0.003 input, $0.015 output per 1K tokens)
+- **Opus**: Fast, cheap ($0.00025 input, $0.00125 output per 1K tokens)
+- **Opus**: Deep reasoning ($0.003 input, $0.015 output per 1K tokens)
 
-**Key Insight**: Sonnet is 6x more expensive than Sonnet, but only needed for 1/6 of tasks.
+**Key Insight**: Opus is 6x more expensive than Opus, but only needed for 1/6 of tasks.
 
-## Zen's Default Model Strategy
+## Dragonfly's Default Model Strategy
 
-### Architecture (Sonnet) - 91% of Cost
-**Why Sonnet**:
+### Architecture (Opus) - 91% of Cost
+**Why Opus**:
 - Complex trade-off analysis
 - Multi-step reasoning
 - Novel problem solving
@@ -31,8 +31,8 @@ Master strategies for minimizing AI costs while maintaining quality in Zen workf
 **Cost**: ~$0.015 per action
 **Justification**: Poor architecture costs far more in rework
 
-### Everything Else (Sonnet) - 9% of Cost
-**Why Sonnet**:
+### Everything Else (Opus) - 9% of Cost
+**Why Opus**:
 - Story: Template filling, validation
 - Implementation: Code from clear specs
 - Quality: Pattern matching, rule checking
@@ -47,24 +47,24 @@ Master strategies for minimizing AI costs while maintaining quality in Zen workf
 ```
 Typical Feature Workflow:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Story (Sonnet):         $0.000175  (1%)
-Architecture (Sonnet): $0.015000  (91%) ⭐
-Implementation (Sonnet):$0.000175  (1%)
-Quality x2 (Sonnet):    $0.000350  (2%)
-Version (Sonnet):       $0.000175  (1%)
-Context (Sonnet):       $0.000175  (1%)
+Story (Opus):         $0.000175  (1%)
+Architecture (Opus): $0.015000  (91%) ⭐
+Implementation (Opus):$0.000175  (1%)
+Quality x2 (Opus):    $0.000350  (2%)
+Version (Opus):       $0.000175  (1%)
+Context (Opus):       $0.000175  (1%)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Total:                 $0.0165
 
-vs All-Sonnet:         $0.099
+vs All-Opus:         $0.099
 Savings:               83%
 ```
 
-**Key Takeaway**: Architecture is expensive but necessary. The other 9 concepts achieve cost efficiency by using Sonnet.
+**Key Takeaway**: Architecture is expensive but necessary. The other 9 concepts achieve cost efficiency by using Opus.
 
 ## When to Use Each Model
 
-### Use Sonnet When:
+### Use Opus When:
 ✅ Evaluating multiple approaches with complex trade-offs
 ✅ Designing novel solutions (no existing patterns)
 ✅ Predicting long-term consequences
@@ -73,7 +73,7 @@ Savings:               83%
 ✅ Analyzing security implications
 ✅ Evaluating risks and mitigations
 
-### Use Sonnet When:
+### Use Opus When:
 ✅ Following clear specifications
 ✅ Applying known patterns
 ✅ Generating code from templates
@@ -85,13 +85,13 @@ Savings:               83%
 
 ### Signs You're Using Wrong Model:
 
-**Sonnet Overuse** (wasting money):
+**Opus Overuse** (wasting money):
 - Simple validation tasks
 - Template filling
 - Command execution
 - Straightforward code generation
 
-**Sonnet Underuse** (poor quality):
+**Opus Underuse** (poor quality):
 - Complex architectural decisions
 - Novel problem solving
 - Deep trade-off analysis
@@ -266,16 +266,16 @@ Version:        $0.000175
 **Query Provenance**:
 ```bash
 # Total spend
-grep 'cost_usd:' koan/provenance/actions/*.yaml | \
+grep 'cost_usd:' data/provenance/actions/*.yaml | \
 awk '{sum += $2} END {printf "Total: $%.4f\n", sum}'
 
 # By concept
-grep -h 'concept:\|cost_usd:' koan/provenance/actions/*.yaml | \
+grep -h 'concept:\|cost_usd:' data/provenance/actions/*.yaml | \
 awk '/concept:/ {c=$2} /cost_usd:/ {sum[c]+=$2} \
 END {for(c in sum) printf "%s: $%.4f\n", c, sum[c]}'
 
 # By model
-grep -h 'model:\|cost_usd:' koan/provenance/actions/*.yaml | \
+grep -h 'model:\|cost_usd:' data/provenance/actions/*.yaml | \
 awk '/model:/ {m=$2} /cost_usd:/ {sum[m]+=$2} \
 END {for(m in sum) printf "%s: $%.4f\n", m, sum[m]}'
 ```
@@ -290,58 +290,58 @@ END {for(m in sum) printf "%s: $%.4f\n", m, sum[m]}'
 
 ## Cost-Quality Trade-offs
 
-### When to Invest in Sonnet
+### When to Invest in Opus
 
 **Scenario 1: New Domain**
 ```bash
-First feature in new domain → Use Sonnet for architecture
-Subsequent features → Can reuse patterns with Sonnet
+First feature in new domain → Use Opus for architecture
+Subsequent features → Can reuse patterns with Opus
 ```
 **ROI**: Upfront investment, long-term savings
 
 **Scenario 2: High-Risk Features**
 ```bash
-Security-critical features → Use Sonnet
-Routine CRUD operations → Use Sonnet
+Security-critical features → Use Opus
+Routine CRUD operations → Use Opus
 ```
 **ROI**: Prevent costly security vulnerabilities
 
 **Scenario 3: Novel Problems**
 ```bash
-No existing solution → Use Sonnet
-Adapting known solution → Use Sonnet
+No existing solution → Use Opus
+Adapting known solution → Use Opus
 ```
 **ROI**: Better design worth the cost
 
-### When to Stick with Sonnet
+### When to Stick with Opus
 
 **Scenario 1: Clear Specifications**
 ```bash
-Architecture already defined → Sonnet for implementation
-Tests already written → Sonnet for code
+Architecture already defined → Opus for implementation
+Tests already written → Opus for code
 ```
 
 **Scenario 2: Repetitive Tasks**
 ```bash
-Similar to previous features → Sonnet throughout
-Known patterns → Sonnet throughout
+Similar to previous features → Opus throughout
+Known patterns → Opus throughout
 ```
 
 **Scenario 3: Low Complexity**
 ```bash
-Simple CRUD operations → Sonnet
-Minor bug fixes → Sonnet
-Documentation updates → Sonnet
+Simple CRUD operations → Opus
+Minor bug fixes → Opus
+Documentation updates → Opus
 ```
 
 ## ROI Analysis
 
 ### Cost of Poor Architecture
 
-**Scenario**: Skip Sonnet, use Sonnet for architecture
+**Scenario**: Skip Opus, use Opus for architecture
 
 ```bash
-Sonnet architecture:  $0.000175
+Opus architecture:  $0.000175
 Rework cycle 1:      $0.000175
 Rework cycle 2:      $0.000175
 Rework cycle 3:      $0.000175
@@ -352,7 +352,7 @@ Total: $0.001 + engineer time
 
 vs
 
-Sonnet architecture: $0.015
+Opus architecture: $0.015
 Gets it right first time
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Total: $0.015
@@ -360,25 +360,25 @@ Total: $0.015
 Savings: Engineer time (~$50-100)
 ```
 
-**Conclusion**: Sonnet for architecture is cost-effective.
+**Conclusion**: Opus for architecture is cost-effective.
 
-### Cost of Sonnet Overuse
+### Cost of Opus Overuse
 
-**Scenario**: Use Sonnet for everything
+**Scenario**: Use Opus for everything
 
 ```bash
-Story (Sonnet):          $0.0087  (vs $0.000175)
-Architecture (Sonnet):   $0.0150  (appropriate)
-Implementation (Sonnet): $0.0087  (vs $0.000175)
-Quality (Sonnet):        $0.0174  (vs $0.000350)
-Version (Sonnet):        $0.0087  (vs $0.000175)
+Story (Opus):          $0.0087  (vs $0.000175)
+Architecture (Opus):   $0.0150  (appropriate)
+Implementation (Opus): $0.0087  (vs $0.000175)
+Quality (Opus):        $0.0174  (vs $0.000350)
+Version (Opus):        $0.0087  (vs $0.000175)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Total: $0.0585 vs $0.0165
 
 Waste: $0.0420 per feature (254% more)
 ```
 
-**Conclusion**: Use Sonnet where appropriate.
+**Conclusion**: Use Opus where appropriate.
 
 ## Monitoring and Alerts
 
@@ -425,11 +425,11 @@ Remaining: $0.10
 ## Best Practices Summary
 
 ### Model Selection
-1. ✅ Default to Sonnet unless deep reasoning needed
-2. ✅ Use Sonnet for architecture and high-risk decisions
+1. ✅ Default to Opus unless deep reasoning needed
+2. ✅ Use Opus for architecture and high-risk decisions
 3. ✅ Track actual costs to validate assumptions
-4. ❌ Don't use Sonnet for routine tasks
-5. ❌ Don't use Sonnet for novel/complex problems
+4. ❌ Don't use Opus for routine tasks
+5. ❌ Don't use Opus for novel/complex problems
 
 ### Token Management
 1. ✅ Load context progressively (summaries → details)
@@ -446,8 +446,8 @@ Remaining: $0.10
 5. ❌ Don't ignore cost trends
 
 ### Quality Balance
-1. ✅ Invest in Sonnet for architecture
-2. ✅ Use Sonnet for implementation from specs
+1. ✅ Invest in Opus for architecture
+2. ✅ Use Opus for implementation from specs
 3. ✅ Measure ROI (cost vs rework)
 4. ❌ Don't skimp on critical decisions
 5. ❌ Don't overspend on simple tasks
@@ -458,14 +458,14 @@ Remaining: $0.10
 ```bash
 /costs                   # View all spending
 /costs --by-concept      # See which concepts cost most
-/costs --by-model        # Sonnet vs Sonnet breakdown
+/costs --by-model        # Opus vs Opus breakdown
 /costs --efficiency      # Savings percentage
 ```
 
 ### Provenance Queries
 ```bash
 /trace <flow-id>         # See complete workflow costs
-grep 'cost_usd' koan/provenance/actions/*.yaml  # Raw cost data
+grep 'cost_usd' data/provenance/actions/*.yaml  # Raw cost data
 ```
 
 ### Budget Monitoring

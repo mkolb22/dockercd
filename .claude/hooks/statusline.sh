@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Zen Status Line
+# Dragonfly Status Line
 #
-# Displays real-time context usage alongside Zen-specific state.
+# Displays real-time context usage alongside Dragonfly-specific state.
 # Called by Claude Code with JSON input on stdin.
 #
 # Output format: [Model] ctx% | checkpoints | health | workflows
@@ -11,7 +11,7 @@ set -e
 # Read JSON input from Claude Code
 INPUT=$(cat)
 
-# Project root for Zen state files
+# Project root for Dragonfly state files
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
 # =============================================================================
@@ -48,10 +48,10 @@ else
 fi
 
 # =============================================================================
-# Read Zen State (SQLite preferred, YAML fallback)
+# Read Dragonfly State (SQLite preferred, YAML fallback)
 # =============================================================================
 
-STATE_DB="$PROJECT_ROOT/koan/state/state.db"
+STATE_DB="$PROJECT_ROOT/data/state.db"
 
 # Checkpoint count (SQLite only)
 CHECKPOINT_COUNT=0
@@ -67,7 +67,7 @@ HEALTH_STATUS="--"
 # =============================================================================
 # Trigger safety checkpoint at 70% context usage
 
-THRESHOLD_FILE="$PROJECT_ROOT/koan/events/.context-threshold"
+THRESHOLD_FILE="$PROJECT_ROOT/data/.context-threshold"
 CONTEXT_THRESHOLD=70
 
 # Only trigger if we have valid context percentage

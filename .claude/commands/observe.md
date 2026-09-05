@@ -46,8 +46,8 @@ Analyze usage patterns.
 When you run this command:
 
 1. **Load Observability Data**
-   - Read `koan/observability/prompts.jsonl`
-   - Load `koan/observability/daily-stats.json`
+   - Read `data/observability/prompts.jsonl`
+   - Load `data/observability/daily-stats.json`
 
 2. **Analyze Based on Subcommand**
    - Aggregate data by concept, model, or time period
@@ -144,12 +144,12 @@ Model Breakdown:
 
 Pricing Reference:
 - Opus:   $15.00 / 1M input tokens
-- Sonnet: $3.00  / 1M input tokens
-- Sonnet:  $0.25  / 1M input tokens
+- Opus: $3.00  / 1M input tokens
+- Opus:  $0.25  / 1M input tokens
 
 Cost Optimization Tips:
-1. Architecture uses 54% of budget (Opus) - consider Sonnet for lower-risk designs
-2. Quality checks are efficient (Sonnet) - good usage pattern
+1. Architecture uses 54% of budget (Opus) - consider Opus for lower-risk designs
+2. Quality checks are efficient (Opus) - good usage pattern
 3. Consider caching repeated prompts
 ```
 
@@ -185,7 +185,7 @@ Recommendations:
 Observability data is stored in:
 
 ```
-koan/observability/
+data/observability/
 ├── prompts.jsonl        # Raw prompt logs (JSONL format)
 ├── daily-stats.json     # Aggregated daily statistics
 └── prompts-*.jsonl.gz   # Archived logs (rotated)

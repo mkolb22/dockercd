@@ -20,7 +20,7 @@ Estimate the cost of a feature implementation before actually running it.
 
 ## How It Works
 
-Analyzes the feature description to estimate which concepts will be invoked and predicts the total cost based on Zen's standard workflow.
+Analyzes the feature description to estimate which concepts will be invoked and predicts the total cost based on Dragonfly's standard workflow.
 
 ## Implementation
 
@@ -40,7 +40,7 @@ When invoked, this command:
 
 ```yaml
 story:
-  model: sonnet
+  model: opus
   cost: $0.003
 
 architecture:
@@ -49,21 +49,21 @@ architecture:
   note: "~50% of total cost"
 
 implementation:
-  model: sonnet
+  model: opus
   cost: $0.003
 
 quality_review:
-  model: sonnet
+  model: opus
   cost: $0.003
   parallel: true
 
 quality_test:
-  model: sonnet
+  model: opus
   cost: $0.003
   parallel: true
 
 version:
-  model: sonnet
+  model: opus
   cost: $0.003
 
 total_base: ~$0.030
@@ -110,12 +110,12 @@ Complexity: Medium
 Risk: Medium
 
 Predicted Workflow:
-✓ Story (Sonnet)          $0.003    10%
+✓ Story (Opus)          $0.003    10%
 ✓ Architecture (Opus)     $0.015    50%  ← Deep reasoning
-✓ Implementation (Sonnet) $0.003    10%
-✓ Quality Review (Sonnet) $0.003    10%  │ parallel
-✓ Quality Test (Sonnet)   $0.003    10%  │
-✓ Version (Sonnet)        $0.003    10%
+✓ Implementation (Opus) $0.003    10%
+✓ Quality Review (Opus) $0.003    10%  │ parallel
+✓ Quality Test (Opus)   $0.003    10%  │
+✓ Version (Opus)        $0.003    10%
 ────────────────────────────────────────
 Baseline Total:           ~$0.030   100%
 
@@ -135,12 +135,12 @@ Estimated Duration: 12-15 minutes
 Cost Breakdown by Model:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Opus:    $0.015     (50% of cost, 1 action)
-Sonnet:  $0.015     (50% of cost, 5 actions)
+Opus:  $0.015     (50% of cost, 5 actions)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Smart Model Assignment:
 Architecture uses Opus for deep reasoning
-Other concepts use Sonnet for efficiency
+Other concepts use Opus for efficiency
 ```
 
 ## Complexity Detection
@@ -168,7 +168,7 @@ The prediction analyzes the description for:
 
 ## Historical Data Integration
 
-If provenance data exists in `koan/provenance/`, the prediction uses it to improve accuracy:
+If provenance data exists in `data/provenance/`, the prediction uses it to improve accuracy:
 
 ```bash
 # Uses historical data to calculate:

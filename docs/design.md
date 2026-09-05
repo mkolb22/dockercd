@@ -49,7 +49,7 @@ dockercd is a single-container GitOps continuous deployment tool that brings Arg
 
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
-| Language | Go 1.22+ | Docker ecosystem standard, static compilation, goroutine concurrency |
+| Language | Go 1.26+ | Docker ecosystem standard, static compilation, goroutine concurrency |
 | Docker SDK | `github.com/docker/docker/client` | Official SDK, direct API access without shelling out |
 | Git | `github.com/go-git/go-git/v5` | Pure Go, no git binary dependency |
 | Database | `modernc.org/sqlite` | Pure Go SQLite, no CGO required |
@@ -147,7 +147,7 @@ dockercd is a single-container GitOps continuous deployment tool that brings Arg
 #### `internal/gitsync` -- Git Repository Management
 - **Responsibility**: Clones repositories, polls for changes, detects new commits by comparing HEAD SHA with last synced SHA. Manages local repository cache.
 - **Dependencies**: `app` (for `Application.Spec.Source`)
-- **Key decisions**: Uses go-git for all operations (no shelling out). Performs shallow clones (`--depth 1`) to minimize disk and bandwidth. Caches cloned repos in `{dataDir}/repos/{urlHash}/`. Supports HTTPS with Basic auth (global `DOCKERCD_GIT_TOKEN` or per-URL embedded credentials `http://user:pass@host/repo.git`). `urlHash()` strips credentials before hashing so the same repo with and without auth maps to one cache path. `authFor()` prefers URL-embedded credentials over the global token.
+- **Key decisions**: Uses go-git for all operations (no shelling out). Performs shallow clones (`--depth 1`) to minimize disk and bandwidth. Caches cloned repos in `{dataDir}/repos/{urlHash}/`. Git remotes must use an explicitly allowlisted host (`DOCKERCD_GIT_ALLOWED_HOSTS`); credentials are supplied with `DOCKERCD_GIT_TOKEN`, never embedded in a repository URL. `urlHash()` strips URL userinfo before hashing so historical cache paths do not disclose credentials.
 
 #### `internal/parser` -- Compose File Parser
 - **Responsibility**: Parses Docker Compose YAML files into a normalized `ComposeSpec`. Handles multiple compose files with override semantics. Performs variable substitution from `.env` files.
@@ -2608,7 +2608,7 @@ All modules are fully implemented. This section summarizes what is built and whe
 
 ```dockerfile
 # ---- Build stage ----
-FROM golang:1.22-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 RUN apk add --no-cache git
 

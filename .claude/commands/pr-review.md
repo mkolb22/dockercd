@@ -107,7 +107,7 @@ Recommendations:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Analysis saved to: koan/reviews/pr-123-analysis.yaml
+Analysis saved to: data/reviews/pr-123-analysis.yaml
 
 Submit review? [a] Approve  [c] Comment  [r] Request Changes  [n] Skip
 ```
@@ -147,8 +147,8 @@ View at: https://github.com/owner/repo/pull/123#pullrequestreview-...
 
 ## Storage
 
-- Analysis: `koan/reviews/pr-{number}-analysis.yaml`
-- Notification: `koan/notifications/pr-alert-{timestamp}.yaml` (if high-risk)
+- Analysis: `data/reviews/pr-{number}-analysis.yaml`
+- Notification: `data/notifications/pr-alert-{timestamp}.yaml` (if high-risk)
 
 ## MCP Tools Used
 

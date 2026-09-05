@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# Zen Pre-Tool Grounding Hook
+#
+# This hook runs BEFORE dangerous tool operations execute.
+# It provides a safety layer to prevent destructive actions
+# when Claude may have lost context due to compaction.
+#
+# Exit codes:
+#   0 = Allow operation
+#   2 = Block operation (message sent to Claude via stderr)
+#
+# Installation:
+#   This hook is configured via .claude/settings.local.json
+#   and called by Claude Code's PreToolUse hook system.
+
+set -e
+
+# Configuration
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+source "$PROJECT_ROOT/.claude/hooks/lib/common.sh"
+ANCHORS_DIR="$PROJECT_ROOT/koan/anchors"
+LOG_FILE="$HEALTH_DIR/grounding.log"
+
+# Ensure directories exist
+mkdir -p "$HEALTH_DIR"
+
+# Get tool input from Claude Code
+TOOL_INPUT="${CLAUDE_TOOL_INPUT:-}"
+TOOL_NAME="${CLAUDE_TOOL_NAME:-Bash}"
+
+# Sanitize input for safe grep matching (escape special regex chars in input)
+# This prevents command injection through crafted TOOL_INPUT
+sanitize_for_grep() {
+    # Use printf to safely handle the input without eval
+    printf '%s' "$1"
+}
+
+# ============================================================================
+# DANGEROUS PATTERNS - Warn when context is degraded
+# ============================================================================
+# Note: Catastrophic patterns (rm -rf /, dd if=, mkfs, etc.) are blocked at
+# the permissions level via settings.local.json `permissions.deny` — they
+# never reach this hook. This hook adds compression-aware warnings for
+# dangerous-but-sometimes-needed patterns.
+
+DANGEROUS_PATTERNS=(
+    "rm -rf"
+    "rm -r"
+    "git reset --hard"
+    "git clean -fd"
+    "git checkout -- \."
+    "git stash drop"
+    "git branch -D"
+    "DROP TABLE"
+    "DROP DATABASE"
+    "TRUNCATE"
+    "DELETE FROM .* WHERE 1"
+    "--force"
+    "--hard"
+)
+
+# ============================================================================
+# LOGGING FUNCTION WITH ROTATION
+# ============================================================================
+
+# Rotate log if it exceeds 10MB
+rotate_log_if_needed() {
+    local max_size=10485760  # 10MB
+    if [ -f "$LOG_FILE" ]; then
+        local size=$(stat -f%z "$LOG_FILE" 2>/dev/null || stat --printf="%s" "$LOG_FILE" 2>/dev/null || echo 0)
+        if [ "$size" -gt "$max_size" ]; then
+            mv "$LOG_FILE" "${LOG_FILE}.old"
+            echo "[$TIMESTAMP] [INFO] Log rotated (exceeded 10MB)" > "$LOG_FILE"
+        fi
+    fi
+}
+
+log_event() {
+    local level="$1"
+    local message="$2"
+    rotate_log_if_needed
+    echo "[$TIMESTAMP] [$level] $message" >> "$LOG_FILE"
+}
+
+# ============================================================================
+# CHECK FUNCTIONS
+# ============================================================================
+
+check_dangerous_patterns() {
+    for pattern in "${DANGEROUS_PATTERNS[@]}"; do
+        # Use printf to safely pipe input (prevents command injection)
+        if printf '%s\n' "$TOOL_INPUT" | grep -qiE -- "$pattern"; then
+            log_event "DANGEROUS" "Dangerous pattern detected: $pattern | Command: $TOOL_INPUT"
+
+            # Check if we're in a degraded context state (SQLite)
+            local compression_count=0
+            if zen_state_available; then
+                compression_count=$(zen_checkpoint_count_by_type "pre_compact")
+            fi
+
+            if [ "$compression_count" -gt 0 ]; then
+                echo "WARNING: Dangerous operation detected after context compression." >&2
+                echo "Pattern: $pattern" >&2
+                echo "Context has been compressed $compression_count time(s) this session." >&2
+                echo "Please verify your understanding of the current state before proceeding." >&2
+                log_event "WARN" "Dangerous op after compression (count: $compression_count)"
+            fi
+            return 0
+        fi
+    done
+    return 0
+}
+
+verify_working_directory() {
+    if [ -f "$ANCHORS_DIR/directory.anchor.yaml" ]; then
+        local expected_dir=$(grep -oP 'working_directory: "\K[^"]+' "$ANCHORS_DIR/directory.anchor.yaml" 2>/dev/null || echo "")
+        local current_dir=$(pwd)
+
+        if [ -n "$expected_dir" ] && [ "$expected_dir" != "$current_dir" ]; then
+            log_event "WARN" "Directory mismatch: expected=$expected_dir current=$current_dir"
+        fi
+    fi
+}
+
+update_health_status() {
+    # Log grounding check event to SQLite
+    if zen_state_available; then
+        zen_event_log "grounding-$(date +%s)" "grounding_check" "{\"tool\":\"${TOOL_NAME}\"}" || true
+    fi
+}
+
+# ============================================================================
+# MAIN EXECUTION
+# ============================================================================
+
+main() {
+    if [ -z "$TOOL_INPUT" ]; then
+        exit 0
+    fi
+
+    check_dangerous_patterns
+    verify_working_directory
+    update_health_status
+
+    exit 0
+}
+
+main "$@"

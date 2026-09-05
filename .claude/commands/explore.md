@@ -59,7 +59,7 @@ The highest-scoring path is selected:
 
 ### 5. Documentation
 
-Results are stored in `koan/explorations/` for future reference.
+Results are stored in `data/explorations/` for future reference.
 
 ## Output Format
 
@@ -148,7 +148,7 @@ Next Steps:
 2. Implement cache service wrapper
 3. Add cache hit/miss metrics
 
-Exploration saved: koan/explorations/exp-001.yaml
+Exploration saved: data/explorations/exp-001.yaml
 ```
 
 ## Options
@@ -182,5 +182,5 @@ Exploration integrates with:
 
 ## Files Created
 
-- `koan/explorations/exp-{id}.yaml` - Full exploration record
-- `koan/learnings/patterns/` - Extracted decision patterns
+- `data/explorations/exp-{id}.yaml` - Full exploration record
+- `data/learnings/patterns/` - Extracted decision patterns

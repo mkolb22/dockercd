@@ -21,7 +21,7 @@ This command loads the provenance trail for a failed workflow and allows you to:
 When you run this command, you should:
 
 1. **Load Provenance**
-   - Read `koan/provenance/flows/flow-{id}.yaml`
+   - Read `data/provenance/flows/flow-{id}.yaml`
    - Parse all actions in chronological order
    - Identify failed/blocked actions
 
@@ -33,15 +33,15 @@ When you run this command, you should:
    Cost: $0.0165
    
    Timeline:
-   ✓ act-001: story.create (Sonnet) - 2min - $0.000175
-   ✓ act-002: architecture.design (Sonnet) - 8min - $0.015
-   ✗ act-003: implementation.generate (Sonnet) - FAILED
+   ✓ act-001: story.create (Opus) - 2min - $0.000175
+   ✓ act-002: architecture.design (Opus) - 8min - $0.015
+   ✗ act-003: implementation.generate (Opus) - FAILED
      Error: Missing required field 'technical_spec' in architecture output
      
    Not executed (due to failure):
-   ⊘ act-004: quality.review (Sonnet)
-   ⊘ act-005: quality.test (Sonnet)
-   ⊘ act-006: version.commit (Sonnet)
+   ⊘ act-004: quality.review (Opus)
+   ⊘ act-005: quality.test (Opus)
+   ⊘ act-006: version.commit (Opus)
    ```
 
 3. **Show Failure Details**
@@ -232,7 +232,7 @@ the architecture output was missing the 'technical_spec' field.
 
 This is a common issue when:
 - Architecture prompt didn't explicitly request technical_spec
-- Sonnet summarized instead of providing detailed specs
+- Opus summarized instead of providing detailed specs
 - Schema validation was disabled
 
 Step 2: Fixing Architecture Output
@@ -296,7 +296,7 @@ Original preserved: flow-2025-11-10-19h00m00s
 The replay command reads from:
 
 ```yaml
-# koan/provenance/flows/flow-2025-11-10-19h00m00s.yaml
+# data/provenance/flows/flow-2025-11-10-19h00m00s.yaml
 
 flow_id: "flow-2025-11-10-19h00m00s"
 started_at: "2025-11-10T19:00:00Z"
@@ -308,7 +308,7 @@ actions:
   - action_id: "act-001"
     concept: "story"
     action: "create"
-    model: "sonnet"
+    model: "opus"
     status: "completed"
     started_at: "2025-11-10T19:00:00Z"
     completed_at: "2025-11-10T19:02:15Z"
@@ -322,12 +322,12 @@ actions:
     outputs:
       story_id: "story-042"
       status: "ready"
-      file: "koan/stories/story-042.yaml"
+      file: "data/stories/story-042.yaml"
 
   - action_id: "act-002"
     concept: "architecture"
     action: "design"
-    model: "sonnet"
+    model: "opus"
     status: "completed"
     triggered_by: "act-001"
     sync_id: "story-to-arch"
@@ -342,7 +342,7 @@ actions:
       requirements: "..."
     outputs:
       architecture_id: "arch-042"
-      file: "koan/architecture/arch-042.yaml"
+      file: "data/architecture/arch-042.yaml"
     warnings:
       - "Schema validation not run"
       - "technical_spec field missing"
@@ -350,7 +350,7 @@ actions:
   - action_id: "act-003"
     concept: "implementation"
     action: "generate"
-    model: "sonnet"
+    model: "opus"
     status: "failed"
     triggered_by: "act-002"
     sync_id: "arch-to-impl"

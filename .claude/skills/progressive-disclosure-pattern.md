@@ -6,7 +6,7 @@ The Progressive Disclosure Pattern optimizes context window usage by structuring
 
 ## Pattern Structure
 
-All state files in Zen use this pattern:
+All state files in Dragonfly use this pattern:
 
 ```yaml
 # === SUMMARY (first 5 lines - quick scanning) ===
@@ -181,7 +181,7 @@ For a typical feature workflow:
 - ~50 sync rule evaluations
 - Without pattern: 50 × 2000 = 100,000 tokens
 - With pattern: 50 × 100 = 5,000 tokens
-- **Savings: 95,000 tokens (~$0.285 at Sonnet rates)**
+- **Savings: 95,000 tokens (~$0.285 at Opus rates)**
 
 ---
 

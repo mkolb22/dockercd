@@ -45,7 +45,7 @@ func (r *ReconcilerImpl) schedulerLoop(ctx context.Context) {
 			r.scheduleMu.Lock()
 			r.schedule[appName] = time.Now()
 			r.scheduleMu.Unlock()
-			r.enqueue(appName)
+			r.enqueueDueApps()
 
 		case <-timer.C:
 			// Sync config directory: register new manifests, remove deleted ones
@@ -62,7 +62,10 @@ func (r *ReconcilerImpl) nextWakeTime() time.Time {
 	defer r.scheduleMu.RUnlock()
 
 	var earliest time.Time
-	for _, t := range r.schedule {
+	for name, t := range r.schedule {
+		if r.queued[name] {
+			continue
+		}
 		if earliest.IsZero() || t.Before(earliest) {
 			earliest = t
 		}
@@ -74,26 +77,36 @@ func (r *ReconcilerImpl) nextWakeTime() time.Time {
 func (r *ReconcilerImpl) enqueueDueApps() {
 	now := time.Now()
 
-	r.scheduleMu.RLock()
+	r.scheduleMu.Lock()
 	var due []string
 	for name, t := range r.schedule {
-		if !t.After(now) {
+		if !t.After(now) && !r.queued[name] {
+			r.queued[name] = true
 			due = append(due, name)
 		}
 	}
-	r.scheduleMu.RUnlock()
+	r.scheduleMu.Unlock()
 
 	for _, name := range due {
-		r.enqueue(name)
+		if !r.enqueue(name) {
+			// A full queue must not leave this app immediately due, or the
+			// scheduler will spin while workers are busy. Retry shortly instead.
+			r.scheduleMu.Lock()
+			r.queued[name] = false
+			r.schedule[name] = time.Now().Add(queueRetryInterval)
+			r.scheduleMu.Unlock()
+		}
 	}
 }
 
 // enqueue pushes an app name onto the work queue if not full.
-func (r *ReconcilerImpl) enqueue(appName string) {
+func (r *ReconcilerImpl) enqueue(appName string) bool {
 	select {
 	case r.workQueue <- appName:
+		return true
 	default:
 		r.logger.Debug("work queue full, skipping", "app", appName)
+		return false
 	}
 }
 
@@ -103,6 +116,7 @@ func (r *ReconcilerImpl) reschedule(ctx context.Context, appName string) {
 
 	r.scheduleMu.Lock()
 	r.schedule[appName] = time.Now().Add(interval)
+	delete(r.queued, appName)
 	r.scheduleMu.Unlock()
 }
 
@@ -152,6 +166,7 @@ func (r *ReconcilerImpl) AddApp(appName string) {
 func (r *ReconcilerImpl) RemoveApp(appName string) {
 	r.scheduleMu.Lock()
 	delete(r.schedule, appName)
+	delete(r.queued, appName)
 	r.scheduleMu.Unlock()
 
 	r.appLocks.Delete(appName)

@@ -31,7 +31,7 @@ Before saving, ask yourself these questions silently (do NOT output them):
 ### 1. Check for --list flag
 
 If the user passed `--list`:
-- Call `zen_checkpoint_list` with limit 20
+- Call `dragonfly_checkpoint_list` with limit 20
 - Display checkpoints with name, type, and creation time
 - Stop here
 
@@ -52,10 +52,10 @@ Write a first-person briefing as if speaking to your future self:
 
 ### 4. Save the checkpoint
 
-Call `zen_checkpoint_save` with structured parameters:
+Call `dragonfly_checkpoint_save` with structured parameters:
 
 ```
-zen_checkpoint_save({
+dragonfly_checkpoint_save({
   name: "<user-provided or auto-generated>",
   type: "manual",
   data: {
@@ -113,7 +113,7 @@ The framework prompts for checkpoints at these events:
 - **Workflow completion** — Full checkpoint with all structured fields
 - **Pre-compaction** — Hook saves automatic checkpoint (minimal, no reflection)
 
-When you see a `checkpoint_prompt` in a `zen_advance_workflow` response, follow its guidance.
+When you see a `checkpoint_prompt` in a `dragonfly_advance_workflow` response, follow its guidance.
 
 ## Related Commands
 

@@ -199,7 +199,7 @@ metadata:
   name: my-app
 spec:
   source:
-    repoURL: https://github.com/org/app.git   # or http://user:pass@gitea:3000/...
+    repoURL: https://github.com/org/app.git   # credentials are never embedded in this URL
     targetRevision: main                        # branch, tag, or commit SHA
     path: deploy/                               # path within repo
     composeFiles:
@@ -240,6 +240,7 @@ cd ..
 ### 2. Install
 
 ```bash
+export DOCKERCD_API_TOKEN="$(openssl rand -base64 48)"
 ./install.sh
 # Select: standalone, bundle, or full
 ```
@@ -260,16 +261,22 @@ All configuration uses the `DOCKERCD_` prefix:
 |----------|---------|-------------|
 | `DOCKERCD_DATA_DIR` | `/data` | SQLite database and Git cache |
 | `DOCKERCD_CONFIG_DIR` | `/config/applications` | Application manifest directory |
+| `DOCKERCD_API_HOST` | `127.0.0.1` | HTTP listen interface; a non-loopback value requires an API token |
 | `DOCKERCD_API_PORT` | `8080` | HTTP listen port |
 | `DOCKERCD_LOG_LEVEL` | `info` | debug / info / warn / error |
 | `DOCKERCD_WORKER_COUNT` | `4` | Reconciliation worker pool size (1–32) |
 | `DOCKERCD_DEFAULT_POLL_INTERVAL` | `180s` | Default poll interval (min 30s) |
 | `DOCKERCD_GIT_TOKEN` | *(empty)* | GitHub / Gitea PAT for HTTPS auth |
 | `DOCKERCD_WEBHOOK_SECRET` | *(empty)* | HMAC secret for Git webhook validation |
-| `DOCKERCD_API_TOKEN` | *(empty)* | Bearer token for API authentication |
+| `DOCKERCD_API_TOKEN` | *(empty)* | Required (32+ characters) when `DOCKERCD_API_HOST` is non-loopback; sent as a Bearer token |
 | `DOCKERCD_SLACK_WEBHOOK_URL` | *(empty)* | Slack notifications |
 | `DOCKERCD_NOTIFICATION_WEBHOOK_URL` | *(empty)* | Generic webhook notifications |
 | `DOCKERCD_AGE_KEY_FILE` | *(empty)* | Path to age private key for secret decryption |
+
+Deployment Compose files publish the UI only on `127.0.0.1` and require
+`DOCKERCD_API_TOKEN`. Keep the service loopback-bound or place a TLS-terminating,
+authenticated reverse proxy in front of it; do not expose the built-in HTTP API
+directly to an untrusted network.
 
 ---
 

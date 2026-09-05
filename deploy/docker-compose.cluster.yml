@@ -4,38 +4,56 @@ services:
     container_name: dockercd-node0
     restart: unless-stopped
     ports:
-      - "8080:8080"
-      - "9190:9090"
+      - "127.0.0.1:8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - dockercd-node0-data:/data
+      - ${DOCKERCD_CLUSTER_TLS_DIR:?set DOCKERCD_CLUSTER_TLS_DIR to a directory containing cluster CA and node certificates}/ca.pem:/run/dockercd-cluster/tls/ca.pem:ro
+      - ${DOCKERCD_CLUSTER_TLS_DIR:?set DOCKERCD_CLUSTER_TLS_DIR to a directory containing cluster CA and node certificates}/node0.pem:/run/dockercd-cluster/tls/tls.pem:ro
+      - ${DOCKERCD_CLUSTER_TLS_DIR:?set DOCKERCD_CLUSTER_TLS_DIR to a directory containing cluster CA and node certificates}/node0-key.pem:/run/dockercd-cluster/tls/tls-key.pem:ro
     environment:
+      DOCKERCD_API_HOST: "0.0.0.0"
+      DOCKERCD_API_TOKEN: ${DOCKERCD_API_TOKEN:?set DOCKERCD_API_TOKEN to a random value of at least 32 characters}
+      DOCKERCD_GIT_ALLOWED_HOSTS: ${DOCKERCD_GIT_ALLOWED_HOSTS:-github.com}
       DOCKERCD_CLUSTER_ENABLED: "true"
       DOCKERCD_CLUSTER_NODE_ID: "node0"
+      DOCKERCD_CLUSTER_PEER_ID: "node1"
       DOCKERCD_CLUSTER_PEER_ADDR: "dockercd-node1:9090"
       DOCKERCD_CLUSTER_LISTEN_ADDR: ":9090"
       DOCKERCD_CLUSTER_PREFERRED_LEADER: "node0"
       DOCKERCD_CLUSTER_HEARTBEAT_INTERVAL: "60s"
       DOCKERCD_CLUSTER_MAX_MISSED_BEATS: "3"
+      DOCKERCD_CLUSTER_TLS_CERT_FILE: "/run/dockercd-cluster/tls/tls.pem"
+      DOCKERCD_CLUSTER_TLS_KEY_FILE: "/run/dockercd-cluster/tls/tls-key.pem"
+      DOCKERCD_CLUSTER_TLS_CA_FILE: "/run/dockercd-cluster/tls/ca.pem"
 
   dockercd-node1:
     image: dockercd:latest
     container_name: dockercd-node1
     restart: unless-stopped
     ports:
-      - "8081:8080"
-      - "9191:9090"
+      - "127.0.0.1:8081:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - dockercd-node1-data:/data
+      - ${DOCKERCD_CLUSTER_TLS_DIR:?set DOCKERCD_CLUSTER_TLS_DIR to a directory containing cluster CA and node certificates}/ca.pem:/run/dockercd-cluster/tls/ca.pem:ro
+      - ${DOCKERCD_CLUSTER_TLS_DIR:?set DOCKERCD_CLUSTER_TLS_DIR to a directory containing cluster CA and node certificates}/node1.pem:/run/dockercd-cluster/tls/tls.pem:ro
+      - ${DOCKERCD_CLUSTER_TLS_DIR:?set DOCKERCD_CLUSTER_TLS_DIR to a directory containing cluster CA and node certificates}/node1-key.pem:/run/dockercd-cluster/tls/tls-key.pem:ro
     environment:
+      DOCKERCD_API_HOST: "0.0.0.0"
+      DOCKERCD_API_TOKEN: ${DOCKERCD_API_TOKEN:?set DOCKERCD_API_TOKEN to a random value of at least 32 characters}
+      DOCKERCD_GIT_ALLOWED_HOSTS: ${DOCKERCD_GIT_ALLOWED_HOSTS:-github.com}
       DOCKERCD_CLUSTER_ENABLED: "true"
       DOCKERCD_CLUSTER_NODE_ID: "node1"
+      DOCKERCD_CLUSTER_PEER_ID: "node0"
       DOCKERCD_CLUSTER_PEER_ADDR: "dockercd-node0:9090"
       DOCKERCD_CLUSTER_LISTEN_ADDR: ":9090"
       DOCKERCD_CLUSTER_PREFERRED_LEADER: "node0"
       DOCKERCD_CLUSTER_HEARTBEAT_INTERVAL: "60s"
       DOCKERCD_CLUSTER_MAX_MISSED_BEATS: "3"
+      DOCKERCD_CLUSTER_TLS_CERT_FILE: "/run/dockercd-cluster/tls/tls.pem"
+      DOCKERCD_CLUSTER_TLS_KEY_FILE: "/run/dockercd-cluster/tls/tls-key.pem"
+      DOCKERCD_CLUSTER_TLS_CA_FILE: "/run/dockercd-cluster/tls/ca.pem"
 
 volumes:
   dockercd-node0-data:

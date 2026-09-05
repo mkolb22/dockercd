@@ -1,13 +1,17 @@
 // Package api provides the REST API server for dockercd.
 package api
 
-import "github.com/mkolb22/dockercd/internal/app"
+import (
+	"github.com/mkolb22/dockercd/internal/app"
+	"github.com/mkolb22/dockercd/internal/store"
+)
 
 // ApplicationResponse is the API representation of an application.
 type ApplicationResponse struct {
-	Metadata app.AppMetadata   `json:"metadata"`
-	Spec     app.AppSpec       `json:"spec"`
-	Status   AppStatusResponse `json:"status"`
+	Metadata      app.AppMetadata    `json:"metadata"`
+	Spec          app.AppSpec        `json:"spec"`
+	Status        AppStatusResponse  `json:"status"`
+	RecentHistory []store.SyncRecord `json:"recentHistory,omitempty"`
 }
 
 // AppStatusResponse is the API representation of application status.
@@ -112,9 +116,11 @@ type CreateHostRequest struct {
 
 // Error codes.
 const (
-	CodeNotFound      = "NOT_FOUND"
-	CodeBadRequest    = "BAD_REQUEST"
-	CodeInternalError = "INTERNAL_ERROR"
-	CodeConflict      = "CONFLICT"
-	CodeUnavailable   = "UNAVAILABLE"
+	CodeNotFound        = "NOT_FOUND"
+	CodeBadRequest      = "BAD_REQUEST"
+	CodeInternalError   = "INTERNAL_ERROR"
+	CodeConflict        = "CONFLICT"
+	CodeUnavailable     = "UNAVAILABLE"
+	CodeForbidden       = "FORBIDDEN"
+	CodeTooManyRequests = "TOO_MANY_REQUESTS"
 )

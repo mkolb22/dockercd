@@ -3,7 +3,7 @@ name: Workflow Replay
 description: Debug failed workflows using provenance-based replay for 5x faster issue resolution
 version: 1.0.0
 trigger_keywords: [replay, debug, workflow, failed, provenance, troubleshoot, resume]
-author: Zen Architecture
+author: Dragonfly Architecture
 ---
 
 # Workflow Replay - Expert Skill
@@ -37,7 +37,7 @@ Read the complete execution record:
 /replay flow-2025-11-10-19h00m00s
 ```
 
-This loads: `koan/provenance/flows/flow-{id}.yaml`
+This loads: `data/provenance/flows/flow-{id}.yaml`
 
 ### 2. Analyze Timeline
 
@@ -45,12 +45,12 @@ See the complete execution flow:
 
 ```
 Timeline:
-✓ act-001: story.create (Sonnet) - 2min - $0.0002
-✓ act-002: architecture.design (Sonnet) - 8min - $0.015
-✗ act-003: implementation.generate (Sonnet) - FAILED
-⊘ act-004: quality.review (Sonnet) - NOT EXECUTED
-⊘ act-005: quality.test (Sonnet) - NOT EXECUTED
-⊘ act-006: version.commit (Sonnet) - NOT EXECUTED
+✓ act-001: story.create (Opus) - 2min - $0.0002
+✓ act-002: architecture.design (Opus) - 8min - $0.015
+✗ act-003: implementation.generate (Opus) - FAILED
+⊘ act-004: quality.review (Opus) - NOT EXECUTED
+⊘ act-005: quality.test (Opus) - NOT EXECUTED
+⊘ act-006: version.commit (Opus) - NOT EXECUTED
 ```
 
 ### 3. Identify Root Cause
@@ -300,7 +300,7 @@ Total:          $0.0163
 Replay reads from:
 
 ```yaml
-# koan/provenance/flows/flow-{id}.yaml
+# data/provenance/flows/flow-{id}.yaml
 
 flow_id: "flow-2025-11-10-19h00m00s"
 status: "failed"
@@ -313,7 +313,7 @@ actions:
     cost: {...}
     inputs: {...}
     outputs: {...}
-    file: "koan/stories/story-042.yaml"
+    file: "data/stories/story-042.yaml"
 
   - action_id: "act-002"
     concept: "architecture"
@@ -322,7 +322,7 @@ actions:
     warnings: ["Schema validation not run"]
     cost: {...}
     outputs: {...}
-    file: "koan/architecture/arch-042.yaml"
+    file: "data/architecture/arch-042.yaml"
 
   - action_id: "act-003"
     concept: "implementation"
@@ -441,7 +441,7 @@ context:
 
 ```bash
 # Check provenance directory
-ls koan/provenance/flows/
+ls data/provenance/flows/
 
 # Verify flow ID format
 # Should be: flow-YYYY-MM-DD-HHhMMmSSs
@@ -460,7 +460,7 @@ ls koan/provenance/flows/
 
 ```bash
 # Check if outputs were saved
-ls koan/stories/ koan/architecture/
+ls data/stories/ data/architecture/
 
 # If missing, need to regenerate from earlier point
 /replay flow-id --from act-001
@@ -470,8 +470,8 @@ ls koan/stories/ koan/architecture/
 
 - **/replay command** - Command reference
 - **/trace command** - Quick workflow overview
-- **ZEN_IMPLEMENTATION_PHASES.md** - Day 8-9 implementation
-- **ZEN_IMPROVEMENT_PROPOSALS.md** - Proposal #5
+- **DRAGONFLY_IMPLEMENTATION_PHASES.md** - Day 8-9 implementation
+- **DRAGONFLY_IMPROVEMENT_PROPOSALS.md** - Proposal #5
 
 ---
 

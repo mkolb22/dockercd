@@ -33,7 +33,10 @@ type mockReconciler struct {
 // --- Mock inspector ---
 
 type mockInspector struct {
-	states []app.ServiceState
+	states         []app.ServiceState
+	detail         *app.ServiceDetail
+	hostStats      *app.HostStats
+	hostStatsCalls int
 }
 
 func (m *mockInspector) Inspect(_ context.Context, _ app.DestinationSpec) ([]app.ServiceState, error) {
@@ -49,10 +52,11 @@ func (m *mockInspector) SystemInfo(_ context.Context, _ string) (*app.DockerHost
 	return nil, nil
 }
 func (m *mockInspector) HostStats(_ context.Context, _ string) (*app.HostStats, error) {
-	return nil, nil
+	m.hostStatsCalls++
+	return m.hostStats, nil
 }
 func (m *mockInspector) InspectServiceDetail(_ context.Context, _ app.DestinationSpec, _ string) (*app.ServiceDetail, error) {
-	return nil, nil
+	return m.detail, nil
 }
 func (m *mockInspector) GetServiceLogs(_ context.Context, _ app.DestinationSpec, _ string, _ int) ([]string, error) {
 	return nil, nil
@@ -170,6 +174,12 @@ func TestHealthz(t *testing.T) {
 	if resp.Status != "ok" {
 		t.Errorf("expected status=ok, got %q", resp.Status)
 	}
+	if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if got := w.Header().Get("Content-Security-Policy"); got == "" {
+		t.Error("expected Content-Security-Policy header")
+	}
 }
 
 func TestReadyz(t *testing.T) {
@@ -189,6 +199,27 @@ func TestReadyz(t *testing.T) {
 	}
 	if resp.Checks["database"] != "ok" {
 		t.Errorf("expected database=ok, got %q", resp.Checks["database"])
+	}
+}
+
+func TestGetHostStats_CachesRecentResult(t *testing.T) {
+	s := setupTestStore(t)
+	insp := &mockInspector{hostStats: &app.HostStats{CPUPercent: 12.5}}
+	srv := NewServer(":0", ServerDeps{
+		Store:      s,
+		Reconciler: &mockReconciler{},
+		Inspector:  insp,
+		Logger:     testLogger(),
+	})
+
+	for range 2 {
+		w := doRequest(t, srv, "GET", "/api/v1/system/stats")
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	}
+	if insp.hostStatsCalls != 1 {
+		t.Fatalf("HostStats called %d times, want 1", insp.hostStatsCalls)
 	}
 }
 
@@ -284,6 +315,25 @@ func TestAPIToken_BearerAndCookieAuth(t *testing.T) {
 	srv.Router().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected bearer-authenticated request 200, got %d", w.Code)
+	}
+
+	req = httptest.NewRequest("PUT", "/api/v1/settings/poll-interval", strings.NewReader(`{"intervalMs":300000}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookies[0])
+	w = httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected cookie-authenticated mutation without CSRF header to return 403, got %d", w.Code)
+	}
+
+	req = httptest.NewRequest("PUT", "/api/v1/settings/poll-interval", strings.NewReader(`{"intervalMs":300000}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.AddCookie(cookies[0])
+	w = httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected cookie-authenticated mutation with CSRF header to return 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -853,5 +903,60 @@ func TestGetApplication_ResponseStructure(t *testing.T) {
 	}
 	if resp.Status.LastSyncedSHA != "deadbeef" {
 		t.Errorf("expected LastSyncedSHA=deadbeef, got %q", resp.Status.LastSyncedSHA)
+	}
+}
+
+func TestGetApplication_RedactsEmbeddedRepoCredentials(t *testing.T) {
+	s := setupTestStore(t)
+	manifest := `{"apiVersion":"dockercd/v1","kind":"Application","metadata":{"name":"myapp"},"spec":{"source":{"repoURL":"https://user:password@example.com/org/repo.git"}}}`
+	if err := s.CreateApplication(context.Background(), &store.ApplicationRecord{Name: "myapp", Manifest: manifest}); err != nil {
+		t.Fatalf("create app: %v", err)
+	}
+
+	w := doRequest(t, newTestServer(t, s, nil), "GET", "/api/v1/applications/myapp")
+	if strings.Contains(w.Body.String(), "password") || strings.Contains(w.Body.String(), "user@") {
+		t.Fatalf("application response exposed credentials: %s", w.Body.String())
+	}
+}
+
+func TestRenderedDesired_RedactsEnvironment(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp")
+	srv := newTestServer(t, s, &mockReconciler{rendered: &app.ComposeSpec{Services: []app.ServiceSpec{{
+		Name:        "api",
+		Environment: map[string]string{"PASSWORD": "secret"},
+	}}}, renderSHA: "abc123"})
+
+	w := doRequest(t, srv, "GET", "/api/v1/applications/myapp/desired")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "secret") {
+		t.Fatalf("desired-state response exposed environment value: %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), app.RedactedValue) {
+		t.Fatalf("desired-state response did not mark environment as redacted: %s", w.Body.String())
+	}
+}
+
+func TestGetServiceDetail_RedactsEnvironment(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp")
+	srv := NewServer(":0", ServerDeps{
+		Store:      s,
+		Reconciler: &mockReconciler{},
+		Inspector: &mockInspector{detail: &app.ServiceDetail{ServiceState: app.ServiceState{
+			Name:        "api",
+			Environment: map[string]string{"PASSWORD": "secret"},
+		}}},
+		Logger: testLogger(),
+	})
+
+	w := doRequest(t, srv, "GET", "/api/v1/applications/myapp/services/api")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "secret") {
+		t.Fatalf("service detail exposed environment value: %s", w.Body.String())
 	}
 }

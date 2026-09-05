@@ -2,7 +2,7 @@
 name: Dependency Impact Analysis
 description: Analyze dependency changes for risk assessment and upgrade planning
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - architecture-concept
 trigger_keywords:

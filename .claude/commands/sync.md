@@ -16,7 +16,7 @@ what would trigger next. Useful for manual workflow control and debugging.
 When you run this command, you should:
 
 1. **Find Latest Outputs**
-   - Scan `koan/*/` directories for most recent files
+   - Scan `data/*/*/` directories for most recent files
    - Identify the last completed concept action
 
 2. **Read State Files with Progressive Disclosure + Cache**
@@ -49,10 +49,10 @@ When you run this command, you should:
 
 **Traditional Approach** (expensive):
 ```
-Read koan/stories/story-001.yaml         (2000 tokens)
-Read koan/architecture/arch-001.yaml     (3000 tokens)
-Read koan/implementations/impl-001.yaml  (2500 tokens)
-Read koan/reviews/review-001.yaml        (2000 tokens)
+Read data/stories/story-001.yaml         (2000 tokens)
+Read data/architecture/arch-001.yaml     (3000 tokens)
+Read data/implementations/impl-001.yaml  (2500 tokens)
+Read data/reviews/review-001.yaml        (2000 tokens)
 ────────────────────────────────────────────────────
 Total: 9500 tokens just to check status
 ```
@@ -81,7 +81,7 @@ Last completed action:
   Concept: story
   Action: create
   Status: completed
-  Output: koan/stories/story-001.yaml
+  Output: data/stories/story-001.yaml
 
 Checking synchronization rules:
 
@@ -89,7 +89,7 @@ Checking synchronization rules:
   When: story.create completed ✓
   Where: story.status == 'ready' ✓
         story.acceptance_criteria.length > 0 ✓
-  Then: architecture.design (model: sonnet)
+  Then: architecture.design (model: opus)
   Status: MATCHED
 
 ✗ arch-to-impl
@@ -119,7 +119,7 @@ Matched: story-to-arch
 
 Executing architecture concept...
 
-[Invoke Task tool → architecture concept → model: sonnet]
+[Invoke Task tool → architecture concept → model: opus]
 
 ✓ Architecture created: arch-001
   Approach: Provider pattern with Confluence API client
@@ -143,7 +143,7 @@ User: /sync --dry-run
 You: Dry run - showing evaluation details...
 
 Reading state files (progressive disclosure):
-  ✓ koan/stories/story-001.yaml (summary only - 100 tokens)
+  ✓ data/stories/story-001.yaml (summary only - 100 tokens)
   ✓ .claude/synchronizations/feature-development.yaml
 
 Latest action: story.create (completed)
@@ -183,7 +183,7 @@ The sync engine evaluates `where` queries by:
 
 1. **Reading state file summaries first**
    ```yaml
-   # koan/stories/story-001.yaml (summary only - first 5 lines)
+   # data/stories/story-001.yaml (summary only - first 5 lines)
    story_id: "story-001"
    status: "ready"
    title: "Custom Terraform Provider"

@@ -2,7 +2,7 @@
 name: security-concept
 type: workflow
 execution: task-tool
-model: sonnet
+model: opus
 color: red
 description: Security Concept - Continuous security assurance with threat modeling, vulnerability scanning, and commit verification
 
@@ -38,7 +38,7 @@ skills:
 
 ## Model Assignment
 
-**Model**: Sonnet (pattern-based security analysis)
+**Model**: Opus (pattern-based security analysis)
 **Cost per Action**: ~$0.002
 **Never Calls**: No other concepts (pure security analysis)
 
@@ -106,7 +106,7 @@ security_requirements:
 metadata:
   concept: "security"
   action: "threat_model"
-  model: "sonnet"
+  model: "opus"
   cost: 0.002
 ```
 
@@ -210,25 +210,6 @@ Final security gate before version control.
 - Vulnerabilities found/fixed
 - Integrity hash of approved files
 
-## Blocking Behavior
-
-Security concept can **block** workflow progression:
-
-1. **Architecture blocked** if:
-   - Critical security requirements not addressed
-   - OWASP A01-A03 violations in design
-   - Missing authentication/authorization design
-
-2. **Commit blocked** if:
-   - Any critical vulnerability unfixed
-   - Hardcoded secrets detected
-   - High-severity issues without justification
-
-3. **Override mechanism**:
-   - Requires explicit user approval via AskUserQuestion
-   - Records justification in attestation
-   - Flags in provenance for audit
-
 ## Never Do This
 
 - Skip threat modeling ("it's just a small feature")
@@ -244,11 +225,11 @@ Security concept can **block** workflow progression:
 - Scan all implementation code
 - Verify before every commit
 - Generate attestations
-- Record all security decisions via `zen_event_log` MCP tool
+- Record all security decisions via `dragonfly_event_log` MCP tool
 
 ---
 
-**Model Assignment**: Sonnet
+**Model Assignment**: Opus
 **Cost Tier**: Low (~$0.002 per action)
 **Purpose**: Continuous security assurance
 **Integration**: Parallel with main workflow, gates commit

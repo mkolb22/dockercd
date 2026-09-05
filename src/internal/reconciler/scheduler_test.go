@@ -65,6 +65,49 @@ done:
 	if len(received) != 2 {
 		t.Errorf("expected 2 due apps, got %d", len(received))
 	}
+
+	// Queued apps must not be repeatedly added while a worker is still running.
+	r.enqueueDueApps()
+	select {
+	case name := <-r.workQueue:
+		t.Fatalf("queued app was enqueued again: %q", name)
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+func TestScheduler_QueuedDueAppsDoNotCauseImmediateWake(t *testing.T) {
+	r := New(Deps{Logger: testLogger(), WorkerCount: 1})
+	r.scheduleMu.Lock()
+	r.schedule["busy-app"] = time.Now().Add(-time.Second)
+	r.queued["busy-app"] = true
+	r.scheduleMu.Unlock()
+
+	if wake := r.nextWakeTime(); !wake.IsZero() {
+		t.Fatalf("queued due app should not be a wake candidate, got %v", wake)
+	}
+}
+
+func TestScheduler_FullQueueDefersRetry(t *testing.T) {
+	r := New(Deps{Logger: testLogger(), WorkerCount: 1})
+	r.enqueue("first")
+	r.enqueue("second")
+	r.scheduleMu.Lock()
+	r.schedule["deferred"] = time.Now().Add(-time.Second)
+	r.scheduleMu.Unlock()
+
+	before := time.Now()
+	r.enqueueDueApps()
+	r.scheduleMu.RLock()
+	next := r.schedule["deferred"]
+	queued := r.queued["deferred"]
+	r.scheduleMu.RUnlock()
+
+	if queued {
+		t.Fatal("app should not be marked queued after a full-queue enqueue failure")
+	}
+	if !next.After(before) {
+		t.Fatalf("full queue should defer retry, got %v", next)
+	}
 }
 
 func TestScheduler_Enqueue_FullQueue(t *testing.T) {

@@ -1,9 +1,9 @@
 ---
 name: Synchronization Patterns
-description: Common patterns and best practices for writing effective synchronization rules in Zen WYSIWID workflows
+description: Common patterns and best practices for writing effective synchronization rules in Dragonfly WYSIWID workflows
 version: 1.0.0
 trigger_keywords: [synchronization, sync, workflow, orchestration, rules, patterns, when, where, then]
-author: Zen Architecture
+author: Dragonfly Architecture
 ---
 
 # Synchronization Patterns - Expert Skill
@@ -66,7 +66,7 @@ synchronizations:
     then:
       - concept: "quality"
         action: "review"
-        model: "sonnet"
+        model: "opus"
         parallel: true  # Can run concurrently with other rules
         inputs:
           implementation_id: "${implementation.id}"
@@ -82,7 +82,7 @@ synchronizations:
     then:
       - concept: "quality"
         action: "test"
-        model: "sonnet"
+        model: "opus"
         parallel: true  # Can run concurrently with impl-to-quality-review
         inputs:
           implementation_id: "${implementation.id}"
@@ -232,7 +232,7 @@ synchronizations:
     then:
       - concept: "architecture"
         action: "design"
-        model: "sonnet"  # Complex reasoning
+        model: "opus"  # Complex reasoning
         inputs: {story_id: "${story.id}"}
 
   # Architecture → Implementation (sequential)
@@ -242,7 +242,7 @@ synchronizations:
     then:
       - concept: "implementation"
         action: "generate"
-        model: "sonnet"  # Spec-driven
+        model: "opus"  # Spec-driven
         inputs: {architecture_id: "${architecture.id}"}
 
   # Implementation → Quality Review + Test (PARALLEL)
@@ -252,7 +252,7 @@ synchronizations:
     then:
       - concept: "quality"
         action: "review"
-        model: "sonnet"
+        model: "opus"
         parallel: true  # ← Enables parallel execution
         inputs: {implementation_id: "${implementation.id}"}
 
@@ -262,7 +262,7 @@ synchronizations:
     then:
       - concept: "quality"
         action: "test"
-        model: "sonnet"
+        model: "opus"
         parallel: true  # ← Runs simultaneously with review
         inputs: {implementation_id: "${implementation.id}"}
 
@@ -273,7 +273,7 @@ synchronizations:
     then:
       - concept: "version"
         action: "commit"
-        model: "sonnet"
+        model: "opus"
         inputs:
           implementation_id: "${implementation.id}"
           flow_id: "${flow.id}"
@@ -281,16 +281,16 @@ synchronizations:
 
 **Execution Flow**:
 ```
-Story (Sonnet)
+Story (Opus)
   ↓
-Architecture (Sonnet)
+Architecture (Opus)
   ↓
-Implementation (Sonnet)
+Implementation (Opus)
   ↓
-  ├─→ Quality Review (Sonnet) ──┐
-  └─→ Quality Test (Sonnet) ────┤ [PARALLEL: 50% faster]
+  ├─→ Quality Review (Opus) ──┐
+  └─→ Quality Test (Opus) ────┤ [PARALLEL: 50% faster]
                                 ↓
-                           Version (Sonnet)
+                           Version (Opus)
 ```
 
 **Performance**:

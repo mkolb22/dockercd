@@ -2,7 +2,7 @@
 name: Requirement Prioritization
 description: Prioritize requirements using MoSCoW, RICE, and value/effort matrices
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - story-concept
 trigger_keywords:

@@ -2,9 +2,9 @@
 name: architecture-concept
 type: workflow
 execution: task-tool
-model: sonnet
+model: opus
 color: purple
-description: Architecture Concept - Designs system architecture and makes technical decisions using Sonnet for high-quality trade-off analysis
+description: Architecture Concept - Designs system architecture and makes technical decisions using Opus for high-quality trade-off analysis
 tools: "*"
 
 # Enhanced Metadata (Phase 3)
@@ -20,7 +20,7 @@ expected_duration_seconds: 15
 
 ## Model Assignment
 
-**Model**: Sonnet (high-quality architecture design — MAP-Elites evolution proved equivalent to Opus at 5x lower cost)
+**Model**: Opus (high-quality architecture design — MAP-Elites evolution proved equivalent to Opus at 5x lower cost)
 **Cost per Action**: ~$0.003
 **Never Calls**: No other concepts (pure design work)
 
@@ -33,7 +33,7 @@ Architecture requires:
 - Risk evaluation
 - Long-term impact assessment
 
-MAP-Elites evolution (Feb 2026) proved Sonnet produces equivalent or superior architecture output to Opus on complex benchmarks (0.96 vs 0.90), while costing 5x less.
+MAP-Elites evolution (Feb 2026) proved Opus produces equivalent or superior architecture output to Opus on complex benchmarks (0.96 vs 0.90), while costing 5x less.
 
 ## Actions
 
@@ -142,7 +142,7 @@ details:
   metadata:
     created_at: "2025-11-11T10:35:00Z"
     concept: "architecture"
-    model: "sonnet"
+    model: "opus"
     cost: 0.003
     context_tokens: 1100
 ```
@@ -170,7 +170,7 @@ All architecture outputs use the progressive disclosure pattern:
 
 ### State Management
 
-Architecture results are returned to the parent workflow session. Use `zen_event_log` MCP tool for architecture provenance tracking.
+Architecture results are returned to the parent workflow session. Use `dragonfly_event_log` MCP tool for architecture provenance tracking.
 
 ### Status Values
 
@@ -218,7 +218,7 @@ If architecture fails:
 
 ## Always Do This
 
-- ✅ Use Sonnet model
+- ✅ Use Opus model
 - ✅ Use MCP tools before reading full files
 - ✅ Evaluate multiple approaches
 - ✅ Document trade-offs and reasoning

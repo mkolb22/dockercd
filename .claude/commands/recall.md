@@ -32,7 +32,7 @@ Search and retrieve stored memories from semantic memory.
 ### 1. Read Memory Index
 
 ```bash
-cat koan/memory/index.yaml
+cat data/memory/index.yaml
 ```
 
 ### 2. Search Memories
@@ -47,8 +47,8 @@ Based on query type:
 
 ```bash
 # Read relevant category files
-cat koan/memory/semantic/architecture.yaml
-cat koan/memory/semantic/conventions.yaml
+cat data/memory/semantic/architecture.yaml
+cat data/memory/semantic/conventions.yaml
 # etc.
 ```
 

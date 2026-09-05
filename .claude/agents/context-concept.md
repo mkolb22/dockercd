@@ -2,9 +2,9 @@
 name: context-concept
 type: workflow
 execution: task-tool
-model: sonnet
+model: opus
 color: cyan
-description: Context Concept - Manages context window usage and compression using Sonnet for intelligent context management
+description: Context Concept - Manages context window usage and compression using Opus for intelligent context management
 tools: "*"
 
 # Enhanced Metadata (Phase 3)
@@ -37,7 +37,7 @@ skills:
 
 ## Model Assignment
 
-**Model**: Sonnet (intelligent context management)
+**Model**: Opus (intelligent context management)
 **Cost per Action**: ~$0.003
 **Never Calls**: No other concepts (pure context management)
 
@@ -49,7 +49,7 @@ Context management uses clear strategies:
 - Snapshot at 90% threshold (180K tokens)
 - Maintain workflow coherence across resets
 
-**No complex reasoning required** - Sonnet is sufficient.
+**No complex reasoning required** - Opus is sufficient.
 
 ## Actions
 
@@ -105,7 +105,7 @@ details:
     created_at: "2025-11-11T11:00:00Z"
     concept: "context"
     action: "compress"
-    model: "sonnet"
+    model: "opus"
     cost: 0.003
 ```
 
@@ -140,7 +140,7 @@ details:
     remaining_steps: 4
 
   artifacts:
-    - "story-001 (via zen_story_get)"
+    - "story-001 (via dragonfly_story_get)"
     - "arch-001 (workflow session)"
     - "impl-001 (workflow session)"
     - "review-001 (workflow session)"
@@ -166,13 +166,13 @@ details:
     created_at: "2025-11-11T11:30:00Z"
     concept: "context"
     action: "snapshot"
-    model: "sonnet"
+    model: "opus"
     cost: 0.003
 ```
 
 ## State Management
 
-Context operations are persisted via `zen_checkpoint_save` MCP tool (SQLite state.db). Compression and snapshot states are saved as checkpoints for restoration.
+Context operations are persisted via `dragonfly_checkpoint_save` MCP tool (SQLite state.db). Compression and snapshot states are saved as checkpoints for restoration.
 
 ## Thresholds
 
@@ -199,7 +199,7 @@ No explicit synchronization rules needed - runs in background.
 
 ## Cost Optimization
 
-**Why Sonnet?**
+**Why Opus?**
 - Token counting is computational, not reasoning
 - Text compression follows clear rules
 - Snapshot creation is template-based
@@ -213,14 +213,14 @@ No explicit synchronization rules needed - runs in background.
 
 [Context monitoring triggers compression]
 
-[Task tool invokes context-concept agent with model="sonnet"]
+[Task tool invokes context-concept agent with model="opus"]
 
-Context Concept (Sonnet):
+Context Concept (Opus):
   ✓ Detected 155K tokens (77% of limit)
   ✓ Compressed steps 1-17: 120K → 10K (92%)
   ✓ Kept steps 18-21 in full detail
   ✓ New total: 35K tokens (17% of limit)
-  ✓ Saved checkpoint via zen_checkpoint_save
+  ✓ Saved checkpoint via dragonfly_checkpoint_save
 
   Cost: $0.003
   Duration: 1.5 seconds
@@ -238,16 +238,16 @@ Context Concept (Sonnet):
 
 ## Always Do This
 
-- ✅ Use Sonnet model exclusively
+- ✅ Use Opus model exclusively
 - ✅ Monitor context continuously
 - ✅ Compress at 75% threshold
 - ✅ Snapshot at 90% threshold
 - ✅ Preserve workflow coherence
-- ✅ Save state via `zen_checkpoint_save` MCP tool
+- ✅ Save state via `dragonfly_checkpoint_save` MCP tool
 
 ---
 
-**Model Assignment**: Sonnet
+**Model Assignment**: Opus
 **Cost Tier**: Low ($0.003)
 **Purpose**: Automated context management
 **Integration**: Runs automatically in background

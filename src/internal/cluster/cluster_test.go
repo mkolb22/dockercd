@@ -1,9 +1,7 @@
 package cluster
 
 import (
-	"bufio"
 	"context"
-	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -49,57 +47,18 @@ func TestNewClusterNode_Defaults(t *testing.T) {
 	}
 }
 
-func TestHeartbeat_PeerAlive(t *testing.T) {
-	// Start a fake peer that responds to heartbeats
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	peerAddr := listener.Addr().String()
-
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			go func(c net.Conn) {
-				defer c.Close()
-				scanner := bufio.NewScanner(c)
-				if scanner.Scan() {
-					fmt.Fprintf(c, "ACK fakepeer active\n")
-				}
-			}(conn)
-		}
-	}()
-
-	cfg := testConfig("node0", peerAddr, ":0", "node0")
-	n := NewClusterNode(cfg, nil, nil, testLogger())
-
-	// Send a heartbeat
-	resp, err := sendMessage(peerAddr, MsgHeartbeat, "node0")
-	if err != nil {
-		t.Fatalf("sendMessage failed: %v", err)
-	}
-	if resp.Type != MsgAck {
-		t.Errorf("expected ACK, got %q", resp.Type)
-	}
-	if resp.NodeID != "fakepeer" {
-		t.Errorf("expected nodeID 'fakepeer', got %q", resp.NodeID)
-	}
-
-	_ = n // used only to verify config construction
-}
-
 func TestHeartbeat_PeerDown(t *testing.T) {
 	// Use an address that won't respond
-	cfg := testConfig("node1", "127.0.0.1:19999", ":0", "node0")
+	material := newTestTLSMaterial(t, "node0", "node1")
+	cfg := secureTestConfig(t, material, "node1", "node0", "127.0.0.1:19999", "127.0.0.1:0", "node0")
 	n := NewClusterNode(cfg, nil, nil, testLogger())
+	if err := n.configureTLS(); err != nil {
+		t.Fatal(err)
+	}
 
 	// Simulate missed beats
 	for i := 0; i < 3; i++ {
-		_, err := sendMessage(n.config.PeerAddr, MsgHeartbeat, n.config.NodeID)
+		_, err := n.sendMessage(MsgHeartbeat)
 		if err == nil {
 			t.Fatal("expected error connecting to non-existent peer")
 		}
@@ -219,17 +178,18 @@ func TestPriorityElection(t *testing.T) {
 
 func TestMessageParsing(t *testing.T) {
 	tests := []struct {
-		input    string
-		wantType string
-		wantNode string
+		input     string
+		wantType  string
+		wantNode  string
 		wantExtra string
-		wantErr  bool
+		wantErr   bool
 	}{
 		{"HEARTBEAT node0", MsgHeartbeat, "node0", "", false},
 		{"ACK node1 active", MsgAck, "node1", "active", false},
 		{"PROMOTE node0", MsgPromote, "node0", "", false},
 		{"DEMOTE node1", MsgDemote, "node1", "", false},
 		{"STATUS node0", MsgStatus, "node0", "", false},
+		{"HEARTBEAT", "", "", "", true},
 		{"INVALID node0", "", "", "", true},
 		{"", "", "", "", true},
 	}
@@ -292,26 +252,11 @@ func TestHeartbeat_Integration(t *testing.T) {
 
 	var n0Promoted, n1Promoted atomic.Bool
 
-	cfg0 := ClusterConfig{
-		Enabled:           true,
-		NodeID:            "node0",
-		PeerAddr:          addr1,
-		ListenAddr:        addr0,
-		HeartbeatInterval: 50 * time.Millisecond,
-		MaxMissedBeats:    3,
-		PreferredLeader:   "node0",
-		DataDir:           t.TempDir(),
-	}
-	cfg1 := ClusterConfig{
-		Enabled:           true,
-		NodeID:            "node1",
-		PeerAddr:          addr0,
-		ListenAddr:        addr1,
-		HeartbeatInterval: 50 * time.Millisecond,
-		MaxMissedBeats:    3,
-		PreferredLeader:   "node0",
-		DataDir:           t.TempDir(),
-	}
+	material := newTestTLSMaterial(t, "node0", "node1")
+	cfg0 := secureTestConfig(t, material, "node0", "node1", addr1, addr0, "node0")
+	cfg1 := secureTestConfig(t, material, "node1", "node0", addr0, addr1, "node0")
+	cfg0.HeartbeatInterval = 50 * time.Millisecond
+	cfg1.HeartbeatInterval = 50 * time.Millisecond
 
 	n0 := NewClusterNode(cfg0, func() { n0Promoted.Store(true) }, nil, testLogger())
 	n1 := NewClusterNode(cfg1, func() { n1Promoted.Store(true) }, nil, testLogger())

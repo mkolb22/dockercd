@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zen UserPromptSubmit Hook
+# Dragonfly UserPromptSubmit Hook
 #
 # This hook runs when the user submits a prompt.
 # It can classify intent and suggest workflows.
@@ -55,9 +55,9 @@ if echo "$PROMPT" | grep -qiE "(explore|understand|how does|explain|what is)"; t
 fi
 
 # Log classification to SQLite
-if zen_state_available; then
+if dragonfly_state_available; then
   SAFE_PREVIEW=$(echo "$PROMPT" | head -c 100 | tr '"' "'" | tr '\n' ' ')
-  zen_event_log "route-$(date +%s)-$$" "intent_classification" "{\"intent\":\"$INTENT\",\"suggested_workflow\":\"$SUGGESTED_WORKFLOW\",\"prompt_length\":${#PROMPT},\"prompt_preview\":\"${SAFE_PREVIEW}...\"}" || true
+  dragonfly_event_log "route-$(date +%s)-$$" "intent_classification" "{\"intent\":\"$INTENT\",\"suggested_workflow\":\"$SUGGESTED_WORKFLOW\",\"prompt_length\":${#PROMPT},\"prompt_preview\":\"${SAFE_PREVIEW}...\"}" || true
 fi
 
 # Only output suggestion for clear workflow matches

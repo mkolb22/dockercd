@@ -2,7 +2,7 @@
 name: Accessibility Checking
 description: WCAG compliance checking and accessibility improvement recommendations
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - quality-concept
 trigger_keywords:

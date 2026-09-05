@@ -10,10 +10,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/mkolb22/dockercd/internal/app"
 	"github.com/mkolb22/dockercd/internal/eventbus"
 	"github.com/mkolb22/dockercd/internal/events"
 	"github.com/mkolb22/dockercd/internal/inspector"
@@ -43,8 +45,57 @@ type Server struct {
 	logger     *slog.Logger
 }
 
+const hostStatsCacheTTL = 5 * time.Second
+
+// hostStatsCache coalesces expensive Docker stats collection across dashboard
+// clients. A short TTL keeps the UI responsive without repeatedly listing and
+// inspecting every container for concurrent requests.
+type hostStatsCache struct {
+	mu        sync.Mutex
+	stats     *app.HostStats
+	fetchedAt time.Time
+	wait      chan struct{}
+}
+
+func (c *hostStatsCache) get(ctx context.Context, insp inspector.StateInspector) (*app.HostStats, error) {
+	for {
+		c.mu.Lock()
+		if c.stats != nil && time.Since(c.fetchedAt) < hostStatsCacheTTL {
+			stats := c.stats
+			c.mu.Unlock()
+			return stats, nil
+		}
+		if c.wait == nil {
+			c.wait = make(chan struct{})
+			wait := c.wait
+			c.mu.Unlock()
+
+			stats, err := insp.HostStats(ctx, "")
+
+			c.mu.Lock()
+			if err == nil {
+				c.stats = stats
+				c.fetchedAt = time.Now()
+			}
+			c.wait = nil
+			close(wait)
+			c.mu.Unlock()
+			return stats, err
+		}
+		wait := c.wait
+		c.mu.Unlock()
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-wait:
+		}
+	}
+}
+
 // NewServer creates a new API server.
 func NewServer(addr string, deps ServerDeps) *Server {
+	statsCache := &hostStatsCache{}
 	h := &Handler{
 		store:         deps.Store,
 		reconciler:    deps.Reconciler,
@@ -54,15 +105,17 @@ func NewServer(addr string, deps ServerDeps) *Server {
 		eventWatcher:  deps.EventWatcher,
 		webhookSecret: deps.WebhookSecret,
 		apiToken:      deps.APIToken,
+		hostStats:     statsCache,
 	}
 
 	router := chi.NewRouter()
 
 	// Middleware stack
 	router.Use(middleware.RequestID)
-	router.Use(middleware.RealIP)
 	router.Use(slogRequestLogger(deps.Logger))
 	router.Use(middleware.Recoverer)
+	router.Use(securityHeaders)
+	expensiveRequests := limitConcurrency(maxConcurrentExpensiveRequests)
 
 	// Probes (no JSON content-type enforcement)
 	router.Get("/healthz", h.Healthz)
@@ -81,9 +134,10 @@ func NewServer(addr string, deps ServerDeps) *Server {
 		r.Use(contentTypeJSON)
 		if deps.APIToken != "" {
 			r.Use(bearerAuth(deps.APIToken))
+			r.Use(cookieCSRF)
 		}
 		r.Get("/system", h.GetSystemInfo)
-		r.Get("/system/stats", h.GetHostStats)
+		r.With(expensiveRequests).Get("/system/stats", h.GetHostStats)
 		r.Get("/settings/poll-interval", h.GetPollInterval)
 		r.Put("/settings/poll-interval", h.SetPollInterval)
 		r.Route("/applications", func(r chi.Router) {
@@ -92,18 +146,18 @@ func NewServer(addr string, deps ServerDeps) *Server {
 			r.Route("/{name}", func(r chi.Router) {
 				r.Get("/", h.GetApplication)
 				r.Delete("/", h.DeleteApplication)
-				r.Post("/sync", h.SyncApplication)
-				r.Post("/rollback", h.RollbackApplication)
-				r.Post("/adopt", h.AdoptApplication)
-				r.Get("/diff", h.DiffApplication)
-				r.Get("/desired", h.GetRenderedDesired)
+				r.With(expensiveRequests).Post("/sync", h.SyncApplication)
+				r.With(expensiveRequests).Post("/rollback", h.RollbackApplication)
+				r.With(expensiveRequests).Post("/adopt", h.AdoptApplication)
+				r.With(expensiveRequests).Get("/diff", h.DiffApplication)
+				r.With(expensiveRequests).Get("/desired", h.GetRenderedDesired)
 				r.Get("/events", h.GetEvents)
 				r.Get("/history", h.GetHistory)
-				r.Get("/metrics", h.GetAppMetrics)
+				r.With(expensiveRequests).Get("/metrics", h.GetAppMetrics)
 				r.Route("/services/{service}", func(r chi.Router) {
-					r.Get("/", h.GetServiceDetail)
-					r.Get("/metrics", h.GetServiceMetrics)
-					r.Get("/logs", h.GetServiceLogs)
+					r.With(expensiveRequests).Get("/", h.GetServiceDetail)
+					r.With(expensiveRequests).Get("/metrics", h.GetServiceMetrics)
+					r.With(expensiveRequests).Get("/logs", h.GetServiceLogs)
 				})
 			})
 		})
@@ -144,12 +198,46 @@ func NewServer(addr string, deps ServerDeps) *Server {
 			ReadHeaderTimeout: 10 * time.Second,
 			ReadTimeout:       30 * time.Second,
 			IdleTimeout:       120 * time.Second,
+			MaxHeaderBytes:    32 << 10,
 			// WriteTimeout is intentionally omitted: SSE streams are long-lived
 			// connections. Long-running sync handlers are bounded by each
 			// application's syncTimeout policy.
 		},
 		handler: h,
 		logger:  deps.Logger,
+	}
+}
+
+const maxConcurrentExpensiveRequests = 4
+
+// securityHeaders protects the embedded browser UI without requiring an edge
+// proxy. Style attributes remain allowed because the current UI uses them; the
+// stricter script policy still disallows inline and dynamically evaluated code.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// limitConcurrency rejects excess expensive work instead of accumulating an
+// unbounded request backlog that can starve the Docker daemon and workers.
+func limitConcurrency(max int) func(http.Handler) http.Handler {
+	sem := make(chan struct{}, max)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+				next.ServeHTTP(w, r)
+			default:
+				writeError(w, http.StatusTooManyRequests, "too many concurrent requests", CodeTooManyRequests)
+			}
+		})
 	}
 }
 
@@ -233,6 +321,10 @@ func serveIndex(w http.ResponseWriter, r *http.Request, fileServer http.Handler)
 
 const authCookieName = "dockercd_token"
 
+type authMethodContextKey struct{}
+
+const cookieAuthMethod = "cookie"
+
 // bearerAuth returns middleware that validates a Bearer token in the Authorization header.
 // Uses constant-time comparison to prevent timing attacks.
 func bearerAuth(token string) func(http.Handler) http.Handler {
@@ -240,10 +332,12 @@ func bearerAuth(token string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			provided := ""
 			auth := r.Header.Get("Authorization")
+			authMethod := ""
 			if strings.HasPrefix(auth, "Bearer ") {
 				provided = strings.TrimPrefix(auth, "Bearer ")
 			} else if cookie, err := r.Cookie(authCookieName); err == nil {
 				provided = cookie.Value
+				authMethod = cookieAuthMethod
 			}
 			if provided == "" {
 				http.Error(w, `{"error":"missing or invalid Authorization header"}`, http.StatusUnauthorized)
@@ -253,9 +347,24 @@ func bearerAuth(token string) func(http.Handler) http.Handler {
 				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 				return
 			}
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), authMethodContextKey{}, authMethod)))
 		})
 	}
+}
+
+// cookieCSRF requires a non-simple header for state-changing requests that
+// authenticate through the browser cookie. Cross-origin forms and fetches
+// cannot supply this header without an explicit CORS grant.
+func cookieCSRF(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Context().Value(authMethodContextKey{}) == cookieAuthMethod &&
+			(r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch || r.Method == http.MethodDelete) &&
+			r.Header.Get("X-Requested-With") != "XMLHttpRequest" {
+			writeError(w, http.StatusForbidden, "missing CSRF request header", CodeForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // slogRequestLogger returns middleware that logs HTTP requests using slog.

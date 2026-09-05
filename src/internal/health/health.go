@@ -52,14 +52,24 @@ type Config struct {
 	// DefaultTimeout is the default time to wait for services to become healthy
 	// after a deployment (default 120s).
 	DefaultTimeout time.Duration
+
+	// MaxConcurrentChecks limits simultaneous Docker inspections during polls
+	// and sweeps (default 4).
+	MaxConcurrentChecks int
+
+	// CheckTimeout bounds one application's store and Docker inspection during
+	// background polling (default 15s).
+	CheckTimeout time.Duration
 }
 
 // DefaultConfig returns the default health monitor configuration.
 func DefaultConfig() Config {
 	return Config{
-		PollInterval:   10 * time.Second,
-		SweepInterval:  30 * time.Second,
-		DefaultTimeout: 120 * time.Second,
+		PollInterval:        10 * time.Second,
+		SweepInterval:       30 * time.Second,
+		DefaultTimeout:      120 * time.Second,
+		MaxConcurrentChecks: 4,
+		CheckTimeout:        15 * time.Second,
 	}
 }
 
@@ -86,6 +96,11 @@ type Monitor struct {
 	cancelMu sync.Mutex
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
+
+	// sweepMu ensures a slow sweep does not cause queued ticker events to start
+	// another full scan immediately after it finishes.
+	sweepMu      sync.Mutex
+	sweepRunning bool
 }
 
 // SetBroadcaster sets the event broadcaster for health status change notifications.
@@ -108,6 +123,12 @@ func New(insp inspector.StateInspector, s *store.SQLiteStore, logger *slog.Logge
 	}
 	if cfg.DefaultTimeout <= 0 {
 		cfg.DefaultTimeout = DefaultConfig().DefaultTimeout
+	}
+	if cfg.MaxConcurrentChecks <= 0 {
+		cfg.MaxConcurrentChecks = DefaultConfig().MaxConcurrentChecks
+	}
+	if cfg.CheckTimeout <= 0 {
+		cfg.CheckTimeout = DefaultConfig().CheckTimeout
 	}
 
 	return &Monitor{
@@ -301,70 +322,34 @@ func (m *Monitor) checkWatchedApps(ctx context.Context) {
 	}
 	m.watchedMu.RUnlock()
 
-	var expired []string
-
-	for _, entry := range entries {
-		health, _, err := m.CheckApp(ctx, entry.appName)
-		if err != nil {
-			m.logger.Error("health check failed", "app", entry.appName, "error", err)
-			continue
-		}
-
-		elapsed := time.Since(entry.startedAt)
-
-		if health == app.HealthStatusHealthy {
-			m.logger.Info("app healthy", "app", entry.appName, "elapsed", elapsed)
-			if m.Broadcaster != nil {
-				m.Broadcaster.Broadcast(eventbus.Event{
-					Type:    "health",
-					AppName: entry.appName,
-					Data:    map[string]interface{}{"health": string(health)},
-				})
+	var (
+		expired   []string
+		expiredMu sync.Mutex
+		workers   sync.WaitGroup
+		jobs      = make(chan *watchEntry)
+	)
+	workerCount := min(m.config.MaxConcurrentChecks, len(entries))
+	for range workerCount {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for entry := range jobs {
+				m.checkWatchedApp(ctx, entry, &expired, &expiredMu)
 			}
-			expired = append(expired, entry.appName)
-			continue
-		}
-
-		if elapsed >= entry.timeout {
-			m.logger.Warn("health check timeout",
-				"app", entry.appName,
-				"health", health,
-				"timeout", entry.timeout,
-			)
-			// Update status to reflect timeout
-			_ = m.store.UpdateApplicationStatus(ctx, entry.appName, store.StatusUpdate{
-				HealthStatus: string(health),
-				LastError:    store.StringPtr("health check timeout: not all services healthy"),
-			})
-			if m.Broadcaster != nil {
-				m.Broadcaster.Broadcast(eventbus.Event{
-					Type:    "health",
-					AppName: entry.appName,
-					Data:    map[string]interface{}{"health": string(health)},
-				})
-			}
-			if m.eventNotifier != nil {
-				if notifyErr := m.eventNotifier.Notify(ctx, notifier.NotificationEvent{
-					Type:    "health.degraded",
-					AppName: entry.appName,
-					Message: fmt.Sprintf("Health check timeout: %s is %s after %s", entry.appName, health, entry.timeout),
-					Time:    time.Now(),
-				}); notifyErr != nil {
-					m.logger.Error("health degraded notification failed", "app", entry.appName, "error", notifyErr)
-				}
-			}
-			expired = append(expired, entry.appName)
-			continue
-		}
-
-		m.logger.Debug("app not yet healthy",
-			"app", entry.appName,
-			"health", health,
-			"elapsed", elapsed,
-		)
+		}()
 	}
+enqueueWatched:
+	for _, entry := range entries {
+		select {
+		case <-ctx.Done():
+			break enqueueWatched
+		case jobs <- entry:
+		}
+	}
+	close(jobs)
+	workers.Wait()
 
-	// Remove expired entries
+	// Remove expired entries.
 	if len(expired) > 0 {
 		m.watchedMu.Lock()
 		for _, name := range expired {
@@ -372,6 +357,74 @@ func (m *Monitor) checkWatchedApps(ctx context.Context) {
 		}
 		m.watchedMu.Unlock()
 	}
+}
+
+func (m *Monitor) checkWatchedApp(ctx context.Context, entry *watchEntry, expired *[]string, expiredMu *sync.Mutex) {
+	checkCtx, cancel := context.WithTimeout(ctx, m.config.CheckTimeout)
+	defer cancel()
+
+	health, _, err := m.CheckApp(checkCtx, entry.appName)
+	if err != nil {
+		m.logger.Error("health check failed", "app", entry.appName, "error", err)
+		return
+	}
+
+	elapsed := time.Since(entry.startedAt)
+
+	if health == app.HealthStatusHealthy {
+		m.logger.Info("app healthy", "app", entry.appName, "elapsed", elapsed)
+		if m.Broadcaster != nil {
+			m.Broadcaster.Broadcast(eventbus.Event{
+				Type:    "health",
+				AppName: entry.appName,
+				Data:    map[string]interface{}{"health": string(health)},
+			})
+		}
+		expiredMu.Lock()
+		*expired = append(*expired, entry.appName)
+		expiredMu.Unlock()
+		return
+	}
+
+	if elapsed >= entry.timeout {
+		m.logger.Warn("health check timeout",
+			"app", entry.appName,
+			"health", health,
+			"timeout", entry.timeout,
+		)
+		// Update status to reflect timeout
+		_ = m.store.UpdateApplicationStatus(checkCtx, entry.appName, store.StatusUpdate{
+			HealthStatus: string(health),
+			LastError:    store.StringPtr("health check timeout: not all services healthy"),
+		})
+		if m.Broadcaster != nil {
+			m.Broadcaster.Broadcast(eventbus.Event{
+				Type:    "health",
+				AppName: entry.appName,
+				Data:    map[string]interface{}{"health": string(health)},
+			})
+		}
+		if m.eventNotifier != nil {
+			if notifyErr := m.eventNotifier.Notify(checkCtx, notifier.NotificationEvent{
+				Type:    "health.degraded",
+				AppName: entry.appName,
+				Message: fmt.Sprintf("Health check timeout: %s is %s after %s", entry.appName, health, entry.timeout),
+				Time:    time.Now(),
+			}); notifyErr != nil {
+				m.logger.Error("health degraded notification failed", "app", entry.appName, "error", notifyErr)
+			}
+		}
+		expiredMu.Lock()
+		*expired = append(*expired, entry.appName)
+		expiredMu.Unlock()
+		return
+	}
+
+	m.logger.Debug("app not yet healthy",
+		"app", entry.appName,
+		"health", health,
+		"elapsed", elapsed,
+	)
 }
 
 // sweepLoop periodically checks health of ALL registered applications.
@@ -386,9 +439,31 @@ func (m *Monitor) sweepLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			m.sweepAllApps(ctx)
+			m.startSweep(ctx)
 		}
 	}
+}
+
+func (m *Monitor) startSweep(ctx context.Context) {
+	m.sweepMu.Lock()
+	if m.sweepRunning {
+		m.sweepMu.Unlock()
+		m.logger.Debug("health sweep skipped: previous sweep is still running")
+		return
+	}
+	m.sweepRunning = true
+	m.sweepMu.Unlock()
+
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		defer func() {
+			m.sweepMu.Lock()
+			m.sweepRunning = false
+			m.sweepMu.Unlock()
+		}()
+		m.sweepAllApps(ctx)
+	}()
 }
 
 // sweepAllApps checks health for every registered application.
@@ -399,13 +474,31 @@ func (m *Monitor) sweepAllApps(ctx context.Context) {
 		return
 	}
 
+	jobs := make(chan string)
+	var workers sync.WaitGroup
+	workerCount := min(m.config.MaxConcurrentChecks, len(apps))
+	for range workerCount {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for appName := range jobs {
+				checkCtx, cancel := context.WithTimeout(ctx, m.config.CheckTimeout)
+				_, _, err := m.CheckApp(checkCtx, appName)
+				cancel()
+				if err != nil {
+					m.logger.Debug("sweep: health check failed", "app", appName, "error", err)
+				}
+			}
+		}()
+	}
+enqueueApps:
 	for _, appRec := range apps {
-		if ctx.Err() != nil {
-			return
-		}
-		_, _, err := m.CheckApp(ctx, appRec.Name)
-		if err != nil {
-			m.logger.Debug("sweep: health check failed", "app", appRec.Name, "error", err)
+		select {
+		case <-ctx.Done():
+			break enqueueApps
+		case jobs <- appRec.Name:
 		}
 	}
+	close(jobs)
+	workers.Wait()
 }

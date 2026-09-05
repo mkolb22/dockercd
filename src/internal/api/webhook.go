@@ -86,7 +86,7 @@ func (h *Handler) HandleGitWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 		if matchesRepo(application.Spec.Source.RepoURL, repoURL) {
 			h.reconciler.TriggerReconcile(appRec.Name)
-			h.logger.Info("webhook triggered reconciliation", "app", appRec.Name, "repo", repoURL)
+			h.logger.Info("webhook triggered reconciliation", "app", appRec.Name, "repo", app.RedactRepoURL(repoURL))
 			triggered++
 		}
 	}

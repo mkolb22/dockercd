@@ -27,6 +27,61 @@ func TestMigrations(t *testing.T) {
 	}
 }
 
+func TestRecordSync_DropsComposeSnapshot(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateApplication(ctx, &ApplicationRecord{Name: "test-app", Manifest: "{}"}); err != nil {
+		t.Fatalf("create application: %v", err)
+	}
+	now := time.Now().UTC()
+	record := &SyncRecord{
+		AppName:         "test-app",
+		StartedAt:       now,
+		FinishedAt:      &now,
+		Operation:       "poll",
+		Result:          "success",
+		ComposeSpecJSON: `{"services":[{"environment":{"PASSWORD":"secret"}}]}`,
+	}
+	if err := s.RecordSync(ctx, record); err != nil {
+		t.Fatalf("record sync: %v", err)
+	}
+
+	history, err := s.ListSyncHistory(ctx, "test-app", 1)
+	if err != nil {
+		t.Fatalf("list sync history: %v", err)
+	}
+	if len(history) != 1 {
+		t.Fatalf("history length = %d, want 1", len(history))
+	}
+	if history[0].ComposeSpecJSON != "" {
+		t.Fatalf("compose snapshot was retained: %q", history[0].ComposeSpecJSON)
+	}
+}
+
+func TestListRecentSyncHistory_GroupsRecordsByApplication(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	for _, name := range []string{"alpha", "bravo"} {
+		if err := s.CreateApplication(ctx, &ApplicationRecord{Name: name, Manifest: "{}"}); err != nil {
+			t.Fatalf("create application %q: %v", name, err)
+		}
+		for i := 0; i < 3; i++ {
+			now := time.Now().UTC().Add(time.Duration(i) * time.Second)
+			if err := s.RecordSync(ctx, &SyncRecord{AppName: name, StartedAt: now, FinishedAt: &now, Operation: "poll", Result: "success"}); err != nil {
+				t.Fatalf("record sync: %v", err)
+			}
+		}
+	}
+
+	history, err := s.ListRecentSyncHistory(ctx, 2)
+	if err != nil {
+		t.Fatalf("list recent history: %v", err)
+	}
+	if len(history["alpha"]) != 2 || len(history["bravo"]) != 2 {
+		t.Fatalf("unexpected per-app history lengths: %#v", history)
+	}
+}
+
 func TestCreateAndGetApplication(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
@@ -293,10 +348,10 @@ func TestCreateAndGetDockerHost(t *testing.T) {
 	ctx := context.Background()
 
 	host := &DockerHostRecord{
-		Name:      "my-server",
-		URL:       "tcp://192.168.1.100:2376",
+		Name:        "my-server",
+		URL:         "tcp://192.168.1.100:2376",
 		TLSCertPath: "/certs/my-server",
-		TLSVerify: true,
+		TLSVerify:   true,
 	}
 
 	if err := s.CreateDockerHost(ctx, host); err != nil {

@@ -19,7 +19,7 @@ When you run this command:
 1. **Find Failed Flow**
    - If flow-id provided, load that flow's provenance
    - Otherwise, find most recent flow with failed/rejected/blocked status
-   - Read from `koan/provenance/flows/`
+   - Read from `data/provenance/flows/`
 
 2. **Gather Context**
    - Load all concept outputs from the flow
@@ -27,13 +27,13 @@ When you run this command:
    - Collect rejection/failure details
 
 3. **Run Analysis**
-   - Invoke retrospective concept with Sonnet
+   - Invoke retrospective concept with Opus
    - Apply 5 Whys root cause analysis
    - Extract actionable learnings
 
 4. **Store Results**
-   - Save to `koan/retrospectives/retro-{id}.yaml`
-   - Update `koan/learnings/active-learnings.yaml`
+   - Save to `data/retrospectives/retro-{id}.yaml`
+   - Update `data/learnings/active-learnings.yaml`
    - Link retrospective to original flow
 
 5. **Report Findings**

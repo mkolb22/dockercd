@@ -2,7 +2,7 @@
 name: Performance Estimation
 description: Estimate computational complexity and runtime performance of implementations
 version: 1.0.0
-author: Zen Framework
+author: Dragonfly Framework
 applies_to:
   - architecture-concept
 trigger_keywords:

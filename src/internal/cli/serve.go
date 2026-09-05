@@ -81,7 +81,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 
 	// Initialize components
-	gitSyncer, err := gitsync.New(cfg.DataDir, logger, cfg.GitToken)
+	gitSyncer, err := gitsync.NewWithHostPolicy(cfg.DataDir, logger, cfg.GitToken, cfg.GitAllowedHosts)
 	if err != nil {
 		return fmt.Errorf("initializing git syncer: %w", err)
 	}
@@ -92,8 +92,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 		tlsMap := make(map[string]inspector.TLSConfig, len(cfg.TLS))
 		for _, tc := range cfg.TLS {
 			tlsMap[tc.Host] = inspector.TLSConfig{
-				CertPath: tc.CertPath,
-				Verify:   tc.Verify,
+				CertPath:                   tc.CertPath,
+				InsecureSkipVerify:         tc.InsecureSkipVerify,
+				DevelopmentAcknowledgement: tc.DevelopmentAcknowledgement,
 			}
 		}
 		inspConcrete = inspector.NewWithTLS(tlsMap)
@@ -112,7 +113,6 @@ func runServe(_ *cobra.Command, _ []string) error {
 			if h.TLSCertPath != "" {
 				insp.RegisterTLS(h.URL, inspector.TLSConfig{
 					CertPath: h.TLSCertPath,
-					Verify:   h.TLSVerify,
 				})
 			}
 		}
@@ -234,8 +234,12 @@ func runServe(_ *cobra.Command, _ []string) error {
 		// Add TLS if configured for this host
 		for _, tc := range cfg.TLS {
 			if tc.Host == host {
-				tlsCfg := inspector.TLSConfig{CertPath: tc.CertPath, Verify: tc.Verify}
-				tlsConfig, err := tlsCfg.LoadTLSConfig()
+				tlsCfg := inspector.TLSConfig{
+					CertPath:                   tc.CertPath,
+					InsecureSkipVerify:         tc.InsecureSkipVerify,
+					DevelopmentAcknowledgement: tc.DevelopmentAcknowledgement,
+				}
+				tlsConfig, err := tlsCfg.LoadTLSConfig(host)
 				if err != nil {
 					return nil, fmt.Errorf("loading TLS for event client: %w", err)
 				}
@@ -274,7 +278,7 @@ func runServe(_ *cobra.Command, _ []string) error {
 	defer cancel()
 
 	// Start API server
-	addr := fmt.Sprintf(":%d", cfg.APIPort)
+	addr := cfg.APIAddr()
 	apiServer := api.NewServer(addr, api.ServerDeps{
 		Store:         st,
 		Reconciler:    rec,

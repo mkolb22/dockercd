@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zen Stop Hook
+# Dragonfly Stop Hook
 #
 # This hook runs when Claude Code completes a response.
 # It updates health status and can trigger auto-saves.
@@ -14,9 +14,9 @@ PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 source "$PROJECT_ROOT/.claude/hooks/lib/common.sh"
 
 # Track session metrics in SQLite if available
-if zen_state_available; then
+if dragonfly_state_available; then
   local_id="stop-$(date +%s%N)"
-  zen_event_log "$local_id" "session_interaction" "{\"tool_calls\":${CLAUDE_TOOL_CALLS:-0},\"response_tokens\":${CLAUDE_RESPONSE_TOKENS:-0}}" || true
+  dragonfly_event_log "$local_id" "session_interaction" "{\"tool_calls\":${CLAUDE_TOOL_CALLS:-0},\"response_tokens\":${CLAUDE_RESPONSE_TOKENS:-0}}" || true
 fi
 
 # =============================================================================
@@ -24,11 +24,11 @@ fi
 # =============================================================================
 # Create checkpoint if there's uncommitted work and it's been a while since last checkpoint
 
-UNCOMMITTED="$(zen_git_uncommitted_count)"
+UNCOMMITTED="$(dragonfly_git_uncommitted_count)"
 CHECKPOINT_AGE=9999
 
-if zen_state_available; then
-  CHECKPOINT_AGE=$(zen_checkpoint_age_minutes)
+if dragonfly_state_available; then
+  CHECKPOINT_AGE=$(dragonfly_checkpoint_age_minutes)
 fi
 
 # Create session checkpoint if:

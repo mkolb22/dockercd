@@ -35,6 +35,33 @@ Registry ◄── docker push ──► dockercd deployments
 - Self-monitoring: automated (push to Gitea → dockercd auto-deploys itself)
 - Full GitOps loop: code changes propagate automatically
 
+### Two-node cluster
+
+The optional `docker-compose.cluster.yml` example runs an active/passive pair.
+It is intended for operators who can manage a private cluster CA and two
+node-specific certificates; it is not a substitute for storage fencing or a
+multi-host orchestration platform.
+
+Before starting it, create a directory outside this repository with restrictive
+permissions and set `DOCKERCD_CLUSTER_TLS_DIR` to it. The directory must contain
+`ca.pem`, `node0.pem`, `node0-key.pem`, `node1.pem`, and `node1-key.pem`. Each
+leaf certificate must be signed by `ca.pem`, be valid for both client and server
+authentication, and contain its node ID (`node0` or `node1`) as a DNS Subject
+Alternative Name. Do not commit these files or put their private keys in a
+Compose file.
+
+```bash
+export DOCKERCD_API_TOKEN="$(openssl rand -base64 48)"
+export DOCKERCD_CLUSTER_TLS_DIR=/secure/path/dockercd-cluster-tls
+docker compose -f deploy/docker-compose.cluster.yml up -d
+```
+
+The cluster listener is deliberately not host-published. It is reachable only
+over the Compose network and accepts TLS 1.3 connections that present the
+expected peer certificate identity. The node APIs remain bound to loopback on
+the host (`127.0.0.1:8080` and `127.0.0.1:8081`); place an authenticated TLS
+reverse proxy in front of either API if remote access is required.
+
 ---
 
 ## Quick Start
@@ -126,15 +153,29 @@ All configuration uses the `DOCKERCD_` prefix:
 |----------|---------|---------|
 | `DOCKERCD_DATA_DIR` | `/data` | SQLite database and git cache |
 | `DOCKERCD_CONFIG_DIR` | `/config/applications` | Application manifest directory |
+| `DOCKERCD_API_HOST` | `127.0.0.1` | HTTP listen interface; a non-loopback value requires an API token |
 | `DOCKERCD_API_PORT` | `8080` | HTTP listen port |
+| `DOCKERCD_API_TOKEN` | *(empty)* | Required (32+ characters) when `DOCKERCD_API_HOST` is non-loopback |
 | `DOCKERCD_LOG_LEVEL` | `info` | Log verbosity (debug/info/warn/error) |
 | `DOCKERCD_GIT_TOKEN` | *(empty)* | GitHub PAT for private repos (standalone only) |
+| `DOCKERCD_GIT_ALLOWED_HOSTS` | `github.com` | Comma-delimited allowlist for Git remote hosts; include an internal host such as `gitea` only when intended |
+| `DOCKERCD_CLUSTER_PEER_ID` | *(empty)* | Required peer node identity when cluster mode is enabled |
+| `DOCKERCD_CLUSTER_TLS_CERT_FILE` | *(empty)* | Required node certificate PEM for cluster mTLS |
+| `DOCKERCD_CLUSTER_TLS_KEY_FILE` | *(empty)* | Required node private-key PEM for cluster mTLS |
+| `DOCKERCD_CLUSTER_TLS_CA_FILE` | *(empty)* | Required CA PEM that signs the peer node certificate |
 
 ---
 
 ## Persistent State
 
 The `dockercd-state` named volume holds the SQLite database at `/data/dockercd.db`. It survives container restarts and preserves all application registrations, sync history, and events.
+
+Sync history no longer stores resolved Compose environment values. On first start
+after this release, the database migration removes legacy stored Compose
+snapshots. If an older deployment may have contained credentials in its
+manifests or secret substitutions, rotate those credentials and replace any
+database/WAL backups made before the upgrade; the migration cannot revoke a
+secret that has already been copied elsewhere.
 
 **Backup:**
 ```bash
