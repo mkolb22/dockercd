@@ -28,6 +28,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("aws_region", "")
 	v.SetDefault("aws_endpoint", "")
 	v.SetDefault("api_token", "")
+	v.SetDefault("allow_insecure_no_auth", false)
 	v.SetDefault("image_poll_interval", 300*time.Second)
 	v.SetDefault("default_registry_url", "")
 	v.SetDefault("manifest_repo_url", "")

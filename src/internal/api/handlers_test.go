@@ -182,6 +182,22 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
+func TestCapabilities(t *testing.T) {
+	s := setupTestStore(t)
+	srv := newTestServer(t, s, nil)
+	w := doRequest(t, srv, http.MethodGet, "/api/v1/capabilities")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var response CapabilitiesResponse
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.APIVersion != "v1" || len(response.Features) == 0 {
+		t.Fatalf("unexpected capabilities: %+v", response)
+	}
+}
+
 func TestReadyz(t *testing.T) {
 	s := setupTestStore(t)
 	srv := newTestServer(t, s, nil)
@@ -374,6 +390,46 @@ func TestGetApplication_NotFound(t *testing.T) {
 	_ = json.NewDecoder(w.Body).Decode(&resp)
 	if resp.Code != CodeNotFound {
 		t.Errorf("expected code=%s, got %q", CodeNotFound, resp.Code)
+	}
+}
+
+func TestUpdateApplication_ReplacesManifestAndPreservesRuntimeStatus(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp")
+	srv := newTestServer(t, s, nil)
+	body := `{"apiVersion":"dockercd/v1","kind":"Application","metadata":{"name":"myapp"},"spec":{"source":{"repoURL":"https://github.com/test/updated.git","targetRevision":"release","path":"deploy","composeFiles":["compose.yml"]},"destination":{"dockerHost":"unix:///var/run/docker.sock","projectName":"myapp"},"syncPolicy":{"automated":false,"prune":true,"selfHeal":true}}}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/applications/myapp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var response ApplicationResponse
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Spec.Source.RepoURL != "https://github.com/test/updated.git" {
+		t.Fatalf("repoURL = %q", response.Spec.Source.RepoURL)
+	}
+	if response.Status.SyncStatus != string(app.SyncStatusSynced) {
+		t.Fatalf("sync status was not preserved: %q", response.Status.SyncStatus)
+	}
+}
+
+func TestUpdateApplication_RejectsRename(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp")
+	srv := newTestServer(t, s, nil)
+	body := `{"apiVersion":"dockercd/v1","kind":"Application","metadata":{"name":"other"},"spec":{"source":{"repoURL":"https://github.com/test/repo.git","targetRevision":"main","path":".","composeFiles":["docker-compose.yml"]},"destination":{"dockerHost":"unix:///var/run/docker.sock","projectName":"other"},"syncPolicy":{"automated":true}}}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/applications/myapp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

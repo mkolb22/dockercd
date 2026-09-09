@@ -24,6 +24,7 @@ type Store interface {
 	CreateApplication(ctx context.Context, app *ApplicationRecord) error
 	GetApplication(ctx context.Context, name string) (*ApplicationRecord, error)
 	ListApplications(ctx context.Context) ([]ApplicationRecord, error)
+	UpdateManifest(ctx context.Context, name string, manifest string) error
 	UpdateApplicationStatus(ctx context.Context, name string, update StatusUpdate) error
 	DeleteApplication(ctx context.Context, name string) error
 

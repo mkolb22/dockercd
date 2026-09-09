@@ -64,6 +64,9 @@ type Config struct {
 	// APIToken is the bearer token for API authentication. It is required for
 	// non-loopback API listeners.
 	APIToken string `mapstructure:"api_token"`
+	// AllowInsecureNoAuth explicitly permits an unauthenticated non-loopback
+	// listener for short-lived local development. It is disabled by default.
+	AllowInsecureNoAuth bool `mapstructure:"allow_insecure_no_auth"`
 	// ImagePollInterval is how often to check registries for new image tags.
 	// Set to 0 to disable image update automation.
 	ImagePollInterval time.Duration `mapstructure:"image_poll_interval"`
@@ -101,7 +104,7 @@ func (c *Config) Validate() error {
 	if strings.TrimSpace(c.APIHost) == "" {
 		return fmt.Errorf("api_host must not be empty")
 	}
-	if !isLoopbackAPIHost(c.APIHost) && len(c.APIToken) < 32 {
+	if !isLoopbackAPIHost(c.APIHost) && len(c.APIToken) < 32 && !c.AllowInsecureNoAuth {
 		return fmt.Errorf("api_token must be at least 32 characters when api_host %q is not loopback", c.APIHost)
 	}
 	if c.WorkerCount < 1 || c.WorkerCount > 32 {

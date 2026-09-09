@@ -16,7 +16,9 @@ services:
       DOCKERCD_API_HOST: "0.0.0.0"
       DOCKERCD_API_PORT: "8080"
       # Set this to a random value of at least 32 characters before deployment.
-      DOCKERCD_API_TOKEN: ${DOCKERCD_API_TOKEN:?set DOCKERCD_API_TOKEN to a random value of at least 32 characters}
+      DOCKERCD_API_TOKEN: ${DOCKERCD_API_TOKEN:-}
+      # Development-only escape hatch. Keep false for normal deployments.
+      DOCKERCD_ALLOW_INSECURE_NO_AUTH: ${DOCKERCD_ALLOW_INSECURE_NO_AUTH:-false}
       DOCKERCD_GIT_TOKEN: ${DOCKERCD_GIT_TOKEN:-}
       DOCKERCD_GIT_ALLOWED_HOSTS: ${DOCKERCD_GIT_ALLOWED_HOSTS:-github.com}
     healthcheck:

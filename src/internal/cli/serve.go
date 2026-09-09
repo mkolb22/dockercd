@@ -62,6 +62,9 @@ func runServe(_ *cobra.Command, _ []string) error {
 		"data_dir", cfg.DataDir,
 		"api_port", cfg.APIPort,
 	)
+	if cfg.AllowInsecureNoAuth && cfg.APIToken == "" {
+		logger.Warn("API authentication disabled by explicit insecure override; do not expose this listener outside a trusted local environment")
+	}
 
 	// Ensure data directory exists
 	if err := os.MkdirAll(cfg.DataDir, 0750); err != nil {

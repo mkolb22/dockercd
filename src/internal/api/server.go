@@ -136,6 +136,7 @@ func NewServer(addr string, deps ServerDeps) *Server {
 			r.Use(bearerAuth(deps.APIToken))
 			r.Use(cookieCSRF)
 		}
+		r.Get("/capabilities", h.Capabilities)
 		r.Get("/system", h.GetSystemInfo)
 		r.With(expensiveRequests).Get("/system/stats", h.GetHostStats)
 		r.Get("/settings/poll-interval", h.GetPollInterval)
@@ -145,6 +146,7 @@ func NewServer(addr string, deps ServerDeps) *Server {
 			r.Post("/", h.CreateApplication)
 			r.Route("/{name}", func(r chi.Router) {
 				r.Get("/", h.GetApplication)
+				r.Put("/", h.UpdateApplication)
 				r.Delete("/", h.DeleteApplication)
 				r.With(expensiveRequests).Post("/sync", h.SyncApplication)
 				r.With(expensiveRequests).Post("/rollback", h.RollbackApplication)

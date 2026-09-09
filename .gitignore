@@ -10,3 +10,6 @@ deploy/.env
 # Go build artifacts
 src/bin/
 src/dockercd
+
+# Swift Package build products
+macos/DockercdConsole/.build/

@@ -119,6 +119,21 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 // maxRequestBody is the maximum allowed request body size (1 MB).
 const maxRequestBody = 1 << 20
 
+// Capabilities returns feature flags for versioned API clients.
+func (h *Handler) Capabilities(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, CapabilitiesResponse{
+		APIVersion: "v1",
+		Features: []string{
+			"applications.create",
+			"applications.update",
+			"applications.delete",
+			"applications.desired",
+			"events.sse",
+			"services.metrics",
+		},
+	})
+}
+
 // CreateApplication registers a new application.
 func (h *Handler) CreateApplication(w http.ResponseWriter, r *http.Request) {
 	var application app.Application
@@ -172,6 +187,57 @@ func (h *Handler) CreateApplication(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, resp)
+}
+
+// UpdateApplication replaces an application's desired manifest. The URL name
+// is authoritative so callers cannot rename an existing application by update.
+func (h *Handler) UpdateApplication(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	var application app.Application
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+	if err := json.NewDecoder(r.Body).Decode(&application); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error(), CodeBadRequest)
+		return
+	}
+
+	application.ApplyDefaults()
+	if application.Metadata.Name != name {
+		writeError(w, http.StatusBadRequest, "application metadata.name must match the URL name", CodeBadRequest)
+		return
+	}
+	if err := application.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), CodeBadRequest)
+		return
+	}
+
+	record, err := h.store.GetApplication(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "getting application: "+err.Error(), CodeInternalError)
+		return
+	}
+	if record == nil {
+		writeError(w, http.StatusNotFound, "application not found: "+name, CodeNotFound)
+		return
+	}
+
+	manifestJSON, err := json.Marshal(application)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "serializing manifest: "+err.Error(), CodeInternalError)
+		return
+	}
+	if err := h.store.UpdateManifest(r.Context(), name, string(manifestJSON)); err != nil {
+		writeError(w, http.StatusInternalServerError, "updating application: "+err.Error(), CodeInternalError)
+		return
+	}
+
+	record.Manifest = string(manifestJSON)
+	response, err := buildAppResponse(*record)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "building response: "+err.Error(), CodeInternalError)
+		return
+	}
+	h.logger.Info("application updated via API", "name", name)
+	writeJSON(w, http.StatusOK, response)
 }
 
 // DeleteApplication removes an application.

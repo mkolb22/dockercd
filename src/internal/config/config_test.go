@@ -49,6 +49,15 @@ func TestValidate_ExternalAPIRequiresStrongToken(t *testing.T) {
 	}
 }
 
+func TestValidate_ExplicitInsecureNoAuthOverride(t *testing.T) {
+	cfg := validConfig()
+	cfg.APIHost = "0.0.0.0"
+	cfg.AllowInsecureNoAuth = true
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected explicit insecure local-development override to be valid: %v", err)
+	}
+}
+
 func TestValidate_LoopbackAPIAllowsEmptyToken(t *testing.T) {
 	for _, host := range []string{"127.0.0.1", "::1", "localhost"} {
 		cfg := validConfig()

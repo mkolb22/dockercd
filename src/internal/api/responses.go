@@ -42,6 +42,14 @@ type HealthResponse struct {
 	Status string `json:"status"`
 }
 
+// CapabilitiesResponse describes the stable API surface understood by a client.
+// It permits native clients to feature-detect newer controllers without relying
+// on their container image tag or browser assets.
+type CapabilitiesResponse struct {
+	APIVersion string   `json:"apiVersion"`
+	Features   []string `json:"features"`
+}
+
 // ReadyResponse is the response for /readyz.
 type ReadyResponse struct {
 	Status string            `json:"status"`
