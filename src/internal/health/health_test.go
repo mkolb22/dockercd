@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -295,6 +296,58 @@ func TestCheckApp_PersistsStatus(t *testing.T) {
 	}
 	if appRec.ServicesJSON == "" {
 		t.Error("expected services JSON to be persisted")
+	}
+	if appRec.LastObservationTime == nil {
+		t.Error("expected successful health observation time to be persisted")
+	}
+	if appRec.LastObservedHealthStatus != string(app.HealthStatusHealthy) {
+		t.Errorf("expected observed health Healthy, got %q", appRec.LastObservedHealthStatus)
+	}
+}
+
+func TestCheckAppFailedInspectionPreservesPreviousObservation(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp")
+	observedAt := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	// Store observed health through the atomic observation path so the fixture
+	// represents an earlier complete Docker inspection.
+	record, err := s.GetApplication(context.Background(), "myapp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordHealthObservation(context.Background(), "myapp", record.UpdatedAt, string(app.HealthStatusHealthy), `[]`, observedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New(&mockInspector{err: errors.New("docker inspect failed")}, s, testLogger(), DefaultConfig())
+	if _, _, err := m.CheckApp(context.Background(), "myapp"); err == nil {
+		t.Fatal("expected failed inspection to fail health check")
+	}
+	stored, err := s.GetApplication(context.Background(), "myapp")
+	if err != nil || stored.LastObservationTime == nil || !stored.LastObservationTime.Equal(observedAt) || stored.LastObservedHealthStatus != string(app.HealthStatusHealthy) {
+		t.Fatalf("failed inspection changed prior observation: %#v, %v", stored, err)
+	}
+}
+
+func TestCheckAppAdvancesObservationTimeWhenHealthIsUnchanged(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "myapp")
+	insp := &mockInspector{states: []app.ServiceState{{Name: "web", Health: app.HealthStatusHealthy, Status: "running"}}}
+	m := New(insp, s, testLogger(), DefaultConfig())
+	if _, _, err := m.CheckApp(context.Background(), "myapp"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.GetApplication(context.Background(), "myapp")
+	if err != nil || first.LastObservationTime == nil {
+		t.Fatalf("first observation = %#v, %v", first, err)
+	}
+	time.Sleep(time.Millisecond)
+	if _, _, err := m.CheckApp(context.Background(), "myapp"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.GetApplication(context.Background(), "myapp")
+	if err != nil || second.LastObservationTime == nil || !second.LastObservationTime.After(*first.LastObservationTime) {
+		t.Fatalf("unchanged health did not advance observation: first=%v second=%#v err=%v", first.LastObservationTime, second, err)
 	}
 }
 

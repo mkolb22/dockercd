@@ -28,8 +28,9 @@
 13. [Logging Strategy](#13-logging-strategy)
 14. [Security Considerations](#14-security-considerations)
 15. [Implementation Status](#15-implementation-status)
-16. [Appendix A: Alternatives Evaluated](#appendix-a-alternatives-evaluated)
-17. [Appendix B: Risk Register](#appendix-b-risk-register)
+16. [Presentation and Control-Plane Direction](#16-presentation-and-control-plane-direction)
+17. [Appendix A: Alternatives Evaluated](#appendix-a-alternatives-evaluated)
+18. [Appendix B: Risk Register](#appendix-b-risk-register)
 
 ---
 
@@ -185,7 +186,7 @@ dockercd is a single-container GitOps continuous deployment tool that brings Arg
 - **Key decisions**: Uses a worker pool model (not per-app goroutines) to bound concurrency. Default pool size is 4 workers. Applications are queued for reconciliation either by timer expiry or by external trigger (API call, Docker event). A per-app mutex prevents concurrent reconciliation of the same application.
 
 #### `internal/api` -- REST API Server
-- **Responsibility**: HTTP server exposing REST endpoints for application management. Serves the embedded SPA (single-page application). Provides health and readiness probes. Streams real-time events via Server-Sent Events (SSE). Receives GitHub/Gitea push webhooks.
+- **Responsibility**: HTTP server exposing REST endpoints for application management. Provides health and readiness probes, real-time events via Server-Sent Events (SSE), and GitHub/Gitea push webhooks. The currently embedded web assets are a compatibility surface; the target architecture moves browser presentation into an unprivileged client container.
 - **Dependencies**: `app`, `store`, `reconciler`, `differ`, `eventbus`
 - **Key decisions**: Uses chi router with middleware stack (recovery, request logging, content-type enforcement). All API endpoints are under `/api/v1/` for versioning. Error responses use a consistent JSON schema. Static SPA assets are embedded via `//go:embed static/*`. SSE endpoint pushes status changes to the browser without polling. Webhook endpoint validates HMAC-SHA256 signatures using `DOCKERCD_WEBHOOK_SECRET`.
 
@@ -2541,6 +2542,31 @@ All modules are fully implemented. This section summarizes what is built and whe
 | Standalone | ✅ Complete | Single dockercd container, GitHub as GitOps source |
 | Bundle | ✅ Complete | dockercd + Gitea + Registry + PostgreSQL, fully self-hosted |
 | Full | ✅ Complete | Bundle + monitoring stack (Prometheus, Grafana, cAdvisor) |
+
+---
+
+## 16. Presentation and Control-Plane Direction
+
+The long-term architecture separates the privileged dockercd control plane
+from human-facing presentation clients. dockercd remains the only process that
+owns reconciliation, the Docker socket, Git credentials, and persisted
+controller state. Browser and macOS experiences use the versioned,
+permission-scoped API and never receive those privileged mounts or credentials.
+
+The primary macOS operator experience uses Swift and SwiftUI. The future web
+presentation is a separate Go container that uses server-rendered
+`html/template`, semantic HTML, CSS, and server-generated SVG—without an
+authored JavaScript or TypeScript application. The currently embedded web UI
+is a compatibility surface until feature and authorization parity are proven.
+
+The repository's existing optional active/passive cluster support is outside
+this presentation decision and remains unchanged. Any future HA hardening must
+establish one active Docker-write authority and robust split-brain prevention
+before it can be considered safe.
+
+The complete decision, capability model, network boundary, visual direction,
+and adoption sequence are in
+[Presentation and control-plane architecture](presentation-architecture.md).
 
 ---
 

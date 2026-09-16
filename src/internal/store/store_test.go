@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -197,6 +199,150 @@ func TestUpdateApplicationStatus(t *testing.T) {
 	}
 	if got.LastSyncedSHA != "abc123" {
 		t.Errorf("expected sha abc123, got %q", got.LastSyncedSHA)
+	}
+}
+
+func TestGetApplicationStatusSummary(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateApplication(ctx, &ApplicationRecord{
+		Name: "summary-app", Manifest: `{"contains":"sensitive desired state"}`, SyncStatus: "Synced", HealthStatus: "Healthy",
+	}); err != nil {
+		t.Fatalf("create application: %v", err)
+	}
+	lastSync := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	if err := s.UpdateApplicationStatus(ctx, "summary-app", StatusUpdate{
+		LastSyncedSHA: "abc123", HeadSHA: "def456", LastSyncTime: &lastSync, LastError: StringPtr("secret error"),
+	}); err != nil {
+		t.Fatalf("update application status: %v", err)
+	}
+	current, err := s.GetApplication(ctx, "summary-app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lastObserved := lastSync.Add(30 * time.Second)
+	if updated, err := s.RecordHealthObservation(ctx, "summary-app", current.UpdatedAt, "Healthy", `[]`, lastObserved); err != nil || !updated {
+		t.Fatalf("record health observation = %t, %v", updated, err)
+	}
+
+	summary, err := s.GetApplicationStatusSummary(ctx, "summary-app")
+	if err != nil {
+		t.Fatalf("get application status summary: %v", err)
+	}
+	if summary == nil || summary.Name != "summary-app" || summary.SyncStatus != "Synced" || summary.HealthStatus != "Healthy" || summary.LastSyncedSHA != "abc123" || summary.HeadSHA != "def456" || summary.LastSyncTime == nil || !summary.LastSyncTime.Equal(lastSync) || summary.LastObservationTime == nil || !summary.LastObservationTime.Equal(lastObserved) {
+		t.Fatalf("unexpected status summary: %+v", summary)
+	}
+	if err := s.CreateApplication(ctx, &ApplicationRecord{Name: "empty-summary", Manifest: `{}`, SyncStatus: "Unknown", HealthStatus: "Unknown"}); err != nil {
+		t.Fatalf("create application with null status fields: %v", err)
+	}
+	empty, err := s.GetApplicationStatusSummary(ctx, "empty-summary")
+	if err != nil || empty == nil || empty.LastSyncedSHA != "" || empty.HeadSHA != "" || empty.LastSyncTime != nil {
+		t.Fatalf("unexpected null status fields: %#v, %v", empty, err)
+	}
+
+	missing, err := s.GetApplicationStatusSummary(ctx, "missing")
+	if err != nil || missing != nil {
+		t.Fatalf("missing status summary = %#v, %v", missing, err)
+	}
+}
+
+func TestRecordHealthObservationRejectsStaleWriter(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateApplication(ctx, &ApplicationRecord{Name: "observed-app", Manifest: `{}`, SyncStatus: "Synced", HealthStatus: "Unknown"}); err != nil {
+		t.Fatalf("create application: %v", err)
+	}
+	original, err := s.GetApplication(ctx, "observed-app")
+	if err != nil {
+		t.Fatalf("read application: %v", err)
+	}
+	firstAt := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	updated, err := s.RecordHealthObservation(ctx, "observed-app", original.UpdatedAt, "Healthy", `[{"name":"web"}]`, firstAt)
+	if err != nil || !updated {
+		t.Fatalf("record first observation = %t, %v", updated, err)
+	}
+	secondAt := firstAt.Add(time.Minute)
+	updated, err = s.RecordHealthObservation(ctx, "observed-app", original.UpdatedAt, "Degraded", `[{"name":"web"}]`, secondAt)
+	if err != nil || updated {
+		t.Fatalf("stale observation update = %t, %v", updated, err)
+	}
+	stored, err := s.GetApplication(ctx, "observed-app")
+	if err != nil || stored.LastObservedHealthStatus != "Healthy" || stored.LastObservationTime == nil || !stored.LastObservationTime.Equal(firstAt) {
+		t.Fatalf("stale observation overwrote stored state: %#v, %v", stored, err)
+	}
+}
+
+func TestListEventsForApplicationsReturnsMetadataOnlyAndAllowsNullPayload(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	for _, name := range []string{"allowed", "other"} {
+		if err := s.CreateApplication(ctx, &ApplicationRecord{Name: name, Manifest: `{}`, SyncStatus: "Unknown", HealthStatus: "Unknown"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO events (id, app_name, type, message, severity, data_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, "allowed-null-payload", "allowed", "SyncSuccess", strings.Repeat("sensitive-message", 1000), "info", nil, time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO events (id, app_name, type, message, severity, data_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, "other-event", "other", "SyncFailed", "not authorized", "error", `{"token":"other-secret"}`, time.Date(2026, 9, 15, 12, 0, 1, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := s.ListEventsForApplications(ctx, []string{"allowed"}, 10)
+	if err != nil || len(metadata) != 1 || metadata[0].AppName != "allowed" || metadata[0].Type != "SyncSuccess" {
+		t.Fatalf("unexpected activity metadata: %#v, %v", metadata, err)
+	}
+}
+
+func TestListEventsForApplicationsBoundsPerApplicationCandidates(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	for _, name := range []string{"app-a", "app-b"} {
+		if err := s.CreateApplication(ctx, &ApplicationRecord{Name: name, Manifest: `{}`, SyncStatus: "Unknown", HealthStatus: "Unknown"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	for _, name := range []string{"app-a", "app-b"} {
+		for index := 0; index < 5; index++ {
+			at := base.Add(time.Duration(index) * time.Second)
+			id := fmt.Sprintf("%s-%d", name, index)
+			typeName := fmt.Sprintf("%s-%d", name, index)
+			if _, err := s.db.ExecContext(ctx, `INSERT INTO events (id, app_name, type, message, severity, data_json, created_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?)`, id, name, typeName, "private", "info", nil, at); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	events, err := s.ListEventsForApplications(ctx, []string{"app-a", "app-b", "app-a"}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events length = %d, want global limit 2", len(events))
+	}
+	if events[0].Type != "app-b-4" || events[1].Type != "app-a-4" {
+		t.Fatalf("global merge selected %#v, want newest event from each authorized application", events)
+	}
+	rows, err := s.db.Query(`EXPLAIN QUERY PLAN SELECT app_name FROM events WHERE app_name = ? ORDER BY created_at DESC, id DESC LIMIT 2`, "app-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan strings.Builder
+	for rows.Next() {
+		var selectID, order, from int
+		var detail string
+		if err := rows.Scan(&selectID, &order, &from, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan.WriteString(detail)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan.String(), "idx_events_app_created_id") {
+		t.Fatalf("expected composite activity index, plan = %s", plan.String())
 	}
 }
 

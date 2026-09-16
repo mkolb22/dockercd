@@ -4,20 +4,36 @@ import "time"
 
 // ApplicationRecord is the database representation of an application.
 type ApplicationRecord struct {
-	ID             string     `json:"id"`
-	Name           string     `json:"name"`
-	Manifest       string     `json:"manifest"`
-	Source         string     `json:"source"` // "manifest" or "api"
-	SyncStatus     string     `json:"syncStatus"`
-	HealthStatus   string     `json:"healthStatus"`
-	LastSyncedSHA  string     `json:"lastSyncedSHA,omitempty"`
-	HeadSHA        string     `json:"headSHA,omitempty"`
-	LastSyncTime   *time.Time `json:"lastSyncTime,omitempty"`
-	LastError      string     `json:"lastError,omitempty"`
-	ServicesJSON   string     `json:"servicesJson,omitempty"`
-	ConditionsJSON string     `json:"conditionsJson,omitempty"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	UpdatedAt      time.Time  `json:"updatedAt"`
+	ID                       string     `json:"id"`
+	Name                     string     `json:"name"`
+	Manifest                 string     `json:"manifest"`
+	Source                   string     `json:"source"` // "manifest" or "api"
+	SyncStatus               string     `json:"syncStatus"`
+	HealthStatus             string     `json:"healthStatus"`
+	LastSyncedSHA            string     `json:"lastSyncedSHA,omitempty"`
+	HeadSHA                  string     `json:"headSHA,omitempty"`
+	LastSyncTime             *time.Time `json:"lastSyncTime,omitempty"`
+	LastObservationTime      *time.Time `json:"lastObservationTime,omitempty"`
+	LastObservedHealthStatus string     `json:"lastObservedHealthStatus,omitempty"`
+	LastError                string     `json:"lastError,omitempty"`
+	ServicesJSON             string     `json:"servicesJson,omitempty"`
+	ConditionsJSON           string     `json:"conditionsJson,omitempty"`
+	CreatedAt                time.Time  `json:"createdAt"`
+	UpdatedAt                time.Time  `json:"updatedAt"`
+}
+
+// ApplicationStatusSummary is the narrow operational projection used by
+// status-only clients. It deliberately excludes manifests, repository source,
+// service topology, conditions, and error text.
+type ApplicationStatusSummary struct {
+	Name                     string
+	SyncStatus               string
+	HealthStatus             string
+	LastSyncedSHA            string
+	HeadSHA                  string
+	LastSyncTime             *time.Time
+	LastObservationTime      *time.Time
+	LastObservedHealthStatus string
 }
 
 // StatusUpdate holds fields to update on an application's status.
@@ -65,6 +81,15 @@ type EventRecord struct {
 	Severity  string    `json:"severity"`
 	DataJSON  string    `json:"dataJson,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
+}
+
+// ActivityMetadata is the redacted event index projection. It contains no
+// message, arbitrary event payload, or stable event identifier.
+type ActivityMetadata struct {
+	AppName   string
+	Type      string
+	Severity  string
+	CreatedAt time.Time
 }
 
 // DockerHostRecord is the database representation of a registered Docker host.

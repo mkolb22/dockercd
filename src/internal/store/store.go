@@ -71,6 +71,13 @@ func New(dataDir string, logger *slog.Logger) (*SQLiteStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
+	// Each SQLite :memory: connection owns an independent database. Tests use
+	// this mode and exercise concurrent handlers, so retain one connection to
+	// give the in-memory store the same shared-state semantics as file-backed
+	// production storage.
+	if dataDir == ":memory:" {
+		db.SetMaxOpenConns(1)
+	}
 
 	// Verify connection
 	if err := db.Ping(); err != nil {

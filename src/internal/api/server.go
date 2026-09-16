@@ -36,6 +36,12 @@ type ServerDeps struct {
 	EventWatcher  *events.Watcher
 	WebhookSecret string
 	APIToken      string // If non-empty, require Bearer token on API routes
+	// PresentationAuthenticator enables the additive, scoped presentation API.
+	// It is intentionally distinct from legacy API-token and cookie auth.
+	PresentationAuthenticator PresentationAuthenticator
+	// PresentationAudience is the exact audience accepted for scoped requests.
+	// An empty value leaves presentation routes disabled rather than guessing.
+	PresentationAudience string
 }
 
 // Server is the HTTP API server.
@@ -97,15 +103,18 @@ func (c *hostStatsCache) get(ctx context.Context, insp inspector.StateInspector)
 func NewServer(addr string, deps ServerDeps) *Server {
 	statsCache := &hostStatsCache{}
 	h := &Handler{
-		store:         deps.Store,
-		reconciler:    deps.Reconciler,
-		inspector:     deps.Inspector,
-		logger:        deps.Logger,
-		sseHub:        deps.SSEHub,
-		eventWatcher:  deps.EventWatcher,
-		webhookSecret: deps.WebhookSecret,
-		apiToken:      deps.APIToken,
-		hostStats:     statsCache,
+		store:                     deps.Store,
+		reconciler:                deps.Reconciler,
+		inspector:                 deps.Inspector,
+		logger:                    deps.Logger,
+		sseHub:                    deps.SSEHub,
+		eventWatcher:              deps.EventWatcher,
+		webhookSecret:             deps.WebhookSecret,
+		apiToken:                  deps.APIToken,
+		presentationAuthenticator: deps.PresentationAuthenticator,
+		presentationAudience:      strings.TrimSpace(deps.PresentationAudience),
+		legacyAdminEnabled:        deps.APIToken != "",
+		hostStats:                 statsCache,
 	}
 
 	router := chi.NewRouter()
@@ -116,6 +125,7 @@ func NewServer(addr string, deps ServerDeps) *Server {
 	router.Use(middleware.Recoverer)
 	router.Use(securityHeaders)
 	expensiveRequests := limitConcurrency(maxConcurrentExpensiveRequests)
+	presentationReadRequests := limitConcurrency(maxConcurrentPresentationReads)
 
 	// Probes (no JSON content-type enforcement)
 	router.Get("/healthz", h.Healthz)
@@ -165,6 +175,20 @@ func NewServer(addr string, deps ServerDeps) *Server {
 		})
 	})
 
+	// Presentation routes are additive and absent until an explicit scoped
+	// authenticator is provided. They never accept a legacy cookie or token.
+	if deps.PresentationAuthenticator != nil && strings.TrimSpace(deps.PresentationAudience) != "" && deps.APIToken != "" {
+		router.Route("/api/v1/presentation", func(r chi.Router) {
+			r.Use(contentTypeJSON)
+			r.Use(presentationAuth(deps.PresentationAuthenticator, deps.PresentationAudience, deps.Logger))
+			r.Get("/capabilities", h.PresentationCapabilities)
+			r.Get("/permissions", h.PresentationPermissions)
+			r.With(presentationReadRequests).Get("/fleet", h.PresentationFleet)
+			r.With(presentationReadRequests).Get("/applications/{name}", h.PresentationApplication)
+			r.With(presentationReadRequests).Get("/activity", h.PresentationActivity)
+		})
+	}
+
 	// SSE event stream (outside JSON middleware — uses text/event-stream)
 	if deps.APIToken != "" {
 		router.With(bearerAuth(deps.APIToken)).Get("/api/v1/events/stream", h.StreamEvents)
@@ -211,6 +235,11 @@ func NewServer(addr string, deps ServerDeps) *Server {
 }
 
 const maxConcurrentExpensiveRequests = 4
+
+// Presentation status reads are independent of legacy Docker inspection,
+// diff, and sync work. A burst of expensive administrator requests therefore
+// cannot consume the Web fleet's bounded lightweight read capacity.
+const maxConcurrentPresentationReads = 16
 
 // securityHeaders protects the embedded browser UI without requiring an edge
 // proxy. Style attributes remain allowed because the current UI uses them; the
@@ -325,6 +354,8 @@ const authCookieName = "dockercd_token"
 
 type authMethodContextKey struct{}
 
+type presentationPrincipalContextKey struct{}
+
 const cookieAuthMethod = "cookie"
 
 // bearerAuth returns middleware that validates a Bearer token in the Authorization header.
@@ -352,6 +383,48 @@ func bearerAuth(token string) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), authMethodContextKey{}, authMethod)))
 		})
 	}
+}
+
+// presentationAuth recognizes only a scoped bearer credential. It deliberately
+// ignores cookies and never falls back to legacy administrator authentication.
+func presentationAuth(authenticator PresentationAuthenticator, audience string, logger *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authorization := r.Header.Get("Authorization")
+			if !strings.HasPrefix(authorization, "Bearer ") || strings.Count(authorization, "Bearer ") != 1 {
+				auditPresentation(logger, r, nil, "authenticate", "", "deny")
+				writeError(w, http.StatusUnauthorized, "missing or invalid presentation credential", CodeUnauthorized)
+				return
+			}
+			principal, err := authenticator.AuthenticatePresentation(r.Context(), strings.TrimPrefix(authorization, "Bearer "))
+			if err != nil || subtle.ConstantTimeCompare([]byte(principal.Audience), []byte(audience)) != 1 {
+				auditPresentation(logger, r, nil, "authenticate", "", "deny")
+				writeError(w, http.StatusUnauthorized, "missing or invalid presentation credential", CodeUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), presentationPrincipalContextKey{}, principal)))
+		})
+	}
+}
+
+func auditPresentation(logger *slog.Logger, r *http.Request, principal *Principal, capability, resource, decision string) {
+	if logger == nil {
+		return
+	}
+	attributes := []slog.Attr{
+		slog.String("event", "presentation_authorization"), slog.String("route", r.URL.Path),
+		slog.String("capability", capability), slog.String("resource", resource), slog.String("decision", decision),
+		slog.String("request_id", middleware.GetReqID(r.Context())),
+	}
+	if principal != nil {
+		attributes = append(attributes, slog.String("subject", principal.Subject), slog.String("credential_id", principal.CredentialID))
+	}
+	logger.LogAttrs(r.Context(), slog.LevelInfo, "presentation authorization", attributes...)
+}
+
+func presentationPrincipal(r *http.Request) (Principal, bool) {
+	principal, ok := r.Context().Value(presentationPrincipalContextKey{}).(Principal)
+	return principal, ok
 }
 
 // cookieCSRF requires a non-simple header for state-changing requests that

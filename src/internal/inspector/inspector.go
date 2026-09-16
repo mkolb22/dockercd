@@ -347,8 +347,9 @@ func (d *DockerInspector) Inspect(ctx context.Context, dest app.DestinationSpec)
 		// Get detailed inspection data
 		detail, err := cli.ContainerInspect(ctx, c.ID)
 		if err != nil {
-			// Skip containers that vanish between list and inspect
-			continue
+			// A partial container set must not be reported as a complete live
+			// observation. Callers retain prior state and its observation time.
+			return nil, fmt.Errorf("inspecting container %s: %w", c.ID, err)
 		}
 		state := mapContainerToState(c, detail)
 		states = append(states, state)

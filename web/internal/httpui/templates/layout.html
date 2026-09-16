@@ -1,0 +1,118 @@
+{{define "shell-start"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>{{.Title}}</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <div class="app-shell">
+    <aside class="rail" aria-label="Primary navigation">
+      <a class="wordmark" href="/fleet" aria-label="dockercd Fleet">
+        <span class="wordmark-mark" aria-hidden="true">d</span><span>dockercd</span>
+      </a>
+      <div class="rail-controller">
+        <span class="eyebrow">CONTROLLER</span>
+        <strong>{{.View.Controller}}</strong>
+        <span class="rail-subtitle">{{.View.Environment}}</span>
+      </div>
+      <nav>
+        {{range .Navigation}}
+        <a href="{{.Path}}" class="nav-item {{if .Active}}is-active{{end}}"{{if .Active}} aria-current="page"{{end}}>
+          <span class="nav-dot" aria-hidden="true"></span>{{.Label}}
+        </a>
+        {{end}}
+      </nav>
+      <div class="rail-footer">
+        {{if .View.Fixture}}
+        <span class="fixture-tag">Fixture mode</span>
+        <p>No controller data<br>or credentials in use.</p>
+        {{else}}
+        <span class="fixture-tag">Scoped session</span>
+        <p>Controller token stays server side.</p>
+        {{end}}
+      </div>
+    </aside>
+    <section class="workspace">
+      <header class="context-bar">
+        <div class="context-status"><span class="live-dot status-{{.View.Connection.Tone}}" aria-hidden="true"></span><span>{{.View.Environment}}</span>{{template "state" .View.Connection}}</div>
+        <div class="context-actions">
+          {{if .Subject}}
+          <form class="session-control" action="/logout" method="post">
+            <input type="hidden" name="csrf" value="{{.CSRF}}">
+            <span class="operator-name">{{.Subject}}</span><button class="text-button" type="submit">Sign out</button>
+          </form>
+          {{end}}
+          <span class="freshness">{{.View.Freshness}}</span>
+          <a class="icon-link" href="{{.RefreshPath}}" aria-label="Refresh this {{if .View.Fixture}}fixture {{end}}page">↻</a>
+        </div>
+      </header>
+      <main id="content" class="content">
+{{end}}
+
+{{define "login"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>{{.Title}}</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="login-page">
+  <main class="login-shell" id="content">
+    <section class="login-panel surface" aria-labelledby="sign-in-title">
+      <a class="wordmark" href="/login" aria-label="dockercd sign in">
+        <span class="wordmark-mark" aria-hidden="true">d</span><span>dockercd</span>
+      </a>
+      <p class="eyebrow">LOCAL OPERATOR ACCESS</p>
+      <h1 id="sign-in-title">Enter the<br><em>control room.</em></h1>
+      <p class="lede">Sign in to your local dockercd presentation session.</p>
+      {{if .LoginError}}<p class="login-error" role="alert">{{.LoginError}}</p>{{end}}
+      <form class="login-form" action="/login" method="post">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <label><span>Operator name</span><input name="subject" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="64"></label>
+        <label><span>Password</span><input type="password" name="password" autocomplete="current-password" required maxlength="1024"></label>
+        <button class="button button-primary" type="submit">Sign in <span aria-hidden="true">→</span></button>
+      </form>
+      <p class="login-note">This session is local to this presentation service. Controller credentials never enter the browser.</p>
+    </section>
+  </main>
+</body>
+</html>
+{{end}}
+
+{{define "shell-end"}}
+      </main>
+    </section>
+  </div>
+</body>
+</html>
+{{end}}
+
+{{define "state"}}<span class="status status-{{.Tone}}"><span aria-hidden="true">{{.Glyph}}</span>{{.Label}}</span>{{end}}
+
+{{define "application-tabs"}}
+<nav class="subnav" aria-label="Application sections">
+  <a href="/applications/{{.Application.Name}}" class="{{if eq .Section "application-overview"}}is-current{{end}}"{{if eq .Section "application-overview"}} aria-current="page"{{end}}>Overview</a>
+  {{if .View.Fixture}}
+  <a href="/applications/{{.Application.Name}}/deploy" class="{{if eq .Section "application-deploy"}}is-current{{end}}"{{if eq .Section "application-deploy"}} aria-current="page"{{end}}>Deploy</a>
+  <a href="/applications/{{.Application.Name}}/timeline" class="{{if eq .Section "application-timeline"}}is-current{{end}}"{{if eq .Section "application-timeline"}} aria-current="page"{{end}}>Timeline</a>
+  <a href="/applications/{{.Application.Name}}/inspect" class="{{if eq .Section "application-inspect"}}is-current{{end}}"{{if eq .Section "application-inspect"}} aria-current="page"{{end}}>Inspect</a>
+  {{end}}
+</nav>
+{{end}}
+
+{{define "application-context"}}
+<aside class="application-context surface" aria-label="Displayed application evidence">
+  <span><small>APPLICATION</small><strong>{{.Application.Name}}</strong></span>
+  <span><small>REVISION</small><code>{{.Application.Revision}}</code></span>
+  <span><small>OBSERVATION</small><strong>{{.Application.Observation}}</strong></span>
+  <span>{{template "state" .Application.Sync}}{{template "state" .Application.Health}}</span>
+</aside>
+{{end}}

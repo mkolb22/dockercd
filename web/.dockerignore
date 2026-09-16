@@ -1,0 +1,10 @@
+# Allowlist only the source required to compile the embedded Web binary. This
+# keeps future local configuration, credentials, fixtures, and editor files
+# out of the Docker build context by default.
+*
+!go.mod
+!go.sum
+!cmd/
+!cmd/**
+!internal/
+!internal/**

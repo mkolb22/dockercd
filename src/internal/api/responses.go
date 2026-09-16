@@ -50,6 +50,84 @@ type CapabilitiesResponse struct {
 	Features   []string `json:"features"`
 }
 
+// PresentationPermissionsResponse contains verified scoped grants, never the
+// credential or a mutable authorization decision supplied by the client.
+type PresentationPermissionsResponse struct {
+	Subject      string   `json:"subject"`
+	CredentialID string   `json:"credentialId"`
+	Audience     string   `json:"audience"`
+	ExpiresAt    string   `json:"expiresAt"`
+	Capabilities []string `json:"capabilities"`
+	Applications []string `json:"applications"`
+}
+
+// PresentationCapabilitiesResponse lets an unprivileged presentation client
+// preflight only the separately scoped API surface and its effective bounds.
+type PresentationCapabilitiesResponse struct {
+	APIVersion string             `json:"apiVersion"`
+	ServerTime string             `json:"serverTime"`
+	Features   []string           `json:"features"`
+	ExpiresAt  string             `json:"expiresAt"`
+	Limits     PresentationLimits `json:"limits"`
+}
+
+type PresentationLimits struct {
+	MaxApplications int `json:"maxApplications"`
+}
+
+// PresentationFleetResponse is intentionally less detailed than the legacy
+// application collection: it contains only bounded operational summary data.
+type PresentationFleetResponse struct {
+	Applications        []PresentationApplicationSummary `json:"applications"`
+	Total               int                              `json:"total"`
+	ResponseGeneratedAt string                           `json:"responseGeneratedAt"`
+}
+
+type PresentationApplicationSummary struct {
+	Name                 string `json:"name"`
+	SyncStatus           string `json:"syncStatus"`
+	HealthStatus         string `json:"healthStatus"`
+	LastSyncedSHA        string `json:"lastSyncedSHA,omitempty"`
+	HeadSHA              string `json:"headSHA,omitempty"`
+	LastSyncTime         string `json:"lastSyncTime,omitempty"`
+	LastObservedAt       string `json:"lastObservedAt,omitempty"`
+	ObservedHealthStatus string `json:"observedHealthStatus,omitempty"`
+	// ObservationCompleteness describes whether observed health and its time
+	// are one persisted pair, distinct from desired Git state.
+	ObservationCompleteness string `json:"observationCompleteness"`
+}
+
+// PresentationApplicationResponse is a purpose-built, redacted application
+// status DTO. It excludes manifest, source, service topology, conditions,
+// history, and error text because those values can disclose sensitive details.
+type PresentationApplicationResponse struct {
+	Name                    string `json:"name"`
+	SyncStatus              string `json:"syncStatus"`
+	HealthStatus            string `json:"healthStatus"`
+	LastSyncedSHA           string `json:"lastSyncedSHA,omitempty"`
+	HeadSHA                 string `json:"headSHA,omitempty"`
+	LastSyncTime            string `json:"lastSyncTime,omitempty"`
+	LastObservedAt          string `json:"lastObservedAt,omitempty"`
+	ObservedHealthStatus    string `json:"observedHealthStatus,omitempty"`
+	ObservationCompleteness string `json:"observationCompleteness"`
+	ResponseGeneratedAt     string `json:"responseGeneratedAt"`
+}
+
+// PresentationActivityResponse deliberately carries only a redacted event
+// index. Details require a later capability-scoped evidence contract.
+type PresentationActivityResponse struct {
+	Events              []PresentationActivityEvent `json:"events"`
+	Total               int                         `json:"total"`
+	ResponseGeneratedAt string                      `json:"responseGeneratedAt"`
+}
+
+type PresentationActivityEvent struct {
+	Application string `json:"application"`
+	Type        string `json:"type"`
+	Severity    string `json:"severity"`
+	OccurredAt  string `json:"occurredAt"`
+}
+
 // ReadyResponse is the response for /readyz.
 type ReadyResponse struct {
 	Status string            `json:"status"`
@@ -130,5 +208,6 @@ const (
 	CodeConflict        = "CONFLICT"
 	CodeUnavailable     = "UNAVAILABLE"
 	CodeForbidden       = "FORBIDDEN"
+	CodeUnauthorized    = "UNAUTHORIZED"
 	CodeTooManyRequests = "TOO_MANY_REQUESTS"
 )

@@ -37,17 +37,17 @@ func (s *SQLiteStore) CreateApplication(ctx context.Context, app *ApplicationRec
 func (s *SQLiteStore) GetApplication(ctx context.Context, name string) (*ApplicationRecord, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, name, manifest, source, sync_status, health_status, last_synced_sha, head_sha,
-		        last_sync_time, last_error, services_json, conditions_json, created_at, updated_at
+		        last_sync_time, last_observation_time, last_observed_health_status, last_error, services_json, conditions_json, created_at, updated_at
 		 FROM applications WHERE name = ?`, name,
 	)
 
 	var app ApplicationRecord
-	var lastSyncedSHA, headSHA, lastError, servicesJSON, conditionsJSON sql.NullString
-	var lastSyncTime sql.NullTime
+	var lastSyncedSHA, headSHA, lastObservedHealthStatus, lastError, servicesJSON, conditionsJSON sql.NullString
+	var lastSyncTime, lastObservationTime sql.NullTime
 
 	err := row.Scan(
 		&app.ID, &app.Name, &app.Manifest, &app.Source, &app.SyncStatus, &app.HealthStatus,
-		&lastSyncedSHA, &headSHA, &lastSyncTime, &lastError,
+		&lastSyncedSHA, &headSHA, &lastSyncTime, &lastObservationTime, &lastObservedHealthStatus, &lastError,
 		&servicesJSON, &conditionsJSON, &app.CreatedAt, &app.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -59,21 +59,55 @@ func (s *SQLiteStore) GetApplication(ctx context.Context, name string) (*Applica
 
 	app.LastSyncedSHA = lastSyncedSHA.String
 	app.HeadSHA = headSHA.String
+	app.LastObservedHealthStatus = lastObservedHealthStatus.String
 	app.LastError = lastError.String
 	app.ServicesJSON = servicesJSON.String
 	app.ConditionsJSON = conditionsJSON.String
 	if lastSyncTime.Valid {
 		app.LastSyncTime = &lastSyncTime.Time
 	}
+	if lastObservationTime.Valid {
+		app.LastObservationTime = &lastObservationTime.Time
+	}
 
 	return &app, nil
+}
+
+// GetApplicationStatusSummary retrieves only fields needed for a redacted
+// operational status view. It avoids decoding desired-state and error data on
+// presentation read paths.
+func (s *SQLiteStore) GetApplicationStatusSummary(ctx context.Context, name string) (*ApplicationStatusSummary, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT name, sync_status, health_status, last_synced_sha, head_sha, last_sync_time, last_observation_time, last_observed_health_status
+		 FROM applications WHERE name = ?`, name,
+	)
+
+	var summary ApplicationStatusSummary
+	var lastSyncedSHA, headSHA, lastObservedHealthStatus sql.NullString
+	var lastSyncTime, lastObservationTime sql.NullTime
+	if err := row.Scan(&summary.Name, &summary.SyncStatus, &summary.HealthStatus, &lastSyncedSHA, &headSHA, &lastSyncTime, &lastObservationTime, &lastObservedHealthStatus); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("getting application status summary %q: %w", name, err)
+	}
+	summary.LastSyncedSHA = lastSyncedSHA.String
+	summary.HeadSHA = headSHA.String
+	summary.LastObservedHealthStatus = lastObservedHealthStatus.String
+	if lastSyncTime.Valid {
+		summary.LastSyncTime = &lastSyncTime.Time
+	}
+	if lastObservationTime.Valid {
+		summary.LastObservationTime = &lastObservationTime.Time
+	}
+	return &summary, nil
 }
 
 // ListApplications returns all application records.
 func (s *SQLiteStore) ListApplications(ctx context.Context) ([]ApplicationRecord, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, manifest, source, sync_status, health_status, last_synced_sha, head_sha,
-		        last_sync_time, last_error, services_json, conditions_json, created_at, updated_at
+		        last_sync_time, last_observation_time, last_observed_health_status, last_error, services_json, conditions_json, created_at, updated_at
 		 FROM applications ORDER BY CASE WHEN name = 'dockercd' THEN 0 ELSE 1 END, name`,
 	)
 	if err != nil {
@@ -84,12 +118,12 @@ func (s *SQLiteStore) ListApplications(ctx context.Context) ([]ApplicationRecord
 	var apps []ApplicationRecord
 	for rows.Next() {
 		var app ApplicationRecord
-		var lastSyncedSHA, headSHA, lastError, servicesJSON, conditionsJSON sql.NullString
-		var lastSyncTime sql.NullTime
+		var lastSyncedSHA, headSHA, lastObservedHealthStatus, lastError, servicesJSON, conditionsJSON sql.NullString
+		var lastSyncTime, lastObservationTime sql.NullTime
 
 		if err := rows.Scan(
 			&app.ID, &app.Name, &app.Manifest, &app.Source, &app.SyncStatus, &app.HealthStatus,
-			&lastSyncedSHA, &headSHA, &lastSyncTime, &lastError,
+			&lastSyncedSHA, &headSHA, &lastSyncTime, &lastObservationTime, &lastObservedHealthStatus, &lastError,
 			&servicesJSON, &conditionsJSON, &app.CreatedAt, &app.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning application row: %w", err)
@@ -97,11 +131,15 @@ func (s *SQLiteStore) ListApplications(ctx context.Context) ([]ApplicationRecord
 
 		app.LastSyncedSHA = lastSyncedSHA.String
 		app.HeadSHA = headSHA.String
+		app.LastObservedHealthStatus = lastObservedHealthStatus.String
 		app.LastError = lastError.String
 		app.ServicesJSON = servicesJSON.String
 		app.ConditionsJSON = conditionsJSON.String
 		if lastSyncTime.Valid {
 			app.LastSyncTime = &lastSyncTime.Time
+		}
+		if lastObservationTime.Valid {
+			app.LastObservationTime = &lastObservationTime.Time
 		}
 
 		apps = append(apps, app)
@@ -166,6 +204,27 @@ func (s *SQLiteStore) UpdateApplicationStatus(ctx context.Context, name string, 
 		return fmt.Errorf("application %q not found", name)
 	}
 	return nil
+}
+
+// RecordHealthObservation atomically records a complete successful Docker
+// observation. expectedUpdatedAt prevents an older concurrent check from
+// pairing its timestamp with a newer reconciliation or health write.
+// A false updated result is an expected optimistic-concurrency conflict.
+func (s *SQLiteStore) RecordHealthObservation(ctx context.Context, name string, expectedUpdatedAt time.Time, healthStatus, servicesJSON string, observedAt time.Time) (updated bool, err error) {
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE applications
+		 SET health_status = ?, last_observed_health_status = ?, services_json = ?, last_observation_time = ?, updated_at = ?
+		 WHERE name = ? AND updated_at = ?`,
+		healthStatus, healthStatus, servicesJSON, observedAt, time.Now().UTC(), name, expectedUpdatedAt,
+	)
+	if err != nil {
+		return false, fmt.Errorf("recording health observation for %q: %w", name, err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("checking health observation update for %q: %w", name, err)
+	}
+	return rows == 1, nil
 }
 
 // UpdateManifest replaces the manifest JSON for an application.
@@ -409,6 +468,55 @@ func (s *SQLiteStore) ListEvents(ctx context.Context, appName string, limit int)
 		events = append(events, e)
 	}
 	return events, rows.Err()
+}
+
+// ListEventsForApplications returns recent events only for the explicitly
+// named applications. Callers must supply an already-authorized, bounded list.
+func (s *SQLiteStore) ListEventsForApplications(ctx context.Context, appNames []string, limit int) ([]ActivityMetadata, error) {
+	if len(appNames) == 0 || limit <= 0 {
+		return []ActivityMetadata{}, nil
+	}
+	// Each permitted application contributes at most limit rows before the
+	// global merge. This bounds routine presentation polling even when an
+	// application retains a large event history. De-duplicate grants as a
+	// defense in depth measure for callers outside the registry loader.
+	seen := make(map[string]struct{}, len(appNames))
+	branches := make([]string, 0, len(appNames))
+	arguments := make([]any, 0, len(appNames)*2+1)
+	for _, name := range appNames {
+		if _, duplicate := seen[name]; duplicate {
+			continue
+		}
+		seen[name] = struct{}{}
+		branches = append(branches, `SELECT app_name, type, severity, created_at, id FROM (
+			SELECT app_name, type, severity, created_at, id FROM events
+			WHERE app_name = ? ORDER BY created_at DESC, id DESC LIMIT ?
+		)`)
+		arguments = append(arguments, name, limit)
+	}
+	if len(branches) == 0 {
+		return []ActivityMetadata{}, nil
+	}
+	arguments = append(arguments, limit)
+	query := `SELECT app_name, type, severity, created_at FROM (` + strings.Join(branches, ` UNION ALL `) + `)
+		ORDER BY created_at DESC, id DESC LIMIT ?`
+	rows, err := s.db.QueryContext(ctx, query, arguments...)
+	if err != nil {
+		return nil, fmt.Errorf("listing application events: %w", err)
+	}
+	defer rows.Close()
+	events := make([]ActivityMetadata, 0, limit)
+	for rows.Next() {
+		var event ActivityMetadata
+		if err := rows.Scan(&event.AppName, &event.Type, &event.Severity, &event.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scanning application event: %w", err)
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating application events: %w", err)
+	}
+	return events, nil
 }
 
 // --- Docker Host CRUD ---

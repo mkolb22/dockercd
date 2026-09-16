@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,14 +22,16 @@ import (
 // --- Mock reconciler ---
 
 type mockReconciler struct {
-	result    *app.SyncResult
-	err       error
-	dryRun    *app.DiffResult
-	dryRunSHA string
-	dryRunErr error
-	rendered  *app.ComposeSpec
-	renderSHA string
-	renderErr error
+	result           *app.SyncResult
+	err              error
+	dryRun           *app.DiffResult
+	dryRunSHA        string
+	dryRunErr        error
+	rendered         *app.ComposeSpec
+	renderSHA        string
+	renderErr        error
+	reconcileStarted chan<- struct{}
+	reconcileRelease <-chan struct{}
 }
 
 // --- Mock inspector ---
@@ -69,6 +73,12 @@ func (m *mockReconciler) Start(_ context.Context) error { return nil }
 func (m *mockReconciler) Stop(_ context.Context) error  { return nil }
 func (m *mockReconciler) TriggerReconcile(_ string)     {}
 func (m *mockReconciler) ReconcileNow(_ context.Context, appName string) (*app.SyncResult, error) {
+	if m.reconcileStarted != nil {
+		m.reconcileStarted <- struct{}{}
+	}
+	if m.reconcileRelease != nil {
+		<-m.reconcileRelease
+	}
 	if m.result != nil {
 		return m.result, m.err
 	}
@@ -350,6 +360,443 @@ func TestAPIToken_BearerAndCookieAuth(t *testing.T) {
 	srv.Router().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected cookie-authenticated mutation with CSRF header to return 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestPresentationPermissionsUsesOnlyScopedCredentials(t *testing.T) {
+	s := setupTestStore(t)
+	authenticator, err := NewOpaquePresentationAuthenticator([]PresentationCredential{testPresentationCredential("test-only-opaque-token")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authenticator.now = func() time.Time { return time.Date(2026, 9, 15, 13, 0, 0, 0, time.UTC) }
+	srv := NewServer(":0", ServerDeps{
+		Store: s, Reconciler: &mockReconciler{}, Logger: testLogger(), APIToken: "legacy-admin-token",
+		PresentationAuthenticator: authenticator, PresentationAudience: "dockercd-presentation",
+	})
+
+	legacy := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/permissions", nil)
+	legacy.Header.Set("Authorization", "Bearer legacy-admin-token")
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, legacy)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("legacy bearer received %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+
+	cookieFallback := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/permissions", nil)
+	cookieFallback.AddCookie(&http.Cookie{Name: authCookieName, Value: "legacy-admin-token"})
+	w = httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, cookieFallback)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("legacy cookie received %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+
+	scoped := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/permissions", nil)
+	scoped.Header.Set("Authorization", "Bearer test-only-opaque-token")
+	w = httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, scoped)
+	if w.Code != http.StatusOK {
+		t.Fatalf("scoped credential received %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "test-only-opaque-token") || !strings.Contains(w.Body.String(), "operator-42") {
+		t.Fatalf("permissions response leaked token or omitted subject: %s", w.Body.String())
+	}
+
+	capabilityRequest := httptest.NewRequest(http.MethodGet, "/api/v1/capabilities", nil)
+	capabilityRequest.Header.Set("Authorization", "Bearer legacy-admin-token")
+	capabilities := httptest.NewRecorder()
+	srv.Router().ServeHTTP(capabilities, capabilityRequest)
+	if !strings.Contains(capabilities.Body.String(), "presentation.scoped-auth") {
+		t.Fatalf("scoped feature is absent: %s", capabilities.Body.String())
+	}
+}
+
+func TestPresentationCapabilitiesAreScopedToThePrincipal(t *testing.T) {
+	s := setupTestStore(t)
+	credential := testPresentationCredential("test-only-capabilities-token")
+	credential.Capabilities = []Capability{CapabilityApplicationRead}
+	authenticator, err := NewOpaquePresentationAuthenticator([]PresentationCredential{credential})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authenticator.now = func() time.Time { return time.Date(2026, 9, 15, 13, 0, 0, 0, time.UTC) }
+	srv := NewServer(":0", ServerDeps{Store: s, Reconciler: &mockReconciler{}, Logger: testLogger(), APIToken: "legacy-admin-token", PresentationAuthenticator: authenticator, PresentationAudience: "dockercd-presentation"})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/capabilities", nil)
+	request.Header.Set("Authorization", "Bearer test-only-capabilities-token")
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, request)
+	if w.Code != http.StatusOK {
+		t.Fatalf("scoped capabilities returned %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"presentation.permissions"`) || !strings.Contains(body, `"presentation.application"`) || !strings.Contains(body, `"presentation.activity"`) || !strings.Contains(body, `"presentation.status-metadata"`) || strings.Contains(body, `"presentation.fleet"`) || strings.Contains(body, "legacy-admin-token") {
+		t.Fatalf("unexpected scoped capabilities response: %s", body)
+	}
+	if !strings.Contains(body, `"maxApplications":100`) || !strings.Contains(body, `"expiresAt"`) || !strings.Contains(body, `"serverTime"`) {
+		t.Fatalf("scoped capabilities omitted integration bounds: %s", body)
+	}
+
+	legacy := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/capabilities", nil)
+	legacy.Header.Set("Authorization", "Bearer legacy-admin-token")
+	w = httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, legacy)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("legacy credential received %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestPresentationFleetIsIsolatedFromLegacyExpensiveRequests(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "app-a")
+	started := make(chan struct{}, maxConcurrentExpensiveRequests)
+	release := make(chan struct{})
+	type responseResult struct {
+		code int
+		body string
+	}
+	responses := make(chan responseResult, maxConcurrentExpensiveRequests)
+	credential := testPresentationCredential("test-only-isolated-fleet-token")
+	credential.Capabilities = []Capability{CapabilityFleetRead}
+	authenticator, err := NewOpaquePresentationAuthenticator([]PresentationCredential{credential})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authenticator.now = func() time.Time { return time.Date(2026, 9, 15, 13, 0, 0, 0, time.UTC) }
+	srv := NewServer(":0", ServerDeps{Store: s, Reconciler: &mockReconciler{reconcileStarted: started, reconcileRelease: release}, Logger: testLogger(), APIToken: "legacy-admin-token", PresentationAuthenticator: authenticator, PresentationAudience: "dockercd-presentation"})
+
+	var waiting sync.WaitGroup
+	for range maxConcurrentExpensiveRequests {
+		waiting.Add(1)
+		go func() {
+			defer waiting.Done()
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/applications/app-a/sync", nil)
+			request.Header.Set("Authorization", "Bearer legacy-admin-token")
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			srv.Router().ServeHTTP(response, request)
+			responses <- responseResult{code: response.Code, body: response.Body.String()}
+		}()
+	}
+	for range maxConcurrentExpensiveRequests {
+		select {
+		case <-started:
+		case response := <-responses:
+			close(release)
+			waiting.Wait()
+			t.Fatalf("legacy expensive request returned %d before reconciliation: %s", response.code, response.body)
+		case <-time.After(time.Second):
+			close(release)
+			waiting.Wait()
+			t.Fatal("legacy expensive requests did not saturate their limiter")
+		}
+	}
+
+	fleet := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/fleet", nil)
+	fleet.Header.Set("Authorization", "Bearer test-only-isolated-fleet-token")
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, fleet)
+	close(release)
+	waiting.Wait()
+	if w.Code != http.StatusOK {
+		t.Fatalf("fleet was blocked by legacy expensive work: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestLimitConcurrencyRejectsExcessAndRecoversCapacity(t *testing.T) {
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	handler := limitConcurrency(1)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		started <- struct{}{}
+		<-release
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	firstDone := make(chan struct{})
+	go func() {
+		defer close(firstDone)
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first request did not acquire limiter capacity")
+	}
+
+	denied := httptest.NewRecorder()
+	handler.ServeHTTP(denied, httptest.NewRequest(http.MethodGet, "/", nil))
+	if denied.Code != http.StatusTooManyRequests {
+		t.Fatalf("saturated limiter returned %d, want %d", denied.Code, http.StatusTooManyRequests)
+	}
+	close(release)
+	select {
+	case <-firstDone:
+	case <-time.After(time.Second):
+		t.Fatal("first request did not release limiter capacity")
+	}
+
+	recovered := httptest.NewRecorder()
+	handler.ServeHTTP(recovered, httptest.NewRequest(http.MethodGet, "/", nil))
+	if recovered.Code != http.StatusOK {
+		t.Fatalf("recovered limiter returned %d, want %d", recovered.Code, http.StatusOK)
+	}
+}
+
+func TestPresentationRoutesRejectWrongAudience(t *testing.T) {
+	s := setupTestStore(t)
+	credential := testPresentationCredential("test-only-wrong-audience-token")
+	credential.Audience = "different-controller"
+	authenticator, err := NewOpaquePresentationAuthenticator([]PresentationCredential{credential})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authenticator.now = func() time.Time { return time.Date(2026, 9, 15, 13, 0, 0, 0, time.UTC) }
+	srv := NewServer(":0", ServerDeps{Store: s, Reconciler: &mockReconciler{}, Logger: testLogger(), APIToken: "legacy-admin-token", PresentationAuthenticator: authenticator, PresentationAudience: "dockercd-presentation"})
+	for _, path := range []string{"/api/v1/presentation/permissions", "/api/v1/presentation/fleet"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Header.Set("Authorization", "Bearer test-only-wrong-audience-token")
+		w := httptest.NewRecorder()
+		srv.Router().ServeHTTP(w, request)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("wrong audience %s returned %d, want %d", path, w.Code, http.StatusUnauthorized)
+		}
+	}
+}
+
+func TestPresentationRoutesStayDisabledWithoutLegacyAdminAuthentication(t *testing.T) {
+	s := setupTestStore(t)
+	authenticator, err := NewOpaquePresentationAuthenticator([]PresentationCredential{testPresentationCredential("test-only-disabled-token")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(":0", ServerDeps{Store: s, Reconciler: &mockReconciler{}, Logger: testLogger(), PresentationAuthenticator: authenticator, PresentationAudience: "dockercd-presentation"})
+	capabilities := doRequest(t, srv, http.MethodGet, "/api/v1/capabilities")
+	if strings.Contains(capabilities.Body.String(), "presentation.scoped-auth") {
+		t.Fatalf("disabled server advertised scoped auth: %s", capabilities.Body.String())
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/permissions", nil)
+	request.Header.Set("Authorization", "Bearer test-only-disabled-token")
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, request)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("disabled presentation route returned %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestPresentationFleetFiltersResourcesAndOmitsManifestData(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "app-a")
+	createTestApp(t, s, "app-b")
+	credential := testPresentationCredential("test-only-fleet-token")
+	credential.Capabilities = []Capability{CapabilityFleetRead}
+	authenticator, err := NewOpaquePresentationAuthenticator([]PresentationCredential{credential})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authenticator.now = func() time.Time { return time.Date(2026, 9, 15, 13, 0, 0, 0, time.UTC) }
+	srv := NewServer(":0", ServerDeps{Store: s, Reconciler: &mockReconciler{}, Logger: testLogger(), APIToken: "legacy-admin-token", PresentationAuthenticator: authenticator, PresentationAudience: "dockercd-presentation"})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/fleet", nil)
+	request.Header.Set("Authorization", "Bearer test-only-fleet-token")
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, request)
+	if w.Code != http.StatusOK {
+		t.Fatalf("fleet returned %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"name":"app-a"`) || strings.Contains(body, "app-b") || strings.Contains(body, `"spec"`) || strings.Contains(body, "recentHistory") {
+		t.Fatalf("fleet response was not a filtered summary: %s", body)
+	}
+
+	credential.Capabilities = []Capability{CapabilityApplicationRead}
+	deniedAuthenticator, err := NewOpaquePresentationAuthenticator([]PresentationCredential{credential})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deniedAuthenticator.now = authenticator.now
+	denied := NewServer(":0", ServerDeps{Store: s, Reconciler: &mockReconciler{}, Logger: testLogger(), APIToken: "legacy-admin-token", PresentationAuthenticator: deniedAuthenticator, PresentationAudience: "dockercd-presentation"})
+	w = httptest.NewRecorder()
+	denied.Router().ServeHTTP(w, request)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("missing fleet scope returned %d, want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+func TestPresentationApplicationFiltersResourcesAndRedactsSensitiveData(t *testing.T) {
+	s := setupTestStore(t)
+	manifest := `{"apiVersion":"dockercd/v1","kind":"Application","metadata":{"name":"app-a"},"spec":{"source":{"repoURL":"https://user:password@example.test/repo.git"}}}`
+	if err := s.CreateApplication(context.Background(), &store.ApplicationRecord{
+		Name: "app-a", Manifest: manifest, SyncStatus: "Synced", HealthStatus: "Healthy",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateApplicationStatus(context.Background(), "app-a", store.StatusUpdate{LastError: store.StringPtr("password=secret")}); err != nil {
+		t.Fatal(err)
+	}
+	observedAt := time.Date(2026, 9, 15, 13, 1, 0, 0, time.UTC)
+	record, err := s.GetApplication(context.Background(), "app-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordHealthObservation(context.Background(), "app-a", record.UpdatedAt, "Healthy", `[]`, observedAt); err != nil {
+		t.Fatal(err)
+	}
+	createTestApp(t, s, "app-b")
+	credential := testPresentationCredential("test-only-application-token")
+	credential.Capabilities = []Capability{CapabilityApplicationRead}
+	credential.Applications = []string{"app-a"}
+	authenticator, err := NewOpaquePresentationAuthenticator([]PresentationCredential{credential})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authenticator.now = func() time.Time { return time.Date(2026, 9, 15, 13, 0, 0, 0, time.UTC) }
+	srv := NewServer(":0", ServerDeps{Store: s, Reconciler: &mockReconciler{}, Logger: testLogger(), APIToken: "legacy-admin-token", PresentationAuthenticator: authenticator, PresentationAudience: "dockercd-presentation"})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/applications/app-a", nil)
+	request.Header.Set("Authorization", "Bearer test-only-application-token")
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, request)
+	if w.Code != http.StatusOK {
+		t.Fatalf("application returned %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, forbidden := range []string{"password", "secret", `"spec"`, "lastError", "recentHistory", "services"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("application response exposed %q: %s", forbidden, body)
+		}
+	}
+	if !strings.Contains(body, `"lastObservedAt":"2026-09-15T13:01:00Z"`) {
+		t.Fatalf("application response omitted persisted observation time: %s", body)
+	}
+	if !strings.Contains(body, `"observedHealthStatus":"Healthy"`) {
+		t.Fatalf("application response omitted observed health status: %s", body)
+	}
+	var response PresentationApplicationResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode presentation application response: %v", err)
+	}
+	if response.ObservationCompleteness != "complete" {
+		t.Fatalf("observation completeness = %q, want complete", response.ObservationCompleteness)
+	}
+	if _, err := time.Parse(time.RFC3339, response.ResponseGeneratedAt); err != nil {
+		t.Fatalf("response generation time = %q: %v", response.ResponseGeneratedAt, err)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/presentation/applications/app-b", nil)
+	request.Header.Set("Authorization", "Bearer test-only-application-token")
+	w = httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, request)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("ungranted application returned %d, want %d", w.Code, http.StatusNotFound)
+	}
+	if strings.Contains(w.Body.String(), "app-b") {
+		t.Fatalf("ungranted response disclosed application name: %s", w.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/presentation/applications/missing", nil)
+	request.Header.Set("Authorization", "Bearer test-only-application-token")
+	w = httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, request)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("ungranted missing application returned %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+func TestPresentationApplicationAuditsAllowBeforeStorageFailure(t *testing.T) {
+	s := setupTestStore(t)
+	credential := testPresentationCredential("test-only-audit-token")
+	credential.Capabilities = []Capability{CapabilityApplicationRead}
+	credential.Applications = []string{"app-a"}
+	authenticator, err := NewOpaquePresentationAuthenticator([]PresentationCredential{credential})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authenticator.now = func() time.Time { return time.Date(2026, 9, 15, 13, 0, 0, 0, time.UTC) }
+	var auditLog bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&auditLog, nil))
+	srv := NewServer(":0", ServerDeps{Store: s, Reconciler: &mockReconciler{}, Logger: logger, APIToken: "legacy-admin-token", PresentationAuthenticator: authenticator, PresentationAudience: "dockercd-presentation"})
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/applications/app-a", nil)
+	request.Header.Set("Authorization", "Bearer test-only-audit-token")
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, request)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("closed store returned %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+	for _, expected := range []string{`"event":"presentation_authorization"`, `"subject":"operator-42"`, `"credential_id":"cred-reader"`, `"capability":"application:read"`, `"resource":"app-a"`, `"decision":"allow"`} {
+		if !strings.Contains(auditLog.String(), expected) {
+			t.Fatalf("missing audit field %q in %s", expected, auditLog.String())
+		}
+	}
+}
+
+func TestPresentationActivityFiltersResourcesAndRedactsEventDetails(t *testing.T) {
+	s := setupTestStore(t)
+	createTestApp(t, s, "app-a")
+	createTestApp(t, s, "app-b")
+	for _, event := range []store.EventRecord{
+		{AppName: "app-a", Type: "SyncSuccess", Severity: "info", Message: "password=secret", DataJSON: `{"token":"secret"}`},
+		{AppName: "app-b", Type: "SyncFailed", Severity: "error", Message: "app-b private detail", DataJSON: `{"token":"other-secret"}`},
+	} {
+		if err := s.RecordEvent(context.Background(), &event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	credential := testPresentationCredential("test-only-activity-token")
+	credential.Capabilities = []Capability{CapabilityApplicationRead}
+	credential.Applications = []string{"app-a"}
+	authenticator, err := NewOpaquePresentationAuthenticator([]PresentationCredential{credential})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authenticator.now = func() time.Time { return time.Date(2026, 9, 15, 13, 0, 0, 0, time.UTC) }
+	srv := NewServer(":0", ServerDeps{Store: s, Reconciler: &mockReconciler{}, Logger: testLogger(), APIToken: "legacy-admin-token", PresentationAuthenticator: authenticator, PresentationAudience: "dockercd-presentation"})
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/activity?limit=1000", nil)
+	request.Header.Set("Authorization", "Bearer test-only-activity-token")
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, request)
+	if w.Code != http.StatusOK {
+		t.Fatalf("activity returned %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, forbidden := range []string{"app-b", "password", "secret", "dataJson", "message"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("activity response exposed %q: %s", forbidden, body)
+		}
+	}
+	if !strings.Contains(body, `"application":"app-a"`) || !strings.Contains(body, `"type":"SyncSuccess"`) {
+		t.Fatalf("activity omitted authorized event metadata: %s", body)
+	}
+	var response PresentationActivityResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode presentation activity response: %v", err)
+	}
+	if _, err := time.Parse(time.RFC3339, response.ResponseGeneratedAt); err != nil {
+		t.Fatalf("activity response generation time = %q: %v", response.ResponseGeneratedAt, err)
+	}
+}
+
+func TestPresentationObservationCompletenessRequiresThePersistedPair(t *testing.T) {
+	observedAt := time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name       string
+		status     string
+		observedAt *time.Time
+		want       string
+	}{
+		{name: "both values", status: "Healthy", observedAt: &observedAt, want: "complete"},
+		{name: "missing status", observedAt: &observedAt, want: "unavailable"},
+		{name: "missing timestamp", status: "Healthy", want: "unavailable"},
+		{name: "zero timestamp", status: "Healthy", observedAt: &time.Time{}, want: "unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if actual := presentationObservationCompleteness(test.status, test.observedAt); actual != test.want {
+				t.Fatalf("presentationObservationCompleteness(%q, %v) = %q, want %q", test.status, test.observedAt, actual, test.want)
+			}
+		})
 	}
 }
 

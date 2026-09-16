@@ -69,6 +69,33 @@ func TestValidate_LoopbackAPIAllowsEmptyToken(t *testing.T) {
 	}
 }
 
+func TestValidate_PresentationAPIRequiresCompleteSecureConfiguration(t *testing.T) {
+	cfg := validConfig()
+	cfg.PresentationCredentialsFile = "/run/secrets/presentation-credentials.json"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected presentation registry without audience to be rejected")
+	}
+
+	cfg.PresentationAudience = "dockercd-web"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected presentation API without a strong legacy admin token to be rejected")
+	}
+
+	cfg.APIToken = "0123456789abcdef0123456789abcdef"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected complete presentation API configuration to be valid: %v", err)
+	}
+
+	cfg.PresentationAudience = " not-a-valid-audience "
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected padded audience to be rejected")
+	}
+	cfg.PresentationAudience = "not a valid audience"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected whitespace audience to be rejected")
+	}
+}
+
 func TestAPIAddr(t *testing.T) {
 	cfg := validConfig()
 	if got, want := cfg.APIAddr(), "127.0.0.1:8080"; got != want {

@@ -65,6 +65,14 @@ func runServe(_ *cobra.Command, _ []string) error {
 	if cfg.AllowInsecureNoAuth && cfg.APIToken == "" {
 		logger.Warn("API authentication disabled by explicit insecure override; do not expose this listener outside a trusted local environment")
 	}
+	var presentationAuthenticator api.PresentationAuthenticator
+	if cfg.PresentationCredentialsFile != "" {
+		presentationAuthenticator, err = api.LoadOpaquePresentationAuthenticatorFile(cfg.PresentationCredentialsFile)
+		if err != nil {
+			return fmt.Errorf("loading presentation credential registry: %w", err)
+		}
+		logger.Info("capability-scoped presentation API enabled", "audience", cfg.PresentationAudience)
+	}
 
 	// Ensure data directory exists
 	if err := os.MkdirAll(cfg.DataDir, 0750); err != nil {
@@ -283,14 +291,16 @@ func runServe(_ *cobra.Command, _ []string) error {
 	// Start API server
 	addr := cfg.APIAddr()
 	apiServer := api.NewServer(addr, api.ServerDeps{
-		Store:         st,
-		Reconciler:    rec,
-		Inspector:     insp,
-		Logger:        logger,
-		WebhookSecret: cfg.WebhookSecret,
-		SSEHub:        sseHub,
-		EventWatcher:  eventWatcher,
-		APIToken:      cfg.APIToken,
+		Store:                     st,
+		Reconciler:                rec,
+		Inspector:                 insp,
+		Logger:                    logger,
+		WebhookSecret:             cfg.WebhookSecret,
+		SSEHub:                    sseHub,
+		EventWatcher:              eventWatcher,
+		APIToken:                  cfg.APIToken,
+		PresentationAuthenticator: presentationAuthenticator,
+		PresentationAudience:      cfg.PresentationAudience,
 	})
 	if err := apiServer.Start(); err != nil {
 		return fmt.Errorf("starting API server: %w", err)

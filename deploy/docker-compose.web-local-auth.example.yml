@@ -1,0 +1,43 @@
+# Reference deployment for the opt-in local-password Web presentation.
+# Do not use as an override until the controller's separate digest-only
+# presentation registry has been provisioned for every Web user bearer.
+#
+# The Web secret file is host-managed and is mounted only into dockercd-web.
+# The controller registry must be a different Compose secret mounted only into
+# dockercd. Never place plaintext passwords, controller bearers, or the legacy
+# DOCKERCD_API_TOKEN in this file, an environment variable, or version control.
+services:
+  dockercd-web:
+    image: dockercd-web:latest
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:uid=65532,gid=65532,mode=1777,noexec,nosuid,size=16m
+    ports:
+      # A TLS reverse proxy on the host is the only public browser endpoint.
+      - "127.0.0.1:8092:8092"
+    environment:
+      DOCKERCD_WEB_LISTEN_ADDR: "0.0.0.0:8092"
+      DOCKERCD_WEB_PUBLIC_ORIGIN: "https://console.example.internal"
+      DOCKERCD_WEB_AUTH_USERS_FILE: "/run/secrets/dockercd_web_users"
+      DOCKERCD_WEB_CONTROLLER_URL: "http://dockercd:8080"
+      DOCKERCD_WEB_CONTROLLER_LABEL: "dockercd"
+      DOCKERCD_WEB_ENVIRONMENT: "Production"
+    secrets:
+      - source: dockercd_web_users
+        target: dockercd_web_users
+        mode: 0444
+    networks:
+      - dockercd-net
+
+secrets:
+  dockercd_web_users:
+    file: ${DOCKERCD_WEB_USERS_SECRET_FILE:?set an absolute host path to the local Web user registry}
+
+networks:
+  dockercd-net:
+    external: true

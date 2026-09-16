@@ -147,6 +147,43 @@ On startup, dockercd reads all `.yaml` files from `/config/applications` (mounte
 
 ## Configuration
 
+### Optional local Web presentation login
+
+[`docker-compose.web-local-auth.example.yml`](docker-compose.web-local-auth.example.yml)
+is a reference composition for the separate `dockercd-web` container. It is
+not enabled by the primary controller Compose file and does not publish the
+controller API. A TLS reverse proxy is the only browser-facing endpoint; the
+Web service and controller communicate over the private `dockercd-net`.
+
+Docker Compose secrets are service-specific file mounts at
+`/run/secrets/<name>`. For this first local login phase, supply a Web-only,
+host-managed JSON registry through `DOCKERCD_WEB_USERS_SECRET_FILE`. Each
+entry has a subject, Argon2id password verifier, and that user's dedicated,
+controller-scoped bearer. The separate controller registry contains the
+SHA-256 digest and authorization metadata for each bearer, never the bearer
+itself. The two registries must be provisioned together but never mounted into
+the other service.
+
+This is local secret distribution, not Kubernetes encrypted secret storage:
+restrict the host file and deployment account, exclude it from backups shared
+outside the trust boundary, and never commit it. See
+[ADR 0003](../docs/adr/0003-local-password-bootstrap-for-web-presentation.md)
+for the exact schema, lifecycle, and limits.
+
+### Local secret file
+
+The tracked [`deploy/.env.example`](.env.example) contains placeholders only.
+If this installation needs a Git credential or non-loopback API token, copy it
+to the ignored local `deploy/.env` on the deployment host, set the file mode
+to owner-readable only, and populate freshly created values there. Do not put
+credentials in any Compose file, application manifest, documentation example,
+commit, image layer, or browser configuration. Rotate a value immediately if
+it was pasted into a terminal transcript, chat, log, or screenshot.
+
+`DOCKERCD_GIT_TOKEN` is optional and should have the smallest repository scope
+necessary for dockercd's source reads. `DOCKERCD_API_TOKEN` is a distinct
+random controller credential; do not reuse a Git token for it.
+
 All configuration uses the `DOCKERCD_` prefix:
 
 | Variable | Default | Purpose |

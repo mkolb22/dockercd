@@ -67,6 +67,13 @@ type Config struct {
 	// AllowInsecureNoAuth explicitly permits an unauthenticated non-loopback
 	// listener for short-lived local development. It is disabled by default.
 	AllowInsecureNoAuth bool `mapstructure:"allow_insecure_no_auth"`
+	// PresentationCredentialsFile is an optional digest-only credential registry
+	// for the additive, capability-scoped presentation API. It is disabled when
+	// empty and is never a location for raw bearer values.
+	PresentationCredentialsFile string `mapstructure:"presentation_credentials_file"`
+	// PresentationAudience binds presentation credentials to this controller
+	// deployment. It must match the audience stored in each registry record.
+	PresentationAudience string `mapstructure:"presentation_audience"`
 	// ImagePollInterval is how often to check registries for new image tags.
 	// Set to 0 to disable image update automation.
 	ImagePollInterval time.Duration `mapstructure:"image_poll_interval"`
@@ -107,6 +114,9 @@ func (c *Config) Validate() error {
 	if !isLoopbackAPIHost(c.APIHost) && len(c.APIToken) < 32 && !c.AllowInsecureNoAuth {
 		return fmt.Errorf("api_token must be at least 32 characters when api_host %q is not loopback", c.APIHost)
 	}
+	if err := c.validatePresentationAPI(); err != nil {
+		return err
+	}
 	if c.WorkerCount < 1 || c.WorkerCount > 32 {
 		return fmt.Errorf("worker_count must be 1-32, got %d", c.WorkerCount)
 	}
@@ -133,6 +143,24 @@ func (c *Config) Validate() error {
 	}
 	if err := c.Cluster.Validate(); err != nil {
 		return fmt.Errorf("invalid cluster configuration: %w", err)
+	}
+	return nil
+}
+
+func (c *Config) validatePresentationAPI() error {
+	registryPath := strings.TrimSpace(c.PresentationCredentialsFile)
+	audience := strings.TrimSpace(c.PresentationAudience)
+	if registryPath == "" && audience == "" {
+		return nil
+	}
+	if registryPath == "" || audience == "" {
+		return fmt.Errorf("presentation_credentials_file and presentation_audience must be configured together")
+	}
+	if len(c.APIToken) < 32 {
+		return fmt.Errorf("presentation API requires api_token to be at least 32 characters")
+	}
+	if audience != c.PresentationAudience || len(audience) > 128 || strings.ContainsAny(audience, " \t\r\n") {
+		return fmt.Errorf("presentation_audience must be a non-whitespace identifier of at most 128 characters")
 	}
 	return nil
 }

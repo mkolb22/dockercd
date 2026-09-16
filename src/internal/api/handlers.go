@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -21,15 +22,18 @@ import (
 
 // Handler holds the HTTP handler methods.
 type Handler struct {
-	store         *store.SQLiteStore
-	reconciler    reconciler.Reconciler
-	inspector     inspector.StateInspector
-	logger        *slog.Logger
-	sseHub        eventbus.Broadcaster
-	eventWatcher  *events.Watcher
-	webhookSecret string
-	apiToken      string
-	hostStats     *hostStatsCache
+	store                     *store.SQLiteStore
+	reconciler                reconciler.Reconciler
+	inspector                 inspector.StateInspector
+	logger                    *slog.Logger
+	sseHub                    eventbus.Broadcaster
+	eventWatcher              *events.Watcher
+	webhookSecret             string
+	apiToken                  string
+	presentationAuthenticator PresentationAuthenticator
+	presentationAudience      string
+	legacyAdminEnabled        bool
+	hostStats                 *hostStatsCache
 }
 
 // Healthz is the liveness probe.
@@ -121,17 +125,205 @@ const maxRequestBody = 1 << 20
 
 // Capabilities returns feature flags for versioned API clients.
 func (h *Handler) Capabilities(w http.ResponseWriter, _ *http.Request) {
+	features := []string{
+		"applications.create",
+		"applications.update",
+		"applications.delete",
+		"applications.desired",
+		"events.sse",
+		"services.metrics",
+	}
+	if h.presentationAuthenticator != nil && h.presentationAudience != "" && h.legacyAdminEnabled {
+		features = append(features, "presentation.scoped-auth")
+	}
 	writeJSON(w, http.StatusOK, CapabilitiesResponse{
 		APIVersion: "v1",
-		Features: []string{
-			"applications.create",
-			"applications.update",
-			"applications.delete",
-			"applications.desired",
-			"events.sse",
-			"services.metrics",
-		},
+		Features:   features,
 	})
+}
+
+// PresentationPermissions returns grants for only the already verified scoped
+// principal. It intentionally exposes no credential material.
+func (h *Handler) PresentationPermissions(w http.ResponseWriter, r *http.Request) {
+	principal, ok := presentationPrincipal(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing presentation principal", CodeUnauthorized)
+		return
+	}
+	auditPresentation(h.logger, r, &principal, "permissions:read", "", "allow")
+	writeJSON(w, http.StatusOK, PresentationPermissionsResponse{
+		Subject: principal.Subject, CredentialID: principal.CredentialID, Audience: principal.Audience,
+		ExpiresAt: principal.ExpiresAt.UTC().Format(time.RFC3339), Capabilities: principal.Capabilities(), Applications: principal.Applications(),
+	})
+}
+
+// PresentationCapabilities is the scoped-client compatibility handshake. It
+// deliberately does not reuse legacy /api/v1/capabilities, whose feature set
+// describes administrator endpoints and is protected by the legacy token.
+func (h *Handler) PresentationCapabilities(w http.ResponseWriter, r *http.Request) {
+	principal, ok := presentationPrincipal(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing presentation principal", CodeUnauthorized)
+		return
+	}
+	features := []string{"presentation.permissions"}
+	if principal.Allows(CapabilityFleetRead, "") {
+		features = append(features, "presentation.fleet")
+	}
+	if principal.Allows(CapabilityApplicationRead, "") {
+		features = append(features, "presentation.application", "presentation.activity")
+	}
+	if principal.Allows(CapabilityFleetRead, "") || principal.Allows(CapabilityApplicationRead, "") {
+		features = append(features, "presentation.status-metadata")
+	}
+	auditPresentation(h.logger, r, &principal, "capabilities:read", "", "allow")
+	writeJSON(w, http.StatusOK, PresentationCapabilitiesResponse{
+		APIVersion: "v1", ServerTime: time.Now().UTC().Format(time.RFC3339), Features: features, ExpiresAt: principal.ExpiresAt.UTC().Format(time.RFC3339),
+		Limits: PresentationLimits{MaxApplications: maxPresentationApplicationGrants},
+	})
+}
+
+// PresentationFleet returns only authorized, bounded application summaries.
+// It never decodes or returns manifests, application specs, or sync history.
+func (h *Handler) PresentationFleet(w http.ResponseWriter, r *http.Request) {
+	principal, ok := presentationPrincipal(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing presentation principal", CodeUnauthorized)
+		return
+	}
+	if !principal.Allows(CapabilityFleetRead, "") {
+		auditPresentation(h.logger, r, &principal, string(CapabilityFleetRead), "", "deny")
+		writeError(w, http.StatusForbidden, "missing required capability", CodeForbidden)
+		return
+	}
+	auditPresentation(h.logger, r, &principal, string(CapabilityFleetRead), strings.Join(principal.Applications(), ","), "allow")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	grants := principal.Applications()
+	summaries := make([]PresentationApplicationSummary, 0, len(grants))
+	for _, name := range grants {
+		application, err := h.store.GetApplicationStatusSummary(ctx, name)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "reading authorized application summary", CodeInternalError)
+			return
+		}
+		if application == nil || !principal.Allows(CapabilityFleetRead, application.Name) {
+			continue
+		}
+		summary := PresentationApplicationSummary{
+			Name: application.Name, SyncStatus: application.SyncStatus, HealthStatus: application.HealthStatus,
+			LastSyncedSHA: application.LastSyncedSHA, HeadSHA: application.HeadSHA, ObservedHealthStatus: application.LastObservedHealthStatus,
+			ObservationCompleteness: presentationObservationCompleteness(application.LastObservedHealthStatus, application.LastObservationTime),
+		}
+		if application.LastSyncTime != nil {
+			summary.LastSyncTime = application.LastSyncTime.UTC().Format(time.RFC3339)
+		}
+		if application.LastObservationTime != nil {
+			summary.LastObservedAt = application.LastObservationTime.UTC().Format(time.RFC3339)
+		}
+		summaries = append(summaries, summary)
+	}
+	writeJSON(w, http.StatusOK, PresentationFleetResponse{Applications: summaries, Total: len(summaries), ResponseGeneratedAt: time.Now().UTC().Format(time.RFC3339)})
+}
+
+// PresentationApplication returns a redacted status view for one explicitly
+// granted application. Authorization is checked before storage access so an
+// ungranted caller cannot use this route to enumerate application names.
+func (h *Handler) PresentationApplication(w http.ResponseWriter, r *http.Request) {
+	principal, ok := presentationPrincipal(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing presentation principal", CodeUnauthorized)
+		return
+	}
+	name := chi.URLParam(r, "name")
+	if !principal.Allows(CapabilityApplicationRead, name) {
+		auditPresentation(h.logger, r, &principal, string(CapabilityApplicationRead), name, "deny")
+		// Use the same status as an absent application. A caller without an
+		// explicit grant must not infer whether another application exists.
+		writeError(w, http.StatusNotFound, "application not found", CodeNotFound)
+		return
+	}
+	auditPresentation(h.logger, r, &principal, string(CapabilityApplicationRead), name, "allow")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	record, err := h.store.GetApplicationStatusSummary(ctx, name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "reading authorized application", CodeInternalError)
+		return
+	}
+	if record == nil {
+		writeError(w, http.StatusNotFound, "application not found", CodeNotFound)
+		return
+	}
+	response := PresentationApplicationResponse{
+		Name:                    record.Name,
+		SyncStatus:              record.SyncStatus,
+		HealthStatus:            record.HealthStatus,
+		LastSyncedSHA:           record.LastSyncedSHA,
+		HeadSHA:                 record.HeadSHA,
+		ObservedHealthStatus:    record.LastObservedHealthStatus,
+		ObservationCompleteness: presentationObservationCompleteness(record.LastObservedHealthStatus, record.LastObservationTime),
+		ResponseGeneratedAt:     time.Now().UTC().Format(time.RFC3339),
+	}
+	if record.LastSyncTime != nil {
+		response.LastSyncTime = record.LastSyncTime.UTC().Format(time.RFC3339)
+	}
+	if record.LastObservationTime != nil {
+		response.LastObservedAt = record.LastObservationTime.UTC().Format(time.RFC3339)
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+// PresentationActivity returns a bounded cross-fleet projection of event
+// metadata for applications explicitly granted to the principal. Event
+// messages and arbitrary data are intentionally excluded: they can contain
+// repository, daemon, or secret-adjacent details better accessed through a
+// later reviewed evidence route.
+func (h *Handler) PresentationActivity(w http.ResponseWriter, r *http.Request) {
+	principal, ok := presentationPrincipal(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "missing presentation principal", CodeUnauthorized)
+		return
+	}
+	if !principal.Allows(CapabilityApplicationRead, "") {
+		auditPresentation(h.logger, r, &principal, string(CapabilityApplicationRead), "", "deny")
+		writeError(w, http.StatusForbidden, "missing required capability", CodeForbidden)
+		return
+	}
+	limit := queryInt(r, "limit", 50)
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	grants := principal.Applications()
+	auditPresentation(h.logger, r, &principal, string(CapabilityApplicationRead), strings.Join(grants, ","), "allow")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	events, err := h.store.ListEventsForApplications(ctx, grants, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "reading authorized activity", CodeInternalError)
+		return
+	}
+	items := make([]PresentationActivityEvent, 0, len(events))
+	for _, event := range events {
+		items = append(items, PresentationActivityEvent{
+			Application: event.AppName, Type: event.Type, Severity: event.Severity, OccurredAt: event.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	writeJSON(w, http.StatusOK, PresentationActivityResponse{Events: items, Total: len(items), ResponseGeneratedAt: time.Now().UTC().Format(time.RFC3339)})
+}
+
+// presentationObservationCompleteness prevents a presentation client from
+// treating a desired-state health field as a current Docker observation. The
+// store writes the observed status and timestamp together; anything else is
+// unavailable rather than a partial health claim.
+func presentationObservationCompleteness(status string, observedAt *time.Time) string {
+	if strings.TrimSpace(status) != "" && observedAt != nil && !observedAt.IsZero() {
+		return "complete"
+	}
+	return "unavailable"
 }
 
 // CreateApplication registers a new application.

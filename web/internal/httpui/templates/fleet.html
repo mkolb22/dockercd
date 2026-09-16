@@ -1,0 +1,48 @@
+{{define "fleet"}}{{template "shell-start" .}}
+<section class="page-intro intro-fleet">
+  <div>
+    <p class="eyebrow">FLEET COMMAND CENTER</p>
+    <h1>Know what needs<br><em>your attention.</em></h1>
+    <p class="lede">A quiet, evidence-first view of the displayed fleet. Drill into an application only when the signal calls for it.</p>
+  </div>
+  <aside class="evidence-note"><span aria-hidden="true">◌</span><div><strong>{{if .View.Fixture}}Fixture{{else}}Controller{{end}} evidence</strong><p>{{.Fleet.ObservationNote}}</p></div></aside>
+</section>
+
+<section class="health-hero surface" aria-labelledby="fleet-health-title">
+  <div class="orbital-count" aria-label="{{.Fleet.HealthyCount}} of {{len .Fleet.Applications}} applications display healthy state">
+    <svg viewBox="0 0 120 120" aria-hidden="true"><circle class="orbital-track" cx="60" cy="60" r="48"/><circle class="orbital-progress" style="stroke-dasharray: {{.Fleet.HealthArc}} 302" cx="60" cy="60" r="48"/></svg>
+    <strong>{{.Fleet.HealthyCount}}</strong><span>HEALTHY</span>
+  </div>
+  <div class="hero-copy">
+    <p class="eyebrow">DISPLAYED FLEET STATE</p>
+    <h2 id="fleet-health-title">{{if gt .Fleet.AttentionCount 0}}{{.Fleet.AttentionCount}} application needs review{{else}}No known issues in displayed data{{end}}</h2>
+    <p>{{if .View.Fixture}}The fixture includes {{len .Fleet.Applications}} applications. Health and sync labels are examples, not live observations.{{else}}This scoped response includes {{len .Fleet.Applications}} authorized applications. Observation times are reported by the controller.{{end}}</p>
+    <div class="chip-row"><span class="chip chip-mint">{{.Fleet.HealthyCount}} healthy</span><span class="chip chip-amber">{{.Fleet.AttentionCount}} attention</span>{{if .View.Fixture}}<span class="chip">revision 9b84c0d1</span>{{else}}<span class="chip">scoped response</span>{{end}}</div>
+  </div>
+  <a class="hero-action" href="/applications?state=attention">Review attention <span aria-hidden="true">→</span></a>
+</section>
+
+{{if .Fleet.ErrorMessage}}<section class="notice" role="status"><strong>Fixture connection state</strong><span>{{.Fleet.ErrorMessage}}</span></section>{{end}}
+
+<section class="split-grid">
+  <article class="surface attention-card">
+    <div class="section-heading"><div><p class="eyebrow">PRIORITY QUEUE</p><h2>Attention, not noise</h2></div><span class="count-badge">{{.Fleet.AttentionCount}}</span></div>
+    {{range .Fleet.Attention}}
+    <a class="attention-row" href="/applications/{{.Name}}"><span class="signal signal-coral" aria-hidden="true">!</span><span><strong>{{.Name}}</strong><small>{{.LastEvent}}</small></span><span aria-hidden="true">→</span></a>
+    {{else}}<p class="quiet-note">No application needs review in the displayed response.</p>{{end}}
+    <p class="quiet-note">Intentionally empty manifests are context, not alerts.</p>
+  </article>
+  <article class="surface pulse-card">
+    <div class="section-heading"><div><p class="eyebrow">DEPLOYMENT ACTIVITY</p><h2>Latest meaningful events</h2></div><a href="/activity">Timeline →</a></div>
+    <ol class="event-strip">{{range .RecentActivity}}<li><span class="status-pin status-{{.Tone}}" aria-hidden="true"></span><div><strong>{{.Application}}</strong><small>{{.Kind}}</small></div><time>{{.Occurred}}</time></li>{{end}}</ol>
+  </article>
+</section>
+
+<section class="roster-section"><div class="section-heading"><div><p class="eyebrow">FLEET ROSTER</p><h2>Every application, one glance</h2></div><a href="/applications">Browse all →</a></div>
+  <div class="roster surface">
+    {{range .Applications}}
+    <a class="roster-row" href="/applications/{{.Name}}"><span class="status-pin status-{{.Health.Tone}}" aria-hidden="true"></span><span class="roster-name"><strong>{{.Name}}</strong><small>{{.Project}} · {{.Revision}}</small></span><span class="roster-event">{{.LastEvent}}</span><span class="roster-statuses">{{template "state" .Sync}}{{template "state" .Health}}</span><span aria-hidden="true">→</span></a>
+    {{end}}
+  </div>
+</section>
+{{template "shell-end" .}}{{end}}

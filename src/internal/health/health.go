@@ -244,9 +244,10 @@ func (m *Monitor) WaitForServicesHealthy(ctx context.Context, appName string, se
 	}
 }
 
-// CheckApp performs a single health check for the named application.
-// Only writes to the store when the health status or services have changed,
-// avoiding unnecessary DB writes during periodic sweeps.
+// CheckApp performs a single health check for the named application. A
+// successful inspection is persisted with its observation time even when the
+// health result is unchanged, because reconciliation and response time are not
+// substitutes for a live Docker observation in a status view.
 func (m *Monitor) CheckApp(ctx context.Context, appName string) (app.HealthStatus, []app.ServiceStatus, error) {
 	// Look up the application
 	appRec, err := m.store.GetApplication(ctx, appName)
@@ -283,14 +284,17 @@ func (m *Monitor) CheckApp(ctx context.Context, appName string) (app.HealthStatu
 
 	aggregated := Aggregate(serviceStatuses)
 
-	// Only persist when status changed to avoid unnecessary DB writes on every sweep
+	// Persist health, service snapshot, and observation time as one guarded
+	// record. A concurrent reconciler or checker can win the race; in that case
+	// this older observation is intentionally discarded rather than mislabeled.
 	servicesJSON, _ := json.Marshal(serviceStatuses)
-	newServicesStr := string(servicesJSON)
-	if string(aggregated) != appRec.HealthStatus || newServicesStr != appRec.ServicesJSON {
-		_ = m.store.UpdateApplicationStatus(ctx, appName, store.StatusUpdate{
-			HealthStatus: string(aggregated),
-			ServicesJSON: newServicesStr,
-		})
+	observedAt := time.Now().UTC()
+	updated, err := m.store.RecordHealthObservation(ctx, appName, appRec.UpdatedAt, string(aggregated), string(servicesJSON), observedAt)
+	if err != nil {
+		return app.HealthStatusUnknown, nil, fmt.Errorf("persisting health observation: %w", err)
+	}
+	if !updated {
+		m.logger.Debug("discarded stale health observation", "app", appName)
 	}
 
 	return aggregated, serviceStatuses, nil
