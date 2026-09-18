@@ -23,6 +23,8 @@ func TestPresentationV1FixturesAreStrictAndRedacted(t *testing.T) {
 		{name: "fleet", file: "fleet.json", new: func() any { return &PresentationFleetResponse{} }},
 		{name: "application", file: "application.json", new: func() any { return &PresentationApplicationResponse{} }},
 		{name: "activity", file: "activity.json", new: func() any { return &PresentationActivityResponse{} }},
+		{name: "controller", file: "controller.json", new: func() any { return &PresentationControllerResponse{} }},
+		{name: "capacity", file: "capacity.json", new: func() any { return &PresentationCapacityResponse{} }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			raw := presentationFixture(t, test.file)

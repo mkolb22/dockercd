@@ -46,6 +46,56 @@ type Server struct {
 }
 
 const hostStatsCacheTTL = 5 * time.Second
+const capacityCacheTTL = 5 * time.Second
+const capacityFailureTTL = time.Second
+const capacityCollectionDeadline = 5 * time.Second
+
+type capacitySampler interface {
+	CapacitySample(context.Context, string) (*app.CapacitySample, error)
+}
+type capacityCache struct {
+	mu        sync.Mutex
+	sample    *app.CapacitySample
+	err       error
+	fetchedAt time.Time
+	wait      chan struct{}
+}
+
+func (c *capacityCache) get(ctx context.Context, sampler capacitySampler) (*app.CapacitySample, error) {
+	for {
+		c.mu.Lock()
+		age := time.Since(c.fetchedAt)
+		valid := !c.fetchedAt.IsZero() && ((c.err == nil && age < capacityCacheTTL) || (c.err != nil && age < capacityFailureTTL))
+		if valid {
+			sample, err := c.sample, c.err
+			c.mu.Unlock()
+			return sample, err
+		}
+		if c.wait == nil {
+			c.wait = make(chan struct{})
+			wait := c.wait
+			c.mu.Unlock()
+			// A browser disconnect must not poison the shared five-second cache
+			// with a cancellation error. The collector has its own deadline too;
+			// this outer bound protects alternate implementations of the sampler.
+			sampleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), capacityCollectionDeadline)
+			sample, err := sampler.CapacitySample(sampleCtx, "")
+			cancel()
+			c.mu.Lock()
+			c.sample, c.err, c.fetchedAt, c.wait = sample, err, time.Now(), nil
+			close(wait)
+			c.mu.Unlock()
+			return sample, err
+		}
+		wait := c.wait
+		c.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-wait:
+		}
+	}
+}
 
 // hostStatsCache coalesces expensive Docker stats collection across dashboard
 // clients. A short TTL keeps the UI responsive without repeatedly listing and
@@ -108,6 +158,7 @@ func NewServer(addr string, deps ServerDeps) *Server {
 		presentationAudience:      strings.TrimSpace(deps.PresentationAudience),
 		legacyAdminEnabled:        deps.APIToken != "",
 		hostStats:                 statsCache,
+		capacity:                  &capacityCache{},
 	}
 
 	router := chi.NewRouter()
@@ -167,6 +218,8 @@ func NewServer(addr string, deps ServerDeps) *Server {
 			r.Use(presentationAuth(deps.PresentationAuthenticator, deps.PresentationAudience, deps.Logger))
 			r.Get("/capabilities", h.PresentationCapabilities)
 			r.Get("/permissions", h.PresentationPermissions)
+			r.Get("/controller", h.PresentationController)
+			r.With(presentationReadRequests).Get("/capacity", h.PresentationCapacity)
 			r.With(presentationReadRequests).Get("/fleet", h.PresentationFleet)
 			r.With(presentationReadRequests).Get("/applications/{name}", h.PresentationApplication)
 			r.With(presentationReadRequests).Get("/activity", h.PresentationActivity)

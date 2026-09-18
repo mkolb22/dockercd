@@ -50,6 +50,7 @@ func TestFixtureRoutesRenderWithoutController(t *testing.T) {
 	server := New(presentation.NewFixtureSource())
 	for _, target := range []string{
 		"/fleet",
+		"/controller",
 		"/applications",
 		"/applications?q=signal",
 		"/applications?state=attention",
@@ -58,7 +59,6 @@ func TestFixtureRoutesRenderWithoutController(t *testing.T) {
 		"/applications/edge-api/timeline",
 		"/applications/edge-api/inspect",
 		"/activity",
-		"/system",
 		"/settings",
 	} {
 		recorder := httptest.NewRecorder()
@@ -69,6 +69,39 @@ func TestFixtureRoutesRenderWithoutController(t *testing.T) {
 		}
 		if !strings.Contains(recorder.Body.String(), "Fixture") {
 			t.Fatalf("GET %s did not identify fixture mode", target)
+		}
+	}
+}
+
+func TestFleetKeepsControlPathAndDrillDownWhenFleetEvidenceFails(t *testing.T) {
+	view := presentation.ViewContext{Controller: "My Apps", Environment: "Scoped session", Freshness: "Awaiting controller response", Connection: presentation.State{Label: "Scoped session", Tone: "mint", Glyph: "✓"}}
+	source := &scopedTestSource{view: view, fleet: presentation.Fleet{
+		ObservationNote:      "Application fleet evidence is unavailable; independent controller evidence remains below.",
+		Connection:           presentation.State{Label: "Fleet response failed", Tone: "coral", Glyph: "!"},
+		ErrorMessage:         "The scoped application fleet response is unavailable.",
+		ControllerState:      presentation.State{Label: "State database ready", Tone: "mint", Glyph: "✓"},
+		ControllerResponseAt: "Controller response · 2026-09-18T12:00:00Z",
+		Capacity:             presentation.Capacity{State: presentation.State{Label: "Capacity sample stale", Tone: "amber", Glyph: "~"}},
+		EnvironmentAttention: []presentation.EnvironmentIssue{{Name: "Capacity evidence", Summary: "Capacity sample stale", State: presentation.State{Label: "Capacity sample stale", Tone: "amber", Glyph: "~"}, Path: "/fleet#capacity-evidence"}},
+	}}
+	server := NewWithSourceProvider(sourceProviderFunc(func(context.Context, *http.Request) (presentation.Source, error) { return source, nil }))
+	for _, target := range []string{"/fleet", "/controller"} {
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", target, recorder.Code, recorder.Body.String())
+		}
+		for _, expected := range []string{"State database ready", "Fleet response failed", "Capacity sample stale"} {
+			if !strings.Contains(recorder.Body.String(), expected) {
+				t.Fatalf("%s hid %q: %s", target, expected, recorder.Body.String())
+			}
+		}
+	}
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/fleet", nil))
+	for _, expected := range []string{`href="/controller"`, `href="/fleet#capacity-evidence"`, "Environment evidence needs review"} {
+		if !strings.Contains(recorder.Body.String(), expected) {
+			t.Fatalf("fleet missed drill-down %q: %s", expected, recorder.Body.String())
 		}
 	}
 }
@@ -117,12 +150,6 @@ func TestLiveModeKeepsIndependentCapabilitiesAndHidesFixtureOnlyJourneys(t *test
 			t.Fatalf("app-only request %s improperly required fleet or exposed fixture action: %d calls=%d body=%s", target, recorder.Code, appOnly.fleetCalls, recorder.Body.String())
 		}
 	}
-	recorder = httptest.NewRecorder()
-	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/system", nil))
-	if recorder.Code != http.StatusOK || appOnly.fleetCalls != 0 || !strings.Contains(recorder.Body.String(), "Host details are not in this session.") || strings.Contains(recorder.Body.String(), "That fixture page does not exist.") {
-		t.Fatalf("live system route was not an honest scoped boundary: %d %s", recorder.Code, recorder.Body.String())
-	}
-	recorder = httptest.NewRecorder()
 	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/applications/signal/deploy", nil))
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "This detail is not requested yet.") || strings.Contains(recorder.Body.String(), "No managed Compose services are declared") {
 		t.Fatalf("live deploy inferred unavailable detail: %d %s", recorder.Code, recorder.Body.String())
@@ -300,15 +327,6 @@ func TestNotFoundUsesSessionSpecificCopy(t *testing.T) {
 	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/not-a-live-route", nil))
 	if recorder.Code != http.StatusNotFound || !strings.Contains(recorder.Body.String(), "That page is not available in this session.") || strings.Contains(recorder.Body.String(), "That fixture page does not exist.") {
 		t.Fatalf("live not-found copy was misleading: %d %s", recorder.Code, recorder.Body.String())
-	}
-}
-
-func TestFixtureNavigationRetainsSystem(t *testing.T) {
-	server := New(presentation.NewFixtureSource())
-	recorder := httptest.NewRecorder()
-	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/fleet", nil))
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `href="/system"`) {
-		t.Fatalf("fixture navigation lost its supported system route: %d %s", recorder.Code, recorder.Body.String())
 	}
 }
 

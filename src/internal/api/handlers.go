@@ -32,6 +32,7 @@ type Handler struct {
 	presentationAudience      string
 	legacyAdminEnabled        bool
 	hostStats                 *hostStatsCache
+	capacity                  *capacityCache
 }
 
 // Healthz is the liveness probe.
@@ -124,6 +125,12 @@ func (h *Handler) PresentationCapabilities(w http.ResponseWriter, r *http.Reques
 	if principal.Allows(CapabilityApplicationRead, "") {
 		features = append(features, "presentation.application", "presentation.activity")
 	}
+	if principal.Allows(CapabilityControllerStatus, "") {
+		features = append(features, "presentation.controller")
+	}
+	if principal.Allows(CapabilityCapacityRead, "") {
+		features = append(features, "presentation.capacity")
+	}
 	if principal.Allows(CapabilityFleetRead, "") || principal.Allows(CapabilityApplicationRead, "") {
 		features = append(features, "presentation.status-metadata")
 	}
@@ -132,6 +139,39 @@ func (h *Handler) PresentationCapabilities(w http.ResponseWriter, r *http.Reques
 		APIVersion: "v1", ServerTime: time.Now().UTC().Format(time.RFC3339), Features: features, ExpiresAt: principal.ExpiresAt.UTC().Format(time.RFC3339),
 		Limits: PresentationLimits{MaxApplications: maxPresentationApplicationGrants},
 	})
+}
+
+func (h *Handler) PresentationController(w http.ResponseWriter, r *http.Request) {
+	principal, ok := presentationPrincipal(r)
+	if !ok || !principal.Allows(CapabilityControllerStatus, "") {
+		writeError(w, http.StatusForbidden, "missing required capability", CodeForbidden)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+	defer cancel()
+	ready := h.store != nil && h.store.CheckReadiness(ctx) == nil
+	auditPresentation(h.logger, r, &principal, string(CapabilityControllerStatus), "", "allow")
+	writeJSON(w, http.StatusOK, PresentationControllerResponse{StateDatabaseReady: ready, ResponseGeneratedAt: time.Now().UTC().Format(time.RFC3339)})
+}
+
+func (h *Handler) PresentationCapacity(w http.ResponseWriter, r *http.Request) {
+	principal, ok := presentationPrincipal(r)
+	if !ok || !principal.Allows(CapabilityCapacityRead, "") {
+		writeError(w, http.StatusForbidden, "missing required capability", CodeForbidden)
+		return
+	}
+	sampler, ok := h.inspector.(capacitySampler)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "capacity unavailable", CodeUnavailable)
+		return
+	}
+	sample, err := h.capacity.get(r.Context(), sampler)
+	if err != nil || sample == nil {
+		writeError(w, http.StatusServiceUnavailable, "capacity unavailable", CodeUnavailable)
+		return
+	}
+	auditPresentation(h.logger, r, &principal, string(CapabilityCapacityRead), "", "allow")
+	writeJSON(w, http.StatusOK, PresentationCapacityResponse{CPUPercent: sample.CPUPercent, CPUCores: sample.CPUCores, MemoryUsageMiB: sample.MemoryUsageMiB, MemoryTotalMiB: sample.MemoryTotalMiB, RunningContainers: sample.RunningContainers, EligibleContainers: sample.EligibleContainers, ObservedContainers: sample.ObservedContainers, Completeness: sample.Completeness, SampleStartedAt: sample.SampleStartedAt.Format(time.RFC3339), SampleCompletedAt: sample.SampleCompletedAt.Format(time.RFC3339), ResponseGeneratedAt: time.Now().UTC().Format(time.RFC3339)})
 }
 
 // PresentationFleet returns only authorized, bounded application summaries.

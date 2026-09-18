@@ -135,6 +135,8 @@ type DockerInspector struct {
 	// repeated TLS config loading and client creation overhead.
 	clientCache   map[string]DockerClient
 	clientCacheMu sync.RWMutex
+	capacityMu    sync.Mutex
+	capacityCPU   map[string]capacityCounters
 }
 
 // ClientFactory creates Docker API clients.
@@ -157,6 +159,7 @@ func New() *DockerInspector {
 	d := &DockerInspector{
 		tlsConfigs:  make(map[string]TLSConfig),
 		clientCache: make(map[string]DockerClient),
+		capacityCPU: make(map[string]capacityCounters),
 	}
 	d.clientFactory = d.tlsAwareClientFactory
 	return d
@@ -168,6 +171,7 @@ func NewWithFactory(factory ClientFactory) *DockerInspector {
 		clientFactory: factory,
 		tlsConfigs:    make(map[string]TLSConfig),
 		clientCache:   make(map[string]DockerClient),
+		capacityCPU:   make(map[string]capacityCounters),
 	}
 }
 
@@ -178,6 +182,7 @@ func NewWithTLS(tlsConfigs map[string]TLSConfig) *DockerInspector {
 	d := &DockerInspector{
 		tlsConfigs:  make(map[string]TLSConfig, len(tlsConfigs)),
 		clientCache: make(map[string]DockerClient),
+		capacityCPU: make(map[string]capacityCounters),
 	}
 	for k, v := range tlsConfigs {
 		d.tlsConfigs[k] = v
@@ -207,7 +212,11 @@ func (d *DockerInspector) tlsAwareClientFactory(host string) (DockerClient, erro
 		}
 		opts = append(opts, client.WithHTTPClient(httpClient))
 	}
-	return client.NewClientWithOpts(opts...)
+	apiClient, err := client.NewClientWithOpts(opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &boundedCapacityClient{Client: apiClient, tls: hasTLS}, nil
 }
 
 // RegisterTLS adds or updates TLS configuration for a remote Docker host.

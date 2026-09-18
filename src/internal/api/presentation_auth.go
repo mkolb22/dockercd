@@ -23,12 +23,15 @@ const (
 	CapabilityApplicationWrite  Capability = "application:write"
 	CapabilityApplicationDelete Capability = "application:delete"
 	CapabilityControllerAdmin   Capability = "controller:admin"
+	CapabilityControllerStatus  Capability = "controller:status"
+	CapabilityCapacityRead      Capability = "capacity:read"
 )
 
 var validCapabilities = map[Capability]struct{}{
 	CapabilityFleetRead: {}, CapabilityApplicationRead: {}, CapabilityLogsRead: {},
 	CapabilityApplicationSync: {}, CapabilityApplicationWrite: {},
 	CapabilityApplicationDelete: {}, CapabilityControllerAdmin: {},
+	CapabilityControllerStatus: {}, CapabilityCapacityRead: {},
 }
 
 const maxPresentationApplicationGrants = 100

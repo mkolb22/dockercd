@@ -15,6 +15,11 @@ type fakeScopedReader struct {
 	activity      controlplane.Activity
 	application   controlplane.Application
 	err           error
+	controller    controlplane.Controller
+	capacity      controlplane.Capacity
+	controllerErr error
+	capacityErr   error
+	fleetErr      error
 	fleetCalls    int
 	activityCalls int
 	appCalls      int
@@ -27,6 +32,9 @@ func (f *fakeScopedReader) Capabilities(context.Context) (controlplane.Capabilit
 }
 func (f *fakeScopedReader) Fleet(context.Context) (controlplane.Fleet, error) {
 	f.fleetCalls++
+	if f.fleetErr != nil {
+		return controlplane.Fleet{}, f.fleetErr
+	}
 	return f.fleet, f.err
 }
 func (f *fakeScopedReader) Activity(context.Context, int) (controlplane.Activity, error) {
@@ -36,6 +44,13 @@ func (f *fakeScopedReader) Activity(context.Context, int) (controlplane.Activity
 func (f *fakeScopedReader) Application(context.Context, string) (controlplane.Application, error) {
 	f.appCalls++
 	return f.application, f.err
+}
+
+func (f *fakeScopedReader) Controller(context.Context) (controlplane.Controller, error) {
+	return f.controller, f.controllerErr
+}
+func (f *fakeScopedReader) Capacity(context.Context) (controlplane.Capacity, error) {
+	return f.capacity, f.capacityErr
 }
 
 func TestLiveSourceMapsOnlyScopedReadModels(t *testing.T) {
@@ -127,6 +142,95 @@ func TestLiveSourceRequiresCompleteObservedHealthAndCountsSyncFailure(t *testing
 	}
 	if fleet.Applications[2].Sync.Tone != "coral" || fleet.AttentionCount != 1 {
 		t.Fatalf("sync failure did not enter attention queue: %#v", fleet)
+	}
+}
+
+func TestCapacityMappingRejectsPartialAndInconsistentEvidence(t *testing.T) {
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	valid := controlplane.Capacity{CPUPercent: 12.5, CPUCores: 8, MemoryUsageMiB: 512, MemoryTotalMiB: 4096, RunningContainers: 3, EligibleContainers: 3, ObservedContainers: 3, Completeness: "complete", SampleStartedAt: now.Add(-6 * time.Second).Format(time.RFC3339), SampleCompletedAt: now.Add(-5 * time.Second).Format(time.RFC3339), ResponseGeneratedAt: now.Format(time.RFC3339)}
+	if mapped := mapCapacity(valid); !mapped.Available || mapped.State.Label != "Current container sample" {
+		t.Fatalf("valid capacity was not displayed: %#v", mapped)
+	}
+	valid.Completeness = "partial"
+	if mapped := mapCapacity(valid); mapped.Available || mapped.State.Label != "Capacity sample partial" {
+		t.Fatalf("partial capacity was displayed: %#v", mapped)
+	}
+	valid.Completeness = "complete"
+	valid.SampleCompletedAt = now.Add(time.Second).Format(time.RFC3339)
+	if mapped := mapCapacity(valid); mapped.Available || mapped.State.Label != "Capacity sample inconsistent" {
+		t.Fatalf("future capacity sample was displayed: %#v", mapped)
+	}
+	valid.SampleCompletedAt = now.Add(-5 * time.Second).Format(time.RFC3339)
+	valid.CPUPercent = 101
+	if mapped := mapCapacity(valid); mapped.Available || mapped.State.Label != "Capacity sample malformed" {
+		t.Fatalf("impossible CPU reading was displayed: %#v", mapped)
+	}
+	if mapped := mapCapacity(controlplane.Capacity{Completeness: "unavailable"}); mapped.Available || mapped.State.Label != "Capacity sample unavailable" {
+		t.Fatalf("unavailable capacity was misclassified: %#v", mapped)
+	}
+}
+
+func TestControllerStateRejectsMalformedControllerTimestamp(t *testing.T) {
+	state, timestamp := mapControllerState(controlplane.Controller{StateDatabaseReady: true, ResponseGeneratedAt: "not-a-time"})
+	if state.Label != "Controller status malformed" || timestamp != "" {
+		t.Fatalf("malformed controller timestamp was trusted: %#v %q", state, timestamp)
+	}
+}
+
+func TestLiveSourceNamesOptionalControllerAndCapacityFailureStates(t *testing.T) {
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	reader := &fakeScopedReader{
+		capabilities: controlplane.Capabilities{Features: []string{"presentation.fleet", "presentation.status-metadata", "presentation.controller", "presentation.capacity"}},
+		fleet:        controlplane.Fleet{ResponseGeneratedAt: now.Format(time.RFC3339)},
+		controller:   controlplane.Controller{StateDatabaseReady: false, ResponseGeneratedAt: now.Format(time.RFC3339)},
+		capacity: controlplane.Capacity{CPUPercent: 10, CPUCores: 8, MemoryUsageMiB: 512, MemoryTotalMiB: 4096, RunningContainers: 65, Completeness: "truncated", EligibleContainers: 64, ObservedContainers: 64,
+			SampleStartedAt: now.Add(-2 * time.Second).Format(time.RFC3339), SampleCompletedAt: now.Add(-time.Second).Format(time.RFC3339), ResponseGeneratedAt: now.Format(time.RFC3339)},
+	}
+	source, err := NewLiveSource(LiveSourceConfig{Reader: reader})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleet, err := source.LoadFleet(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fleet.ControllerState.Label != "State database not ready" || fleet.Capacity.State.Label != "Capacity sample truncated" {
+		t.Fatalf("optional evidence states not named: %#v", fleet)
+	}
+	reader.controllerErr = errors.New("controller unavailable")
+	reader.capacityErr = errors.New("capacity unavailable")
+	source, err = NewLiveSource(LiveSourceConfig{Reader: reader})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleet, err = source.LoadFleet(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fleet.ControllerState.Label != "Controller status request failed" || fleet.Capacity.State.Label != "Capacity collection unavailable" {
+		t.Fatalf("request failures were hidden: %#v", fleet)
+	}
+}
+
+func TestLiveSourcePreservesControlPathWhenFleetFails(t *testing.T) {
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	reader := &fakeScopedReader{
+		capabilities: controlplane.Capabilities{Features: []string{"presentation.fleet", "presentation.status-metadata", "presentation.controller", "presentation.capacity"}},
+		fleetErr:     errors.New("fleet endpoint unavailable"),
+		controller:   controlplane.Controller{StateDatabaseReady: true, ResponseGeneratedAt: now.Format(time.RFC3339)},
+		capacity: controlplane.Capacity{CPUPercent: 10, CPUCores: 8, MemoryUsageMiB: 512, MemoryTotalMiB: 4096, RunningContainers: 3, EligibleContainers: 3, ObservedContainers: 3, Completeness: "complete",
+			SampleStartedAt: now.Add(-2 * time.Second).Format(time.RFC3339), SampleCompletedAt: now.Add(-time.Second).Format(time.RFC3339), ResponseGeneratedAt: now.Format(time.RFC3339)},
+	}
+	source, err := NewLiveSource(LiveSourceConfig{Reader: reader})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleet, err := source.LoadFleet(t.Context())
+	if err != nil {
+		t.Fatalf("fleet failure hid control path: %v", err)
+	}
+	if fleet.Connection.Tone != "coral" || fleet.ControllerState.Label != "State database ready" || !fleet.Capacity.Available || fleet.ErrorMessage == "" {
+		t.Fatalf("control-path evidence was not retained: %#v", fleet)
 	}
 }
 

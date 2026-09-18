@@ -127,6 +127,18 @@ func (r *subjectBoundReader) Activity(ctx context.Context, limit int) (controlpl
 	}
 	return r.client.Activity(ctx, limit)
 }
+func (r *subjectBoundReader) Controller(ctx context.Context) (controlplane.Controller, error) {
+	if err := r.authorize(ctx); err != nil {
+		return controlplane.Controller{}, err
+	}
+	return r.client.Controller(ctx)
+}
+func (r *subjectBoundReader) Capacity(ctx context.Context) (controlplane.Capacity, error) {
+	if err := r.authorize(ctx); err != nil {
+		return controlplane.Capacity{}, err
+	}
+	return r.client.Capacity(ctx)
+}
 
 func (r *subjectBoundReader) Application(ctx context.Context, name string) (controlplane.Application, error) {
 	if err := r.authorize(ctx); err != nil {

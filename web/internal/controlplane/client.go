@@ -118,6 +118,17 @@ func (c *Client) Fleet(ctx context.Context) (Fleet, error) {
 	return response, nil
 }
 
+func (c *Client) Controller(ctx context.Context) (Controller, error) {
+	var response Controller
+	err := c.get(ctx, "/api/v1/presentation/controller", &response)
+	return response, err
+}
+func (c *Client) Capacity(ctx context.Context) (Capacity, error) {
+	var response Capacity
+	err := c.get(ctx, "/api/v1/presentation/capacity", &response)
+	return response, err
+}
+
 func (c *Client) Activity(ctx context.Context, limit int) (Activity, error) {
 	if limit < 1 || limit > 100 {
 		return Activity{}, ErrFeatureUnavailable
@@ -235,6 +246,24 @@ type Permissions struct {
 	Applications []string `json:"applications"`
 }
 
+type Controller struct {
+	StateDatabaseReady  bool   `json:"stateDatabaseReady"`
+	ResponseGeneratedAt string `json:"responseGeneratedAt"`
+}
+type Capacity struct {
+	CPUPercent          float64 `json:"cpuPercent"`
+	CPUCores            int     `json:"cpuCores"`
+	MemoryUsageMiB      float64 `json:"memoryUsageMiB"`
+	MemoryTotalMiB      float64 `json:"memoryTotalMiB"`
+	RunningContainers   int     `json:"runningContainers"`
+	EligibleContainers  int     `json:"eligibleContainers"`
+	ObservedContainers  int     `json:"observedContainers"`
+	Completeness        string  `json:"completeness"`
+	SampleStartedAt     string  `json:"sampleStartedAt"`
+	SampleCompletedAt   string  `json:"sampleCompletedAt"`
+	ResponseGeneratedAt string  `json:"responseGeneratedAt"`
+}
+
 type Fleet struct {
 	Applications        []Application `json:"applications"`
 	Total               int           `json:"total"`
@@ -260,11 +289,11 @@ type Application struct {
 	Name                    string `json:"name"`
 	SyncStatus              string `json:"syncStatus"`
 	HealthStatus            string `json:"healthStatus"`
-	ObservedHealthStatus    string `json:"observedHealthStatus"`
-	ObservationCompleteness string `json:"observationCompleteness"`
 	LastSyncedSHA           string `json:"lastSyncedSHA"`
 	HeadSHA                 string `json:"headSHA"`
 	LastSyncTime            string `json:"lastSyncTime"`
 	LastObservedAt          string `json:"lastObservedAt"`
-	ResponseGeneratedAt     string `json:"responseGeneratedAt"`
+	ObservedHealthStatus    string `json:"observedHealthStatus"`
+	ObservationCompleteness string `json:"observationCompleteness"`
+	ResponseGeneratedAt     string `json:"responseGeneratedAt,omitempty"`
 }

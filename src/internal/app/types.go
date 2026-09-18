@@ -4,6 +4,21 @@ package app
 
 import "time"
 
+// CapacitySample is a bounded, aggregate Docker-host observation. It never
+// identifies individual containers or claims that a future deployment fits.
+type CapacitySample struct {
+	CPUPercent         float64
+	CPUCores           int
+	MemoryUsageMiB     float64
+	MemoryTotalMiB     float64
+	RunningContainers  int
+	EligibleContainers int
+	ObservedContainers int
+	Completeness       string
+	SampleStartedAt    time.Time
+	SampleCompletedAt  time.Time
+}
+
 // Application represents a managed Docker Compose deployment.
 // It is the equivalent of an ArgoCD Application CRD.
 type Application struct {
@@ -49,12 +64,12 @@ type SyncPolicy struct {
 type SyncStatus string
 
 const (
-	SyncStatusSynced       SyncStatus = "Synced"
-	SyncStatusOutOfSync    SyncStatus = "OutOfSync"
-	SyncStatusAwaitingSync      SyncStatus = "AwaitingSync"
-	SyncStatusManuallyManaged   SyncStatus = "ManuallyManaged"
-	SyncStatusUnknown      SyncStatus = "Unknown"
-	SyncStatusError        SyncStatus = "Error"
+	SyncStatusSynced          SyncStatus = "Synced"
+	SyncStatusOutOfSync       SyncStatus = "OutOfSync"
+	SyncStatusAwaitingSync    SyncStatus = "AwaitingSync"
+	SyncStatusManuallyManaged SyncStatus = "ManuallyManaged"
+	SyncStatusUnknown         SyncStatus = "Unknown"
+	SyncStatusError           SyncStatus = "Error"
 )
 
 // HealthStatus represents the health of an application or service.
@@ -93,15 +108,15 @@ func WorstHealth(a, b HealthStatus) HealthStatus {
 
 // AppStatus is the observed runtime state of an application.
 type AppStatus struct {
-	SyncStatus     SyncStatus     `json:"syncStatus"`
-	HealthStatus   HealthStatus   `json:"healthStatus"`
-	LastSyncedSHA  string         `json:"lastSyncedSHA,omitempty"`
-	LastSyncTime   *time.Time     `json:"lastSyncTime,omitempty"`
-	LastSyncResult *SyncResult    `json:"lastSyncResult,omitempty"`
-	HeadSHA        string         `json:"headSHA,omitempty"`
-	Conditions     []AppCondition `json:"conditions,omitempty"`
+	SyncStatus     SyncStatus      `json:"syncStatus"`
+	HealthStatus   HealthStatus    `json:"healthStatus"`
+	LastSyncedSHA  string          `json:"lastSyncedSHA,omitempty"`
+	LastSyncTime   *time.Time      `json:"lastSyncTime,omitempty"`
+	LastSyncResult *SyncResult     `json:"lastSyncResult,omitempty"`
+	HeadSHA        string          `json:"headSHA,omitempty"`
+	Conditions     []AppCondition  `json:"conditions,omitempty"`
 	Services       []ServiceStatus `json:"services,omitempty"`
-	Message        string         `json:"message,omitempty"`
+	Message        string          `json:"message,omitempty"`
 }
 
 // SyncResult records the outcome of a sync operation.
@@ -181,8 +196,8 @@ type PortMapping struct {
 
 type VolumeMount struct {
 	Source   string `json:"source"`
-	Target  string `json:"target"`
-	ReadOnly bool  `json:"readOnly"`
+	Target   string `json:"target"`
+	ReadOnly bool   `json:"readOnly"`
 }
 
 // ServiceDetail combines full ServiceState with container ID and resource metrics.
@@ -220,19 +235,19 @@ type ContainerMetrics struct {
 
 // DockerHostInfo holds system-level information about the Docker daemon.
 type DockerHostInfo struct {
-	ServerVersion  string `json:"serverVersion"`
-	OS             string `json:"os"`
-	Architecture   string `json:"architecture"`
-	KernelVersion  string `json:"kernelVersion"`
-	TotalMemoryMB  int64  `json:"totalMemoryMB"`
-	CPUs           int    `json:"cpus"`
-	StorageDriver  string `json:"storageDriver"`
-	Containers     int    `json:"containers"`
-	ContRunning    int    `json:"containersRunning"`
-	ContPaused     int    `json:"containersPaused"`
-	ContStopped    int    `json:"containersStopped"`
-	Images         int    `json:"images"`
-	DockerRootDir  string `json:"dockerRootDir"`
+	ServerVersion string `json:"serverVersion"`
+	OS            string `json:"os"`
+	Architecture  string `json:"architecture"`
+	KernelVersion string `json:"kernelVersion"`
+	TotalMemoryMB int64  `json:"totalMemoryMB"`
+	CPUs          int    `json:"cpus"`
+	StorageDriver string `json:"storageDriver"`
+	Containers    int    `json:"containers"`
+	ContRunning   int    `json:"containersRunning"`
+	ContPaused    int    `json:"containersPaused"`
+	ContStopped   int    `json:"containersStopped"`
+	Images        int    `json:"images"`
+	DockerRootDir string `json:"dockerRootDir"`
 }
 
 // HostStats holds aggregated resource usage across all running containers on the host.

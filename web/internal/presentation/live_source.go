@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,8 @@ type scopedReader interface {
 	Fleet(context.Context) (controlplane.Fleet, error)
 	Activity(context.Context, int) (controlplane.Activity, error)
 	Application(context.Context, string) (controlplane.Application, error)
+	Controller(context.Context) (controlplane.Controller, error)
+	Capacity(context.Context) (controlplane.Capacity, error)
 }
 
 // LiveSourceConfig accepts an already scoped, server-side reader. The caller
@@ -76,25 +79,106 @@ func (s *LiveSource) LoadFleet(ctx context.Context) (Fleet, error) {
 	if err := s.requireFeature(ctx, "presentation.status-metadata"); err != nil {
 		return Fleet{}, err
 	}
-	response, err := s.reader.Fleet(ctx)
-	if err != nil {
-		return Fleet{}, fmt.Errorf("loading scoped fleet: %w", err)
-	}
-	s.setFreshness(response.ResponseGeneratedAt)
-	applications := make([]Application, 0, len(response.Applications))
-	for _, application := range response.Applications {
-		applications = append(applications, s.application(application))
-	}
 	fleet := Fleet{
 		Controller:      s.controllerLabel,
 		Environment:     s.environment,
-		FetchedAt:       controllerResponseTime(response.ResponseGeneratedAt),
-		ObservationNote: "Displayed health and observation times come from the scoped controller response.",
-		Connection:      State{Label: "Scoped data loaded", Tone: "mint", Glyph: "✓"},
-		Applications:    applications,
+		FetchedAt:       "Fleet response unavailable",
+		ObservationNote: "Application fleet evidence is unavailable; independent controller and capacity evidence remains below.",
+		Connection:      State{Label: "Fleet response failed", Tone: "coral", Glyph: "!"},
+		ErrorMessage:    "The scoped application fleet response is unavailable. No retained application state is shown as current.",
+	}
+	if response, err := s.reader.Fleet(ctx); err == nil {
+		s.setFreshness(response.ResponseGeneratedAt)
+		applications := make([]Application, 0, len(response.Applications))
+		for _, application := range response.Applications {
+			applications = append(applications, s.application(application))
+		}
+		fleet.FetchedAt = controllerResponseTime(response.ResponseGeneratedAt)
+		fleet.ObservationNote = "Displayed health and observation times come from the scoped controller response."
+		fleet.Connection = State{Label: "Scoped data loaded", Tone: "mint", Glyph: "✓"}
+		fleet.ErrorMessage = ""
+		fleet.Applications = applications
+	}
+	fleet.ControllerState = State{Label: "Controller status unavailable to this session", Tone: "slate", Glyph: "?"}
+	if s.requireFeature(ctx, "presentation.controller") == nil {
+		if controller, err := s.reader.Controller(ctx); err == nil {
+			fleet.ControllerState, fleet.ControllerResponseAt = mapControllerState(controller)
+		} else {
+			fleet.ControllerState = State{Label: "Controller status request failed", Tone: "coral", Glyph: "!"}
+		}
+	}
+	fleet.Capacity = Capacity{State: State{Label: "Capacity unavailable to this session", Tone: "slate", Glyph: "?"}}
+	if s.requireFeature(ctx, "presentation.capacity") == nil {
+		if capacity, err := s.reader.Capacity(ctx); err == nil {
+			fleet.Capacity = mapCapacity(capacity)
+		} else {
+			fleet.Capacity = Capacity{State: State{Label: "Capacity collection unavailable", Tone: "coral", Glyph: "!"}}
+		}
 	}
 	fleet.deriveCounts()
 	return fleet, nil
+}
+
+func mapCapacity(value controlplane.Capacity) Capacity {
+	capacity := Capacity{State: State{Label: "Capacity sample unavailable", Tone: "slate", Glyph: "?"}, Completeness: value.Completeness, SampleCompletedAt: value.SampleCompletedAt, EligibleContainers: value.EligibleContainers, ObservedContainers: value.ObservedContainers}
+	if value.Completeness == "unavailable" {
+		return capacity
+	}
+	started, startedErr := time.Parse(time.RFC3339, value.SampleStartedAt)
+	completed, completedErr := time.Parse(time.RFC3339, value.SampleCompletedAt)
+	generated, generatedErr := time.Parse(time.RFC3339, value.ResponseGeneratedAt)
+	if startedErr != nil || completedErr != nil || generatedErr != nil || started.IsZero() || completed.IsZero() {
+		capacity.State = State{Label: "Capacity sample malformed", Tone: "coral", Glyph: "!"}
+		return capacity
+	}
+	if completed.Before(started) || generated.Before(completed) {
+		capacity.State = State{Label: "Capacity sample inconsistent", Tone: "coral", Glyph: "!"}
+		return capacity
+	}
+	if generated.Sub(completed) > 15*time.Second {
+		capacity.State = State{Label: "Capacity sample stale", Tone: "amber", Glyph: "~"}
+		return capacity
+	}
+	if value.CPUCores <= 0 || value.CPUPercent < 0 || value.CPUPercent > 100 || math.IsNaN(value.CPUPercent) || math.IsInf(value.CPUPercent, 0) || value.MemoryUsageMiB < 0 || value.MemoryTotalMiB <= 0 || value.MemoryUsageMiB > value.MemoryTotalMiB || math.IsNaN(value.MemoryUsageMiB) || math.IsNaN(value.MemoryTotalMiB) || math.IsInf(value.MemoryUsageMiB, 0) || math.IsInf(value.MemoryTotalMiB, 0) || value.RunningContainers < 0 || value.EligibleContainers < 0 || value.EligibleContainers > 64 || value.ObservedContainers < 0 || value.ObservedContainers > value.EligibleContainers || value.RunningContainers < value.ObservedContainers {
+		capacity.State = State{Label: "Capacity sample malformed", Tone: "coral", Glyph: "!"}
+		return capacity
+	}
+	if value.Completeness == "truncated" {
+		capacity.State = State{Label: "Capacity sample truncated", Tone: "amber", Glyph: "~"}
+		return capacity
+	}
+	if value.Completeness == "partial" || value.ObservedContainers != value.EligibleContainers {
+		capacity.State = State{Label: "Capacity sample partial", Tone: "amber", Glyph: "~"}
+		return capacity
+	}
+	if value.Completeness != "complete" {
+		capacity.State = State{Label: "Capacity sample malformed", Tone: "coral", Glyph: "!"}
+		return capacity
+	}
+	if value.RunningContainers != value.EligibleContainers {
+		capacity.State = State{Label: "Capacity sample inconsistent", Tone: "coral", Glyph: "!"}
+		return capacity
+	}
+	capacity.Available = true
+	capacity.State = State{Label: "Current container sample", Tone: "mint", Glyph: "✓"}
+	capacity.CPUPercent = value.CPUPercent
+	capacity.CPUCores = value.CPUCores
+	capacity.MemoryUsageMiB = value.MemoryUsageMiB
+	capacity.MemoryTotalMiB = value.MemoryTotalMiB
+	capacity.RunningContainers = value.RunningContainers
+	return capacity
+}
+
+func mapControllerState(value controlplane.Controller) (State, string) {
+	generated, err := time.Parse(time.RFC3339, value.ResponseGeneratedAt)
+	if err != nil || generated.IsZero() {
+		return State{Label: "Controller status malformed", Tone: "coral", Glyph: "!"}, ""
+	}
+	responseAt := "Controller response · " + generated.UTC().Format(time.RFC3339)
+	if value.StateDatabaseReady {
+		return State{Label: "State database ready", Tone: "mint", Glyph: "✓"}, responseAt
+	}
+	return State{Label: "State database not ready", Tone: "coral", Glyph: "!"}, responseAt
 }
 
 // LoadActivity returns only the bounded, redacted controller activity window.

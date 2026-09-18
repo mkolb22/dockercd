@@ -75,6 +75,14 @@ func (m *mockDockerClient) Info(_ context.Context) (system.Info, error) {
 	return system.Info{}, nil
 }
 
+func (m *mockDockerClient) CapacityInfo(ctx context.Context) (system.Info, error) {
+	return m.Info(ctx)
+}
+
+func (m *mockDockerClient) CapacityContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error) {
+	return m.ContainerList(ctx, options)
+}
+
 func (m *mockDockerClient) DiskUsage(_ context.Context, _ types.DiskUsageOptions) (types.DiskUsage, error) {
 	return types.DiskUsage{}, nil
 }

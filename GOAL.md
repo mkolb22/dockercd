@@ -40,9 +40,31 @@ pressure without restoring an administrator-token browser path.
   tranche. No new controller capability may be left without its typed Web
   consumer, contract fixture, failure-path tests, and release evidence.
 
-This tranche remains **in progress**. It cannot be committed or deployed until
-the open P1/P2 findings in [SESSION_HANDOFF.md](docs/SESSION_HANDOFF.md) are
-resolved and an independent high-reasoning re-review is clean.
+The implementation, validation, and independent-review gate for this tranche
+is complete in the working tree. It remains **undeployed** until it is
+committed, its deliberately scoped credentials are updated locally, and the
+paired controller/Web release evidence is recorded. The independent
+high-reasoning re-review found no P0, P1, or P2 findings.
+
+### Active-tranche completion checklist
+
+The following release-gated implementation tasks are complete for this
+tranche, not new product scope:
+
+1. [x] Bound both Docker metadata responses (`Info` and `ContainerList`) to the
+   ADR limit, prove oversize rejection, and preserve list/count limits.
+2. [x] Make aggregate CPU evidence truthful across samples: the first sample is
+   explicitly partial, later samples use a validated counter baseline, counter
+   regressions are rejected, and stale baselines are pruned.
+3. [x] Make the Web presentation render controller-unready, capability-unavailable,
+   collector-failed, partial/truncated, stale, and malformed capacity evidence
+   as distinct named states. It must not show invented zeroes or use browser
+   time as source freshness.
+4. [x] Add strict controller/Web contract fixtures and focused inspector, API
+   authorization/redaction/cache, and Web state/failure-path tests.
+5. [x] Run full test, vet, and race suites for both Go modules; obtain a fresh
+   independent high-reasoning review; resolve every P0/P1 and record any P2
+   disposition before a commit, image build, or paired deployment.
 
 ## Required v0.1 Features
 

@@ -55,17 +55,45 @@ type Application struct {
 }
 
 type Fleet struct {
-	Controller      string
-	Environment     string
-	FetchedAt       string
-	ObservationNote string
-	Connection      State
-	ErrorMessage    string
-	HealthyCount    int
-	AttentionCount  int
-	HealthArc       int
-	Applications    []Application
-	Attention       []Application
+	Controller           string
+	Environment          string
+	FetchedAt            string
+	ObservationNote      string
+	Connection           State
+	ErrorMessage         string
+	HealthyCount         int
+	AttentionCount       int
+	HealthArc            int
+	Applications         []Application
+	Attention            []Application
+	EnvironmentAttention []EnvironmentIssue
+	ControllerState      State
+	ControllerResponseAt string
+	Capacity             Capacity
+}
+
+// EnvironmentIssue is a non-application attention item. It preserves the
+// relevant control-path destination instead of pretending every issue belongs
+// to a deployed application.
+type EnvironmentIssue struct {
+	Name    string
+	Summary string
+	State   State
+	Path    string
+}
+
+type Capacity struct {
+	Available          bool
+	State              State
+	CPUPercent         float64
+	CPUCores           int
+	MemoryUsageMiB     float64
+	MemoryTotalMiB     float64
+	RunningContainers  int
+	EligibleContainers int
+	ObservedContainers int
+	Completeness       string
+	SampleCompletedAt  string
 }
 
 // ViewContext is non-sensitive rendering context available without a fleet
@@ -227,12 +255,15 @@ func NewFixtureSource() *FixtureSource {
 	}
 
 	source := &FixtureSource{fleet: Fleet{
-		Controller:      "My Apps",
-		Environment:     "Development controller",
-		FetchedAt:       "Fixture snapshot · 14:32 UTC",
-		ObservationNote: "Displayed state is fixture data. It is not a live controller observation.",
-		Connection:      State{Label: "Fixture connected", Tone: "mint", Glyph: "✓"},
-		Applications:    applications,
+		Controller:           "My Apps",
+		Environment:          "Development controller",
+		FetchedAt:            "Fixture snapshot · 14:32 UTC",
+		ObservationNote:      "Displayed state is fixture data. It is not a live controller observation.",
+		Connection:           State{Label: "Fixture connected", Tone: "mint", Glyph: "✓"},
+		ControllerState:      State{Label: "State database ready", Tone: "mint", Glyph: "✓"},
+		ControllerResponseAt: "Fixture controller response · 14:32 UTC",
+		Capacity:             Capacity{Available: true, State: State{Label: "Current fixture container sample", Tone: "mint", Glyph: "✓"}, CPUPercent: 14.2, CPUCores: 10, MemoryUsageMiB: 812, MemoryTotalMiB: 7936, RunningContainers: 13, EligibleContainers: 13, ObservedContainers: 13, Completeness: "complete", SampleCompletedAt: "Fixture sample · 14:32 UTC"},
+		Applications:         applications,
 	}}
 	source.fleet.deriveCounts()
 	return source
@@ -245,6 +276,7 @@ func (f *Fleet) deriveCounts() {
 	// array: scenario copies intentionally share no mutable presentation data
 	// with the immutable base fixture or concurrent scenario requests.
 	f.Attention = make([]Application, 0, len(f.Applications))
+	f.EnvironmentAttention = make([]EnvironmentIssue, 0, 2)
 	for _, application := range f.Applications {
 		if application.Health.Tone == "mint" {
 			f.HealthyCount++
@@ -256,6 +288,15 @@ func (f *Fleet) deriveCounts() {
 	}
 	if len(f.Applications) > 0 {
 		f.HealthArc = 302 * f.HealthyCount / len(f.Applications)
+	}
+	if f.ControllerState.Tone == "coral" || f.ControllerState.Tone == "amber" {
+		f.EnvironmentAttention = append(f.EnvironmentAttention, EnvironmentIssue{Name: "Controller evidence", Summary: f.ControllerState.Label, State: f.ControllerState, Path: "/controller"})
+	}
+	if f.Connection.Tone == "coral" || f.Connection.Tone == "amber" {
+		f.EnvironmentAttention = append(f.EnvironmentAttention, EnvironmentIssue{Name: "Fleet connection", Summary: f.Connection.Label, State: f.Connection, Path: "/controller"})
+	}
+	if f.Capacity.State.Tone == "coral" || f.Capacity.State.Tone == "amber" {
+		f.EnvironmentAttention = append(f.EnvironmentAttention, EnvironmentIssue{Name: "Capacity evidence", Summary: f.Capacity.State.Label, State: f.Capacity.State, Path: "/fleet#capacity-evidence"})
 	}
 }
 

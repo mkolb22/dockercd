@@ -128,6 +128,25 @@ type PresentationActivityEvent struct {
 	OccurredAt  string `json:"occurredAt"`
 }
 
+type PresentationControllerResponse struct {
+	StateDatabaseReady  bool   `json:"stateDatabaseReady"`
+	ResponseGeneratedAt string `json:"responseGeneratedAt"`
+}
+
+type PresentationCapacityResponse struct {
+	CPUPercent          float64 `json:"cpuPercent"`
+	CPUCores            int     `json:"cpuCores"`
+	MemoryUsageMiB      float64 `json:"memoryUsageMiB"`
+	MemoryTotalMiB      float64 `json:"memoryTotalMiB"`
+	RunningContainers   int     `json:"runningContainers"`
+	EligibleContainers  int     `json:"eligibleContainers"`
+	ObservedContainers  int     `json:"observedContainers"`
+	Completeness        string  `json:"completeness"`
+	SampleStartedAt     string  `json:"sampleStartedAt"`
+	SampleCompletedAt   string  `json:"sampleCompletedAt"`
+	ResponseGeneratedAt string  `json:"responseGeneratedAt"`
+}
+
 // ReadyResponse is the response for /readyz.
 type ReadyResponse struct {
 	Status string            `json:"status"`

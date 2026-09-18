@@ -77,6 +77,8 @@ func TestClientDecodesFrozenPresentationV1ContractFixtures(t *testing.T) {
 		"/api/v1/presentation/fleet":               webPresentationFixture(t, "fleet.json"),
 		"/api/v1/presentation/applications/signal": webPresentationFixture(t, "application.json"),
 		"/api/v1/presentation/activity?limit=20":   webPresentationFixture(t, "activity.json"),
+		"/api/v1/presentation/controller":          webPresentationFixture(t, "controller.json"),
+		"/api/v1/presentation/capacity":            webPresentationFixture(t, "capacity.json"),
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "Bearer scoped-reader" {
@@ -113,6 +115,47 @@ func TestClientDecodesFrozenPresentationV1ContractFixtures(t *testing.T) {
 	}
 	if activity, err := client.Activity(t.Context(), 20); err != nil || !reflect.DeepEqual(activity, Activity{Events: []ActivityEvent{{Application: "signal", Type: "SyncSuccess", Severity: "info", OccurredAt: "2026-09-15T14:10:00Z"}}, Total: 1, ResponseGeneratedAt: "2026-09-15T14:32:00Z"}) {
 		t.Fatalf("Activity() = %#v, %v", activity, err)
+	}
+	if controller, err := client.Controller(t.Context()); err != nil || !reflect.DeepEqual(controller, Controller{StateDatabaseReady: true, ResponseGeneratedAt: "2026-09-18T12:00:00Z"}) {
+		t.Fatalf("Controller() = %#v, %v", controller, err)
+	}
+	if capacity, err := client.Capacity(t.Context()); err != nil || !reflect.DeepEqual(capacity, Capacity{CPUPercent: 12.5, CPUCores: 8, MemoryUsageMiB: 512, MemoryTotalMiB: 4096, RunningContainers: 3, EligibleContainers: 3, ObservedContainers: 3, Completeness: "complete", SampleStartedAt: "2026-09-18T11:59:55Z", SampleCompletedAt: "2026-09-18T11:59:56Z", ResponseGeneratedAt: "2026-09-18T12:00:00Z"}) {
+		t.Fatalf("Capacity() = %#v, %v", capacity, err)
+	}
+}
+
+func TestTypedPresentationFixturesRejectUnknownFieldsAndWireDrift(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		new  func() any
+	}{
+		{name: "capabilities", new: func() any { return &Capabilities{} }},
+		{name: "fleet", new: func() any { return &Fleet{} }},
+		{name: "application", new: func() any { return &Application{} }},
+		{name: "activity", new: func() any { return &Activity{} }},
+		{name: "controller", new: func() any { return &Controller{} }},
+		{name: "capacity", new: func() any { return &Capacity{} }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			raw := webPresentationFixture(t, test.name+".json")
+			decoded := test.new()
+			decoder := json.NewDecoder(bytes.NewReader(raw))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(decoded); err != nil {
+				t.Fatalf("decode %s: %v", test.name, err)
+			}
+			var extra any
+			if err := decoder.Decode(&extra); err != io.EOF {
+				t.Fatalf("trailing %s data: %v", test.name, err)
+			}
+			encoded, err := json.Marshal(decoded)
+			if err != nil {
+				t.Fatalf("marshal %s: %v", test.name, err)
+			}
+			if !bytes.Equal(encoded, bytes.TrimSpace(raw)) {
+				t.Fatalf("wire shape drifted for %s\nwant: %s\n got: %s", test.name, bytes.TrimSpace(raw), encoded)
+			}
+		})
 	}
 }
 

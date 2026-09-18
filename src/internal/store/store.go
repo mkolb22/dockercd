@@ -100,6 +100,16 @@ func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
 
+// CheckReadiness proves the state database can answer a bounded trivial query
+// without reading application records or returning database details.
+func (s *SQLiteStore) CheckReadiness(ctx context.Context) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("store unavailable")
+	}
+	var value int
+	return s.db.QueryRowContext(ctx, "SELECT 1").Scan(&value)
+}
+
 // migrate runs all pending database migrations.
 func (s *SQLiteStore) migrate() error {
 	// Ensure schema_migrations table exists

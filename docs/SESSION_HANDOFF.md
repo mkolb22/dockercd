@@ -2,9 +2,13 @@
 
 ## Safe stopping point
 
-Last committed and pushed revision: `70a2140` (`Design scoped capacity observability for v0.1`).
+Last committed and pushed revision: `4a18915` (`Track active v0.1 capacity
+tranche`).
 
-The working tree has an **incomplete, uncommitted, undeployed** implementation of ADR 0007. Do not commit, push, build, or deploy it as-is. Development and personal paired deployments remain on the prior reviewed image. Controllers remain healthy. Signal and its external data volume were not recreated, restarted, or modified.
+The working tree has a **complete, reviewed, uncommitted, undeployed**
+implementation of ADR 0007. Development and personal paired deployments
+remain on the prior reviewed image. Controllers remain healthy. Signal and its
+external data volume were not recreated, restarted, or modified.
 
 ## Completed and committed
 
@@ -12,36 +16,46 @@ The working tree has an **incomplete, uncommitted, undeployed** implementation o
 - Legacy embedded controller UI retirement and prior live-UX correction.
 - v0.1 scope and roadmap: [GOAL](../GOAL.md), [ADR 0007](adr/0007-scoped-capacity-and-controller-health.md), [visual design](environment-control-path-design.md), and [iterations](release-iterations.md).
 
-## Uncommitted implementation
+## Uncommitted implementation ready for release-candidate handling
 
-The current tree adds `controller:status` and host-global `capacity:read` presentation routes/capabilities, database-only readiness, an aggregate capacity sampler, typed Web client/Fleet rendering, and removal of the obsolete fixture-only `/system` route/templates. It includes a first-pass five-second capacity cache and bounded per-container workers, but is not release-ready.
+The current tree adds `controller:status` and host-global `capacity:read`
+presentation routes/capabilities, database-only readiness, an aggregate
+capacity sampler, typed Web client/Fleet rendering, controller/capacity
+evidence drill-down, and removal of the obsolete fixture-only `/system`
+route/templates. It has a five-second coalescing cache, bounded Docker
+metadata/stat bodies, a hard returned-list cap, fixed workers, deadline tests,
+strict cross-module fixtures, and redacted failure paths.
 
-## Blocking review findings
+## Completed review and validation evidence
 
-Independent high-reasoning review found no P0, but these remain open:
-
-1. **P1:** Docker `Info` and `ContainerList` have no ADR-required 1 MiB response bound. List count does not bound labels/JSON bytes. Add a narrow bounded metadata adapter and oversized-response tests.
-2. **P1:** Add CPU baseline tests: first sample partial/CPU unavailable, second sample normalized current CPU, counter rollback rejection, and bounded stale-baseline pruning. Docker one-shot stats do not populate `PreCPUStats`.
-3. **P2:** Web currently ignores controller-authored sample age/order, observed-versus-eligible counts, partial/truncated/unavailable state, and invalid numbers. Enforce the ADR 15-second rule from `responseGeneratedAt - sampleCompletedAt`; reject future/inconsistent data.
-4. **P2:** Render database-unready, unavailable capability, and failed capacity as distinct named evidence. Do not hide capacity failures or show zeroes.
-5. **P2:** Add API authorization/redaction/cache tests, strict controller/Web JSON fixtures, inspector bounds/CPU tests, and Web state tests.
-
-Authorization direction and aggregate DTO allowlisting were reviewed as sound. Do not reuse broad administrator endpoints/tokens to shortcut this work.
+Independent high-reasoning review found **no P0, P1, or P2**. The reviewer
+verified bounded metadata and stat reads, CPU baselines/pruning, list/work
+limits, caller and internal deadlines, valid-but-unscoped denial, redacted
+collector failure, cache coalescing, strict fixtures, truthful Web evidence
+mapping, and rendered drill-down/failure states. Full `test`, `vet`, and
+`race` suites passed in both Go modules at this working-tree revision.
 
 ## Required completion sequence
 
-1. Finish bounded metadata/capacity collection and test cache/failure behavior.
-2. Complete Web freshness/completeness/failure-state rendering.
-3. Add controller, contract, inspector, and Web regression coverage.
-4. Run from both modules:
+1. Review the final diff and create the release-candidate commit; do not blend
+   unrelated working-tree changes into it.
+2. Update local, ignored credential registries to grant only
+   `controller:status` and `capacity:read` to the intended Web subjects. Never
+   print or commit registries or credentials.
+3. Build matching controller/Web images and deploy the paired development and
+   personal services only after recording the tested revision. Do not touch
+   Signal data or restart its existing workload without the separate cutover
+   process.
+4. Run the paired owner workflow and record the rendered controller-evidence,
+   capacity-evidence, sign-in, controller-unready, and collector-failure
+   states. Then continue the remaining v0.1 release gates.
+5. Re-run from both modules if the candidate changes:
 
    ```sh
    cd src && go test ./... && go vet ./... && go test -race ./...
    cd web && go test ./... && go vet ./... && go test -race ./...
    ```
 
-5. Obtain a fresh high-reasoning review; resolve P0/P1 and document P2.
-6. Commit/push only when clean. Then explicitly update local credential registries to grant `controller:status` and `capacity:read` without printing or committing secrets, build matching images, and deploy both paired controller/Web services. Do not touch Signal.
 
 ## Safety constraints
 

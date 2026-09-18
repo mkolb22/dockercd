@@ -61,6 +61,7 @@ type pageData struct {
 	Activity          []presentation.Event
 	RecentActivity    []presentation.Event
 	ActivityAvailable bool
+	ActivityState     presentation.State
 	Query             string
 	StateFilter       string
 	Notice            string
@@ -147,12 +148,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.logout(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/fleet":
 		s.fleet(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/controller":
+		s.controller(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/applications":
 		s.applications(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/activity":
 		s.activity(w, r)
-	case r.Method == http.MethodGet && r.URL.Path == "/system":
-		s.system(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/settings":
 		s.settings(w, r)
 	case strings.HasPrefix(r.URL.Path, "/applications/"):
@@ -179,9 +180,9 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) {
 	view := source.ViewContext()
 	activity, activityErr := source.Activity(r.Context())
 	activityAvailable := activityErr == nil
+	activityState := presentation.State{Label: "Activity unavailable to this session", Tone: "slate", Glyph: "?"}
 	if activityErr != nil && !presentation.IsFeatureUnavailable(activityErr) {
-		s.unavailable(w)
-		return
+		activityState = presentation.State{Label: "Activity request failed", Tone: "coral", Glyph: "!"}
 	}
 	recentActivity := activity
 	if len(recentActivity) > 3 {
@@ -189,9 +190,23 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, r, "fleet", pageData{
 		Title: "Fleet · dockercd", Page: "fleet", View: view, Fleet: fleet,
-		Applications: fleet.Applications, Activity: activity, RecentActivity: recentActivity, ActivityAvailable: activityAvailable,
+		Applications: fleet.Applications, Activity: activity, RecentActivity: recentActivity, ActivityAvailable: activityAvailable, ActivityState: activityState,
 		Notice: r.URL.Query().Get("notice"), RefreshPath: refreshPath(r),
 	})
+}
+
+func (s *Server) controller(w http.ResponseWriter, r *http.Request) {
+	source, err := s.sourceForRequest(r)
+	if err != nil {
+		s.sourceError(w, r, err)
+		return
+	}
+	fleet, err := source.Fleet(r.Context())
+	if err != nil {
+		s.unavailable(w)
+		return
+	}
+	s.render(w, r, "controller", pageData{Title: "Controller evidence · dockercd", Page: "controller", View: source.ViewContext(), Fleet: fleet, RefreshPath: refreshPath(r)})
 }
 
 func (s *Server) applications(w http.ResponseWriter, r *http.Request) {
@@ -227,28 +242,6 @@ func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "activity", pageData{
 		Title: "Activity · dockercd", Page: "activity", View: source.ViewContext(), Activity: activity, RefreshPath: refreshPath(r),
 	})
-}
-
-func (s *Server) system(w http.ResponseWriter, r *http.Request) {
-	source, err := s.sourceForRequest(r)
-	if err != nil {
-		s.sourceError(w, r, err)
-		return
-	}
-	view := source.ViewContext()
-	if !view.Fixture {
-		// Host information is deliberately outside the v1 scoped presentation
-		// contract. Keep a direct or bookmarked visit honest and useful instead
-		// of rendering a fixture-specific 404 from primary product navigation.
-		s.render(w, r, "system-limited", pageData{Title: "System · dockercd", Page: "system", View: view, RefreshPath: refreshPath(r)})
-		return
-	}
-	fleet, err := source.Fleet(r.Context())
-	if err != nil {
-		s.unavailable(w)
-		return
-	}
-	s.render(w, r, "system", pageData{Title: "System · dockercd", Page: "system", View: view, Fleet: fleet, RefreshPath: refreshPath(r)})
 }
 
 func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
@@ -531,15 +524,12 @@ func isFixtureAction(section string) bool {
 	return section == "sync" || section == "rollback" || section == "edit" || section == "delete"
 }
 
-func navigation(active string, fixture bool) []navigationItem {
+func navigation(active string, _ bool) []navigationItem {
 	items := []navigationItem{
 		{Label: "Fleet", Path: "/fleet"},
 		{Label: "Applications", Path: "/applications"},
 		{Label: "Activity", Path: "/activity"},
 		{Label: "Settings", Path: "/settings"},
-	}
-	if fixture {
-		items = append(items[:3], append([]navigationItem{{Label: "System", Path: "/system"}}, items[3:]...)...)
 	}
 	for index := range items {
 		items[index].Active = strings.EqualFold(items[index].Label, active)

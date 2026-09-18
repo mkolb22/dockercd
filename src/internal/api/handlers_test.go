@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -69,6 +70,30 @@ func (m *mockInspector) GetServiceLogs(_ context.Context, _ app.DestinationSpec,
 func (m *mockInspector) RegisterTLS(_ string, _ inspector.TLSConfig) {}
 func (m *mockInspector) UnregisterTLS(_ string)                      {}
 func (m *mockInspector) GetTLSCertPath(_ string) string              { return "" }
+
+type capacityTestInspector struct {
+	*mockInspector
+	sample  *app.CapacitySample
+	err     error
+	calls   int
+	started chan struct{}
+	release <-chan struct{}
+}
+
+func (m *capacityTestInspector) CapacitySample(ctx context.Context, _ string) (*app.CapacitySample, error) {
+	m.calls++
+	if m.started != nil {
+		m.started <- struct{}{}
+	}
+	if m.release != nil {
+		select {
+		case <-m.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return m.sample, m.err
+}
 
 func (m *mockReconciler) Start(_ context.Context) error { return nil }
 func (m *mockReconciler) Stop(_ context.Context) error  { return nil }
@@ -415,6 +440,170 @@ func TestPresentationCapabilitiesAreScopedToThePrincipal(t *testing.T) {
 	srv.Router().ServeHTTP(w, legacy)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("legacy credential received %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestPresentationControllerAndCapacityAreScopedRedactedAndCached(t *testing.T) {
+	s := setupTestStore(t)
+	credential := testPresentationCredential("test-only-capacity-token")
+	credential.Capabilities = []Capability{CapabilityControllerStatus, CapabilityCapacityRead}
+	credential.Applications = nil
+	controllerOnly := testPresentationCredential("test-only-controller-only-token")
+	controllerOnly.CredentialID = "cred-controller-only"
+	controllerOnly.Capabilities = []Capability{CapabilityControllerStatus}
+	controllerOnly.Applications = nil
+	capacityOnly := testPresentationCredential("test-only-capacity-only-token")
+	capacityOnly.CredentialID = "cred-capacity-only"
+	capacityOnly.Capabilities = []Capability{CapabilityCapacityRead}
+	capacityOnly.Applications = nil
+	authenticator, err := NewOpaquePresentationAuthenticator([]PresentationCredential{credential, controllerOnly, capacityOnly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authenticator.now = func() time.Time { return time.Date(2026, 9, 15, 13, 0, 0, 0, time.UTC) }
+	inspector := &capacityTestInspector{mockInspector: &mockInspector{}, sample: &app.CapacitySample{
+		CPUPercent: 12.5, CPUCores: 8, MemoryUsageMiB: 512, MemoryTotalMiB: 4096,
+		RunningContainers: 3, EligibleContainers: 3, ObservedContainers: 3, Completeness: "complete",
+		SampleStartedAt: time.Date(2026, 9, 18, 11, 59, 55, 0, time.UTC), SampleCompletedAt: time.Date(2026, 9, 18, 11, 59, 56, 0, time.UTC),
+	}}
+	srv := NewServer(":0", ServerDeps{Store: s, Reconciler: &mockReconciler{}, Inspector: inspector, Logger: testLogger(), APIToken: "legacy-admin-token", PresentationAuthenticator: authenticator, PresentationAudience: "dockercd-presentation"})
+
+	for _, endpoint := range []string{"/api/v1/presentation/controller", "/api/v1/presentation/capacity"} {
+		denied := httptest.NewRequest(http.MethodGet, endpoint, nil)
+		denied.Header.Set("Authorization", "Bearer legacy-admin-token")
+		deniedResponse := httptest.NewRecorder()
+		srv.Router().ServeHTTP(deniedResponse, denied)
+		if deniedResponse.Code != http.StatusUnauthorized {
+			t.Fatalf("legacy credential reached %s with %d", endpoint, deniedResponse.Code)
+		}
+	}
+	for _, requestCase := range []struct {
+		endpoint string
+		token    string
+	}{
+		{endpoint: "/api/v1/presentation/controller", token: "test-only-capacity-only-token"},
+		{endpoint: "/api/v1/presentation/capacity", token: "test-only-controller-only-token"},
+	} {
+		request := httptest.NewRequest(http.MethodGet, requestCase.endpoint, nil)
+		request.Header.Set("Authorization", "Bearer "+requestCase.token)
+		response := httptest.NewRecorder()
+		srv.Router().ServeHTTP(response, request)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("valid but unscoped credential reached %s with %d", requestCase.endpoint, response.Code)
+		}
+	}
+
+	controllerRequest := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/controller", nil)
+	controllerRequest.Header.Set("Authorization", "Bearer test-only-capacity-token")
+	controllerResponse := httptest.NewRecorder()
+	srv.Router().ServeHTTP(controllerResponse, controllerRequest)
+	if controllerResponse.Code != http.StatusOK || !strings.Contains(controllerResponse.Body.String(), `"stateDatabaseReady":true`) || strings.Contains(strings.ToLower(controllerResponse.Body.String()), "token") {
+		t.Fatalf("unexpected controller response: %d %s", controllerResponse.Code, controllerResponse.Body.String())
+	}
+
+	for call := 0; call < 2; call++ {
+		capacityRequest := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/capacity", nil)
+		capacityRequest.Header.Set("Authorization", "Bearer test-only-capacity-token")
+		capacityResponse := httptest.NewRecorder()
+		srv.Router().ServeHTTP(capacityResponse, capacityRequest)
+		if capacityResponse.Code != http.StatusOK {
+			t.Fatalf("capacity response %d: %s", capacityResponse.Code, capacityResponse.Body.String())
+		}
+		body := capacityResponse.Body.String()
+		for _, forbidden := range []string{"containerId", "image", "label", "token", "secret"} {
+			if strings.Contains(strings.ToLower(body), forbidden) {
+				t.Fatalf("capacity response leaked %q: %s", forbidden, body)
+			}
+		}
+	}
+	if inspector.calls != 1 {
+		t.Fatalf("capacity sampler calls = %d, want one cached sample", inspector.calls)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("close test store: %v", err)
+	}
+	unreadyRequest := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/controller", nil)
+	unreadyRequest.Header.Set("Authorization", "Bearer test-only-capacity-token")
+	unreadyResponse := httptest.NewRecorder()
+	srv.Router().ServeHTTP(unreadyResponse, unreadyRequest)
+	if unreadyResponse.Code != http.StatusOK || !strings.Contains(unreadyResponse.Body.String(), `"stateDatabaseReady":false`) || strings.Contains(strings.ToLower(unreadyResponse.Body.String()), "store unavailable") {
+		t.Fatalf("closed store response was not bounded and redacted: %d %s", unreadyResponse.Code, unreadyResponse.Body.String())
+	}
+}
+
+type capacitySamplerFunc func(context.Context, string) (*app.CapacitySample, error)
+
+func (f capacitySamplerFunc) CapacitySample(ctx context.Context, host string) (*app.CapacitySample, error) {
+	return f(ctx, host)
+}
+
+func TestCapacityCacheCoalescesAndDoesNotCacheCallerCancellation(t *testing.T) {
+	cache := &capacityCache{}
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var calls int
+	sampler := capacitySamplerFunc(func(ctx context.Context, _ string) (*app.CapacitySample, error) {
+		calls++
+		started <- struct{}{}
+		select {
+		case <-release:
+			return &app.CapacitySample{Completeness: "complete"}, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
+	caller, cancel := context.WithCancel(t.Context())
+	first := make(chan error, 1)
+	go func() { _, err := cache.get(caller, sampler); first <- err }()
+	<-started
+	second := make(chan error, 1)
+	go func() { _, err := cache.get(t.Context(), sampler); second <- err }()
+	cancel()
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatalf("shared capacity collection inherited caller cancellation: %v", err)
+	}
+	if err := <-second; err != nil {
+		t.Fatalf("concurrent capacity waiter failed: %v", err)
+	}
+	if _, err := cache.get(t.Context(), sampler); err != nil || calls != 1 {
+		t.Fatalf("cache did not retain successful collection: calls=%d err=%v", calls, err)
+	}
+
+	failureCache := &capacityCache{}
+	failures := 0
+	failing := capacitySamplerFunc(func(context.Context, string) (*app.CapacitySample, error) {
+		failures++
+		return nil, errors.New("docker unavailable")
+	})
+	for range 2 {
+		if _, err := failureCache.get(t.Context(), failing); err == nil {
+			t.Fatal("expected capacity collection failure")
+		}
+	}
+	if failures != 1 {
+		t.Fatalf("failure backoff calls = %d, want one", failures)
+	}
+}
+
+func TestPresentationCapacityCollectorFailureIsRedacted(t *testing.T) {
+	s := setupTestStore(t)
+	credential := testPresentationCredential("test-only-capacity-failure-token")
+	credential.Capabilities = []Capability{CapabilityCapacityRead}
+	credential.Applications = nil
+	authenticator, err := NewOpaquePresentationAuthenticator([]PresentationCredential{credential})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authenticator.now = func() time.Time { return time.Date(2026, 9, 15, 13, 0, 0, 0, time.UTC) }
+	inspector := &capacityTestInspector{mockInspector: &mockInspector{}, err: errors.New("docker socket /private/secret is unavailable")}
+	srv := NewServer(":0", ServerDeps{Store: s, Reconciler: &mockReconciler{}, Inspector: inspector, Logger: testLogger(), APIToken: "legacy-admin-token", PresentationAuthenticator: authenticator, PresentationAudience: "dockercd-presentation"})
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/capacity", nil)
+	request.Header.Set("Authorization", "Bearer test-only-capacity-failure-token")
+	response := httptest.NewRecorder()
+	srv.Router().ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "capacity unavailable") || strings.Contains(strings.ToLower(response.Body.String()), "secret") || strings.Contains(response.Body.String(), "docker socket") {
+		t.Fatalf("collector failure was not redacted: %d %s", response.Code, response.Body.String())
 	}
 }
 
