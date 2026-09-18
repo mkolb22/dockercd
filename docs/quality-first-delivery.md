@@ -299,3 +299,23 @@ boundary. A release without that evidence is incomplete, not merely delayed.
   `/app/config`.
 - The legacy `dockercd`, `dockercd-my-apps`, Signal, and other legacy
   application containers remain running for deliberate later retirement.
+
+## Live presentation integrity correction (2026-09-17)
+
+- Reviewed source revision `fd12e0f` removes fixture-only System navigation
+  and fixture-detail calls from a live scoped session. A bookmarked live
+  System route now explains its scope boundary without requesting host data or
+  returning fixture-specific copy.
+- Empty authorized activity and an unavailable activity capability render as
+  distinct evidence states. The Web UI does not claim an empty controller
+  response when the session was not permitted to request activity.
+- `go test ./...`, `go vet ./...`, `go test -race ./...`, and a Web binary
+  build passed in `web/`. An independent high-reasoning review found one P2
+  capability-state wording issue; it was corrected and the re-review reported
+  no remaining P0/P1/P2 findings.
+- The Web image was rebuilt as `dockercd-web:fd12e0f` (manifest-list digest
+  `sha256:583c456c363e76ea304a6e642b649b6e50f327d18b1672667dd771c9425dd072`)
+  and retagged for the local paired deployment. Only the development and
+  personal `dockercd-web` containers were recreated; both login routes returned
+  `200`, an unauthenticated personal System request redirected to sign-in, and
+  neither controller nor Signal was recreated.
