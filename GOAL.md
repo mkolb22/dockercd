@@ -25,6 +25,13 @@ ADR 0007 admits a paired, read-only controller/Web feature that lets an
 operator understand the control-plane state and current aggregate Docker
 pressure without restoring an administrator-token browser path.
 
+**Current status (2026-09-18):** implementation and the independent
+high-reasoning review are complete in `c687dd9`; the candidate is committed
+and pushed but has not yet been built or deployed to either paired environment.
+The remaining work is limited to least-privilege registry scope updates,
+paired deployment, and recorded owner-facing evidence. Signal remains outside
+this deployment step.
+
 - The controller exposes only `controller:status` (process response plus
   state-database readiness) and host-global aggregate `capacity:read`.
 - The Web Fleet view consumes both typed contracts to render the two-node
