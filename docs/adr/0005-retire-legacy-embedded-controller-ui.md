@@ -1,11 +1,11 @@
-# ADR 0005: Retire the legacy embedded controller UI for v1.0
+# ADR 0005: Retire the legacy embedded controller UI for v0.1
 
 | Field | Value |
 | --- | --- |
 | Status | Implemented — pending final image, migration, and release validation |
 | Date | 2026-09-17 |
-| Decision owners | dockercd maintainers and v1.0 release owner |
-| Related | [ADR 0001](0001-separate-control-plane-and-presentation.md), [ADR 0002](0002-scoped-presentation-api.md), [v1.0 readiness](../v1-release-readiness.md), [operator recovery runbook](../operator-recovery-runbook.md), [legacy UI inventory](../legacy-embedded-ui-inventory.md) |
+| Decision owners | dockercd maintainers and v0.1 release owner |
+| Related | [ADR 0001](0001-separate-control-plane-and-presentation.md), [ADR 0002](0002-scoped-presentation-api.md), [v0.1 readiness](../v0.1-release-readiness.md), [operator recovery runbook](../operator-recovery-runbook.md), [legacy UI inventory](../legacy-embedded-ui-inventory.md) |
 
 ## Context
 
@@ -15,17 +15,17 @@ browser-facing application access to the same credential that can mutate
 Docker-managed applications. `dockercd-web` now provides the supported
 read-only human monitoring path through a separate, scoped presentation API.
 
-v1.0 promises one browser presentation surface and authenticated CLI/API
+v0.1 promises one browser presentation surface and authenticated CLI/API
 recovery controls. Keeping the embedded UI would leave two human interfaces,
 two session models, and a browser-held administrator credential path.
 
 ## Decision
 
-For v1.0, DockerCD will remove the controller's embedded SPA and every
+For v0.1, DockerCD will remove the controller's embedded SPA and every
 controller browser-session feature used exclusively by that SPA. The supported
 surfaces after removal are:
 
-| Need | Supported v1.0 surface | Authority |
+| Need | Supported v0.1 surface | Authority |
 | --- | --- | --- |
 | Read deployment and health status | `dockercd-web` | scoped presentation API, read-only |
 | Sync, dry-run/diff, rollback, and recovery | authenticated CLI or bearer-token API | control plane |
@@ -37,7 +37,7 @@ The controller will not redirect `/` to a UI and will not expose `/ui` or
 `/ui/*`. Those routes must return the router's normal not-found response. The
 controller will also remove `POST` and `DELETE /api/v1/auth/session`, the
 `dockercd_token` cookie fallback, and cookie-only CSRF middleware. Bearer-token
-authentication remains the only v1.0 control-plane API authentication method.
+authentication remains the only v0.1 control-plane API authentication method.
 
 The existing API resource routes retain their version and bearer-token behavior.
 Removal of the legacy session endpoint is an explicit compatibility migration,
@@ -97,7 +97,7 @@ controller credential.
   compatibility break.
 - Do not expose a controller API token to make the browser migration easier.
 - Do not claim parity for deferred browser mutation, SSE, log, metrics, or
-  topology features. CLI/API recovery is the v1.0 mutation path.
+  topology features. CLI/API recovery is the v0.1 mutation path.
 - Keep removal atomic enough that a release image cannot contain a route whose
   assets or session mechanism were deleted.
 - The regression suite must prove all of the following:
@@ -117,5 +117,5 @@ controller credential.
 
 The controller has a smaller browser attack surface and a cleaner privilege
 boundary. Users of the old SPA must migrate to the separate Web service or to
-the documented CLI/API workflows. The migration is intentionally a v1.0
+the documented CLI/API workflows. The migration is intentionally a v0.1
 release gate, not a silent patch-level behavior change.

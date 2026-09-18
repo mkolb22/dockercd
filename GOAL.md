@@ -1,25 +1,25 @@
-# DockerCD v1.0 Release Scope Lock
+# DockerCD v0.1 Release Scope Lock
 
 ## Objective
 
-Ship DockerCD v1.0 as a secure, dependable GitOps controller for **one Docker
+Ship DockerCD v0.1 as a secure, dependable GitOps controller for **one Docker
 Compose host**, with an honest, unprivileged Web monitoring experience. This is
 not a general-purpose container platform, multi-cluster orchestrator, or
 browser-based administrator proxy.
 
-The scope is locked: new product capabilities do not enter v1.0 unless they
+The scope is locked: new product capabilities do not enter v0.1 unless they
 correct a release-blocking defect, security vulnerability, data-integrity risk,
-or documented v1.0 acceptance gap. All other requests enter the
+or documented v0.1 acceptance gap. All other requests enter the
 [product backlog](docs/BACKLOG.md).
 
-## v1.0 Product Promise
+## v0.1 Product Promise
 
 > DockerCD continuously reconciles Git-managed Compose applications on one
 > Docker host, exposes trustworthy deployment and health evidence through an
 > authenticated API and a least-privileged Web presentation, and gives
 > operators deterministic CLI/API recovery controls.
 
-## Required v1.0 Features
+## Required v0.1 Features
 
 ### 1. Single-host GitOps control plane
 
@@ -41,6 +41,9 @@ or documented v1.0 acceptance gap. All other requests enter the
   restart recovery, migrations, and documented backup/recovery steps.
 - Keep polling, Git/Docker work, request bodies, queues, inspections, and
   concurrency bounded with deadlines and cancellation.
+- Expose capability-scoped controller-ready evidence and a cached aggregate
+  CPU/memory/container sample to the Web presentation. This shows current
+  pressure; it never guarantees that a future deployment fits.
 
 ### 3. Secure, deployable controller
 
@@ -61,18 +64,18 @@ or documented v1.0 acceptance gap. All other requests enter the
 - Use only the versioned, capability-scoped, resource-filtered presentation
   API and controller-authored freshness metadata.
 - Support the implemented local-password bootstrap with server-side opaque
-  sessions and scoped controller credentials. OIDC is not a v1.0 requirement.
-- Keep the browser experience **read-only** in v1.0. Mutations remain on the
+  sessions and scoped controller credentials. OIDC is not a v0.1 requirement.
+- Keep the browser experience **read-only** in v0.1. Mutations remain on the
   authenticated CLI/API until a durable, idempotent operation contract exists.
 
 ### 5. Finished-codebase requirement: remove the legacy embedded UI
 
 The old controller-embedded browser UI is a migration aid, not a supported
-v1.0 product surface. Before declaring v1.0 complete:
+v0.1 product surface. Before declaring v0.1 complete:
 
 1. Inventory every embedded static asset, browser session/login route, UI
    redirect, documentation reference, test, and deployment assumption.
-2. Confirm that the v1.0 Web service provides the supported monitoring journey
+2. Confirm that the v0.1 Web service provides the supported monitoring journey
    and that documented CLI/API workflows cover required sync, dry-run/diff,
    rollback, and recovery operations.
 3. Remove the embedded SPA/static assets, UI-only browser session endpoints,
@@ -103,7 +106,7 @@ evidence are complete.
 ## Explicitly Deferred to the Backlog
 
 The detailed admission criteria and deferred-item record live in
-[docs/BACKLOG.md](docs/BACKLOG.md). The following list is the v1.0 scope lock:
+[docs/BACKLOG.md](docs/BACKLOG.md). The following list is the v0.1 scope lock:
 
 - Active/passive control-plane hardening, automatic failover, leader fencing,
   state replication, and multi-node recovery.
@@ -113,7 +116,7 @@ The detailed admission criteria and deferred-item record live in
   operation cancellation, and replay-safe retries.
 - OIDC/SSO, controller credential reload/rotation, and multi-instance Web
   session storage.
-- Native TLS termination in `dockercd-web` (planned for V1.1), including
+- Native TLS termination in `dockercd-web` (planned for v0.2), including
   certificate lifecycle and direct network browser exposure.
 - SSE/live browser updates, retained metrics/charts, broad log streaming,
   advanced desired topology, deep diffs, and service inspection views.
@@ -126,7 +129,7 @@ The detailed admission criteria and deferred-item record live in
   explicit packages with typed contracts; no generic API proxy or direct
   browser-to-controller credential path.
 - Delete dead code, obsolete configuration, unused dependencies, stale tests,
-  and duplicate documentation as each v1.0 release gate completes.
+  and duplicate documentation as each v0.1 release gate completes.
 - Treat code review, targeted refactoring, and performance/bounded-work review
   as release work, not optional polish. Refactoring must preserve documented
   behavior, reduce a demonstrated risk or duplication, and include regression
@@ -142,7 +145,7 @@ The detailed admission criteria and deferred-item record live in
 
 1. Every required feature above is implemented, documented, and covered by
    behavior and failure-path tests.
-2. Deferred features are absent from v1.0 release documentation and tracked
+2. Deferred features are absent from v0.1 release documentation and tracked
    only in the backlog.
 3. The legacy embedded UI and its controller-only browser paths are removed
    following the migration gate above; no dead UI code remains in release
@@ -154,11 +157,11 @@ The detailed admission criteria and deferred-item record live in
    notes, backup/restore evidence, presentation contract compatibility,
    accessibility/owner evidence, independent-review disposition, and
    performance/bounded-work review results.
-6. The release owner explicitly approves the v1.0 candidate and any
+6. The release owner explicitly approves the v0.1 candidate and any
    documented compatibility migration.
 
 The current evidence and ordered gates are tracked in
-[docs/v1-release-readiness.md](docs/v1-release-readiness.md).
+[docs/v0.1-release-readiness.md](docs/v0.1-release-readiness.md).
 
 ## Backlog Admission Rule
 

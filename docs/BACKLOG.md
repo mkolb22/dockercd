@@ -1,7 +1,7 @@
 # DockerCD product backlog
 
-Items here are deliberately **outside** the locked v1.0 release. They may not
-be implemented as opportunistic additions to a v1.0 tranche.
+Items here are deliberately **outside** the locked v0.1 release. They may not
+be implemented as opportunistic additions to a v0.1 tranche.
 
 | Item | Why it is deferred | Admission requirement |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ be implemented as opportunistic additions to a v1.0 tranche.
 | Adoption/import of existing deployments | Can create ambiguous desired/live ownership. | Explicit ownership-transfer and recovery design. |
 | Browser mutations | A browser response loss must not cause duplicate deployment work. | Durable idempotent operation resource, approval/CSRF design, and outcome UX. |
 | OIDC and multi-instance Web sessions | Local password bootstrap is the current single-instance solution. | Identity, token exchange, revocation, session-store, and availability ADR. |
-| Native TLS termination in `dockercd-web` (V1.1) | V1 keeps TLS termination outside the two service containers. A standalone MacBook/server pair needs Web-owned HTTPS without requiring a proxy container. | V1.1 ADR covering certificate/key secret files, TLS minimums and cipher policy, certificate reload/rotation, HTTP redirect/refusal behavior, HSTS/origin/cookie semantics, network exposure defaults, and integration tests with a real TLS client. The control-plane API remains private. |
+| Native TLS termination in `dockercd-web` (v0.2) | v0.1 keeps TLS termination outside the two service containers. A standalone MacBook/server pair needs Web-owned HTTPS without requiring a proxy container. | v0.2 ADR covering certificate/key secret files, TLS minimums and cipher policy, certificate reload/rotation, HTTP redirect/refusal behavior, HSTS/origin/cookie semantics, network exposure defaults, and integration tests with a real TLS client. The control-plane API remains private. |
 | Live browser updates and SSE | Requires resource filtering, replay, backpressure, and reconnect policy. | Versioned event-feed contract and load/failure tests. |
 | Metrics, log streaming, deep diff, service inspection | Need retention, redaction, authorization, and resource budgets. | Page-specific read contracts and performance limits. |
 | Swift macOS client | Depends on a stable control-plane and operation contract. | Owner-reviewed SwiftUI design and authenticated network-session plan. |
