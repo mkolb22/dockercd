@@ -3,12 +3,9 @@ package api
 import (
 	"context"
 	"crypto/subtle"
-	"embed"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -22,9 +19,6 @@ import (
 	"github.com/mkolb22/dockercd/internal/reconciler"
 	"github.com/mkolb22/dockercd/internal/store"
 )
-
-//go:embed static/*
-var staticFS embed.FS
 
 // ServerDeps holds all dependencies for the API server.
 type ServerDeps struct {
@@ -110,7 +104,6 @@ func NewServer(addr string, deps ServerDeps) *Server {
 		sseHub:                    deps.SSEHub,
 		eventWatcher:              deps.EventWatcher,
 		webhookSecret:             deps.WebhookSecret,
-		apiToken:                  deps.APIToken,
 		presentationAuthenticator: deps.PresentationAuthenticator,
 		presentationAudience:      strings.TrimSpace(deps.PresentationAudience),
 		legacyAdminEnabled:        deps.APIToken != "",
@@ -131,20 +124,11 @@ func NewServer(addr string, deps ServerDeps) *Server {
 	router.Get("/healthz", h.Healthz)
 	router.Get("/readyz", h.Readyz)
 
-	// Browser session endpoint for the embedded UI. The UI cannot attach
-	// Authorization headers to native EventSource connections, so a verified
-	// HttpOnly cookie is used when API auth is enabled.
-	if deps.APIToken != "" {
-		router.Post("/api/v1/auth/session", h.Login)
-		router.Delete("/api/v1/auth/session", h.Logout)
-	}
-
 	// API routes
 	router.Route("/api/v1", func(r chi.Router) {
 		r.Use(contentTypeJSON)
 		if deps.APIToken != "" {
 			r.Use(bearerAuth(deps.APIToken))
-			r.Use(cookieCSRF)
 		}
 		r.Get("/capabilities", h.Capabilities)
 		r.Get("/system", h.GetSystemInfo)
@@ -201,22 +185,6 @@ func NewServer(addr string, deps ServerDeps) *Server {
 	router.Post("/api/v1/webhook/git", h.HandleGitWebhook)
 	router.Post("/api/v1/webhooks/git", h.HandleGitWebhook)
 
-	// Web UI — embedded SPA
-	staticContent, err := fs.Sub(staticFS, "static")
-	if err != nil {
-		panic("embedded static FS missing 'static' subdirectory: " + err.Error())
-	}
-	fileServer := http.FileServer(http.FS(staticContent))
-	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/ui/", http.StatusMovedPermanently)
-	})
-	uiHandler := spaHandler(staticContent, fileServer)
-	router.Get("/ui", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/ui/", http.StatusMovedPermanently)
-	})
-	router.Get("/ui/", uiHandler)
-	router.Get("/ui/*", uiHandler)
-
 	return &Server{
 		httpServer: &http.Server{
 			Addr:              addr,
@@ -241,9 +209,8 @@ const maxConcurrentExpensiveRequests = 4
 // cannot consume the Web fleet's bounded lightweight read capacity.
 const maxConcurrentPresentationReads = 16
 
-// securityHeaders protects the embedded browser UI without requiring an edge
-// proxy. Style attributes remain allowed because the current UI uses them; the
-// stricter script policy still disallows inline and dynamically evaluated code.
+// securityHeaders gives all controller HTTP responses conservative browser
+// protections. The controller no longer serves an interactive browser UI.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
@@ -307,56 +274,7 @@ func contentTypeJSON(next http.Handler) http.Handler {
 	})
 }
 
-// spaHandler serves static files under /ui/ with SPA fallback.
-// Known files are served directly; unknown paths get index.html.
-func spaHandler(staticContent fs.FS, fileServer http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Strip /ui/ prefix
-		path := r.URL.Path
-		if len(path) >= 4 {
-			path = path[4:] // strip "/ui/"
-		}
-
-		// Serve index.html for root or empty path
-		if path == "" || path == "index.html" {
-			serveIndex(w, r, fileServer)
-			return
-		}
-
-		// Try to open the file — if it exists, serve it
-		if f, err := staticContent.Open(path); err == nil {
-			f.Close()
-			r2 := new(http.Request)
-			*r2 = *r
-			r2.URL = new(url.URL)
-			*r2.URL = *r.URL
-			r2.URL.Path = "/" + path
-			fileServer.ServeHTTP(w, r2)
-			return
-		}
-
-		// SPA fallback: serve index.html for unknown paths
-		serveIndex(w, r, fileServer)
-	}
-}
-
-// serveIndex rewrites the request to "/" so http.FileServer serves index.html.
-func serveIndex(w http.ResponseWriter, r *http.Request, fileServer http.Handler) {
-	r2 := new(http.Request)
-	*r2 = *r
-	r2.URL = new(url.URL)
-	*r2.URL = *r.URL
-	r2.URL.Path = "/"
-	fileServer.ServeHTTP(w, r2)
-}
-
-const authCookieName = "dockercd_token"
-
-type authMethodContextKey struct{}
-
 type presentationPrincipalContextKey struct{}
-
-const cookieAuthMethod = "cookie"
 
 // bearerAuth returns middleware that validates a Bearer token in the Authorization header.
 // Uses constant-time comparison to prevent timing attacks.
@@ -365,12 +283,8 @@ func bearerAuth(token string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			provided := ""
 			auth := r.Header.Get("Authorization")
-			authMethod := ""
 			if strings.HasPrefix(auth, "Bearer ") {
 				provided = strings.TrimPrefix(auth, "Bearer ")
-			} else if cookie, err := r.Cookie(authCookieName); err == nil {
-				provided = cookie.Value
-				authMethod = cookieAuthMethod
 			}
 			if provided == "" {
 				http.Error(w, `{"error":"missing or invalid Authorization header"}`, http.StatusUnauthorized)
@@ -380,7 +294,7 @@ func bearerAuth(token string) func(http.Handler) http.Handler {
 				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), authMethodContextKey{}, authMethod)))
+			next.ServeHTTP(w, r)
 		})
 	}
 }
@@ -425,21 +339,6 @@ func auditPresentation(logger *slog.Logger, r *http.Request, principal *Principa
 func presentationPrincipal(r *http.Request) (Principal, bool) {
 	principal, ok := r.Context().Value(presentationPrincipalContextKey{}).(Principal)
 	return principal, ok
-}
-
-// cookieCSRF requires a non-simple header for state-changing requests that
-// authenticate through the browser cookie. Cross-origin forms and fetches
-// cannot supply this header without an explicit CORS grant.
-func cookieCSRF(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Context().Value(authMethodContextKey{}) == cookieAuthMethod &&
-			(r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch || r.Method == http.MethodDelete) &&
-			r.Header.Get("X-Requested-With") != "XMLHttpRequest" {
-			writeError(w, http.StatusForbidden, "missing CSRF request header", CodeForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 // slogRequestLogger returns middleware that logs HTTP requests using slog.

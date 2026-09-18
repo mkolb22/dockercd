@@ -83,6 +83,8 @@ after the technical validation and accessibility hardening recorded above.
 The approval covers the visual hierarchy, navigation, fixture safety language,
 and intended desktop/narrow behavior. It is deliberately narrow: live browser
 integration still requires a selected and implemented server-side identity
-boundary, and the embedded UI remains until that later workflow parity is
+boundary. The legacy embedded UI was subsequently retired under
+[ADR 0005](adr/0005-retire-legacy-embedded-controller-ui.md); browser mutation
+workflow parity remains a deferred requirement.
 validated. The local deployment credential is also awaiting a separate
 owner-controlled rotation.

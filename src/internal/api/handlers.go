@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -29,7 +28,6 @@ type Handler struct {
 	sseHub                    eventbus.Broadcaster
 	eventWatcher              *events.Watcher
 	webhookSecret             string
-	apiToken                  string
 	presentationAuthenticator PresentationAuthenticator
 	presentationAudience      string
 	legacyAdminEnabled        bool
@@ -71,53 +69,6 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(w).Encode(ReadyResponse{Status: "not ready", Checks: checks})
 	}
-}
-
-// Login verifies the configured API token and stores it in an HttpOnly cookie
-// for browser clients, including native EventSource connections.
-func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
-	if h.apiToken == "" {
-		writeError(w, http.StatusNotFound, "API authentication is not enabled", CodeNotFound)
-		return
-	}
-
-	var req struct {
-		Token string `json:"token"`
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error(), CodeBadRequest)
-		return
-	}
-	if subtle.ConstantTimeCompare([]byte(req.Token), []byte(h.apiToken)) != 1 {
-		writeError(w, http.StatusUnauthorized, "invalid token", CodeBadRequest)
-		return
-	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     authCookieName,
-		Value:    req.Token,
-		Path:     "/api/v1",
-		MaxAge:   int((30 * 24 * time.Hour).Seconds()),
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
-	})
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-// Logout clears the browser auth cookie.
-func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     authCookieName,
-		Value:    "",
-		Path:     "/api/v1",
-		MaxAge:   -1,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
-	})
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // maxRequestBody is the maximum allowed request body size (1 MB).

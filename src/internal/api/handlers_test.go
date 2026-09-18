@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/mkolb22/dockercd/internal/app"
+	"github.com/mkolb22/dockercd/internal/eventbus"
 	"github.com/mkolb22/dockercd/internal/inspector"
 	"github.com/mkolb22/dockercd/internal/store"
 )
@@ -302,7 +303,7 @@ func TestListApplications_ContentType(t *testing.T) {
 	}
 }
 
-func TestAPIToken_BearerAndCookieAuth(t *testing.T) {
+func TestAPITokenRequiresBearerAuthentication(t *testing.T) {
 	s := setupTestStore(t)
 	srv := NewServer(":0", ServerDeps{
 		Store:      s,
@@ -316,28 +317,9 @@ func TestAPIToken_BearerAndCookieAuth(t *testing.T) {
 		t.Fatalf("expected unauthenticated request to return 401, got %d", unauth.Code)
 	}
 
-	req := httptest.NewRequest("POST", "/api/v1/auth/session", strings.NewReader(`{"token":"secret-token"}`))
-	w := httptest.NewRecorder()
-	srv.Router().ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected login 200, got %d: %s", w.Code, w.Body.String())
-	}
-	cookies := w.Result().Cookies()
-	if len(cookies) == 0 || cookies[0].Name != authCookieName {
-		t.Fatalf("expected auth cookie, got %v", cookies)
-	}
-
-	req = httptest.NewRequest("GET", "/api/v1/applications", nil)
-	req.AddCookie(cookies[0])
-	w = httptest.NewRecorder()
-	srv.Router().ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected cookie-authenticated request 200, got %d", w.Code)
-	}
-
-	req = httptest.NewRequest("GET", "/api/v1/applications", nil)
+	req := httptest.NewRequest("GET", "/api/v1/applications", nil)
 	req.Header.Set("Authorization", "Bearer secret-token")
-	w = httptest.NewRecorder()
+	w := httptest.NewRecorder()
 	srv.Router().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected bearer-authenticated request 200, got %d", w.Code)
@@ -345,21 +327,11 @@ func TestAPIToken_BearerAndCookieAuth(t *testing.T) {
 
 	req = httptest.NewRequest("PUT", "/api/v1/settings/poll-interval", strings.NewReader(`{"intervalMs":300000}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(cookies[0])
-	w = httptest.NewRecorder()
-	srv.Router().ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected cookie-authenticated mutation without CSRF header to return 403, got %d", w.Code)
-	}
-
-	req = httptest.NewRequest("PUT", "/api/v1/settings/poll-interval", strings.NewReader(`{"intervalMs":300000}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Requested-With", "XMLHttpRequest")
-	req.AddCookie(cookies[0])
+	req.Header.Set("Authorization", "Bearer secret-token")
 	w = httptest.NewRecorder()
 	srv.Router().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("expected cookie-authenticated mutation with CSRF header to return 200, got %d: %s", w.Code, w.Body.String())
+		t.Fatalf("expected bearer-authenticated mutation to return 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -384,7 +356,7 @@ func TestPresentationPermissionsUsesOnlyScopedCredentials(t *testing.T) {
 	}
 
 	cookieFallback := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/permissions", nil)
-	cookieFallback.AddCookie(&http.Cookie{Name: authCookieName, Value: "legacy-admin-token"})
+	cookieFallback.AddCookie(&http.Cookie{Name: "dockercd_token", Value: "legacy-admin-token"})
 	w = httptest.NewRecorder()
 	srv.Router().ServeHTTP(w, cookieFallback)
 	if w.Code != http.StatusUnauthorized {
@@ -1193,58 +1165,141 @@ func TestGetHistory_WithRecords(t *testing.T) {
 	}
 }
 
-// --- Web UI ---
+// --- Retired embedded UI and browser session ---
 
-func TestRootRedirectsToUI(t *testing.T) {
+func TestLegacyUIAndSessionRoutesAreAbsent(t *testing.T) {
 	s := setupTestStore(t)
-	srv := newTestServer(t, s, nil)
+	srv := NewServer(":0", ServerDeps{
+		Store: s, Reconciler: &mockReconciler{}, Logger: testLogger(), APIToken: "secret-token",
+	})
 
-	w := doRequest(t, srv, "GET", "/")
-
-	if w.Code != http.StatusMovedPermanently {
-		t.Errorf("expected 301, got %d", w.Code)
+	tests := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/"},
+		{http.MethodGet, "/ui"},
+		{http.MethodGet, "/ui/"},
+		{http.MethodGet, "/ui/some/unknown/path"},
+		{http.MethodPost, "/api/v1/auth/session"},
+		{http.MethodDelete, "/api/v1/auth/session"},
 	}
-	loc := w.Header().Get("Location")
-	if loc != "/ui/" {
-		t.Errorf("expected redirect to /ui/, got %q", loc)
+	for _, test := range tests {
+		t.Run(test.method+" "+test.path, func(t *testing.T) {
+			req := httptest.NewRequest(test.method, test.path, strings.NewReader(`{"token":"secret-token"}`))
+			req.Header.Set("Authorization", "Bearer secret-token")
+			w := httptest.NewRecorder()
+			srv.Router().ServeHTTP(w, req)
+			if w.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
+			}
+			if cookies := w.Result().Cookies(); len(cookies) != 0 {
+				t.Fatalf("retired route set cookies: %v", cookies)
+			}
+		})
 	}
 }
 
-func TestUIServesHTML(t *testing.T) {
+func TestLegacyCookieNeverAuthenticatesAPIRoutes(t *testing.T) {
 	s := setupTestStore(t)
-	srv := newTestServer(t, s, nil)
+	srv := NewServer(":0", ServerDeps{
+		Store: s, Reconciler: &mockReconciler{}, Logger: testLogger(), APIToken: "secret-token",
+	})
 
-	w := doRequest(t, srv, "GET", "/ui/")
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		header string
+	}{
+		{"JSON read", http.MethodGet, "/api/v1/applications", "", ""},
+		{"JSON mutation", http.MethodPut, "/api/v1/settings/poll-interval", `{"intervalMs":300000}`, ""},
+		{"SSE", http.MethodGet, "/api/v1/events/stream", "", ""},
+		{"bad bearer does not fall back", http.MethodGet, "/api/v1/applications", "", "Bearer incorrect-token"},
 	}
-
-	ct := w.Header().Get("Content-Type")
-	if ct != "text/html; charset=utf-8" {
-		t.Errorf("expected text/html content type, got %q", ct)
-	}
-
-	body := w.Body.String()
-	if !strings.Contains(body, "dockercd") {
-		t.Error("expected HTML to contain 'dockercd'")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
+			if test.body != "" {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			if test.header != "" {
+				req.Header.Set("Authorization", test.header)
+			}
+			req.AddCookie(&http.Cookie{Name: "dockercd_token", Value: "secret-token"})
+			w := httptest.NewRecorder()
+			srv.Router().ServeHTTP(w, req)
+			if w.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+			}
+		})
 	}
 }
 
-func TestUISPAFallback(t *testing.T) {
+func TestBearerAuthenticationStillPermitsSSEWithoutLegacyCSRFHeader(t *testing.T) {
 	s := setupTestStore(t)
-	srv := newTestServer(t, s, nil)
+	srv := NewServer(":0", ServerDeps{
+		Store: s, Reconciler: &mockReconciler{}, Logger: testLogger(), APIToken: "secret-token", SSEHub: eventbus.NewHub(),
+	})
 
-	// Unknown UI path should still serve index.html (SPA routing)
-	w := doRequest(t, srv, "GET", "/ui/some/unknown/path")
-
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/events/stream", nil).WithContext(ctx)
+	req.Header.Set("Authorization", "Bearer secret-token")
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if got := w.Header().Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("Content-Type = %q, want text/event-stream", got)
+	}
+}
+
+func TestScopedPresentationCredentialCannotAccessAdministratorRoutes(t *testing.T) {
+	s := setupTestStore(t)
+	authenticator, err := NewOpaquePresentationAuthenticator([]PresentationCredential{testPresentationCredential("scoped-read-token")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authenticator.now = func() time.Time { return time.Date(2026, 9, 15, 13, 0, 0, 0, time.UTC) }
+	srv := NewServer(":0", ServerDeps{
+		Store: s, Reconciler: &mockReconciler{}, Logger: testLogger(), APIToken: "administrator-token", SSEHub: eventbus.NewHub(),
+		PresentationAuthenticator: authenticator, PresentationAudience: "dockercd-presentation",
+	})
+
+	presentation := httptest.NewRequest(http.MethodGet, "/api/v1/presentation/permissions", nil)
+	presentation.Header.Set("Authorization", "Bearer scoped-read-token")
+	presentationResponse := httptest.NewRecorder()
+	srv.Router().ServeHTTP(presentationResponse, presentation)
+	if presentationResponse.Code != http.StatusOK {
+		t.Fatalf("scoped credential received %d on presentation route, want %d", presentationResponse.Code, http.StatusOK)
 	}
 
-	body := w.Body.String()
-	if !strings.Contains(body, "dockercd") {
-		t.Error("expected SPA fallback to serve index.html")
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{"JSON read", http.MethodGet, "/api/v1/applications", ""},
+		{"JSON mutation", http.MethodPut, "/api/v1/settings/poll-interval", `{"intervalMs":300000}`},
+		{"SSE", http.MethodGet, "/api/v1/events/stream", ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			req := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
+			if test.body != "" {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			req.Header.Set("Authorization", "Bearer scoped-read-token")
+			w := httptest.NewRecorder()
+			srv.Router().ServeHTTP(w, req)
+			if w.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
+			}
+		})
 	}
 }
 

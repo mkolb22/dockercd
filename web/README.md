@@ -21,7 +21,7 @@ With that explicit local secret configuration, it requires an HTTPS public
 origin and a controller URL, verifies an Argon2id local password, then creates
 an opaque in-memory session to make read-only capability-scoped controller
 requests. See [ADR 0003](../docs/adr/0003-local-password-bootstrap-for-web-presentation.md)
-and [the deployment example](../deploy/docker-compose.web-local-auth.example.yml).
+and [the paired deployment guide](../deploy/README.md).
 
 The Web workspace includes a typed, bounded client, a redacted live-view
 mapper, and a per-request source-provider seam. A provider creates a live

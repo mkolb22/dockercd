@@ -137,6 +137,24 @@ budget evidence; visual/accessibility review states; high-reasoning review
 findings and disposition; and owner approval where the release changes a live
 boundary. A release without that evidence is incomplete, not merely delayed.
 
+## Authenticated CLI recovery correctness (2026-09-17)
+
+- The CLI now rejects every non-2xx controller response before decoding it as
+  a successful resource, surfaces only the controller's bounded standard error
+  message, and refuses redirects as non-outcomes.
+- Sync and rollback now return a nonzero exit when the controller reports an
+  operation failure. A repeated sync returns success only for the explicit
+  `skipped`/in-sync no-op evidence; circuit-breaker and unevidenced skips still
+  fail.
+- Successful controller payloads are bounded to 1 MiB before JSON decoding;
+  error payloads are bounded to 64 KiB and arbitrary bodies are not echoed.
+- Regression coverage exercises all application commands on `401`, redirect
+  refusal, controller-reported sync/rollback failure, safe no-op sync,
+  successful rollback, and oversized successful payloads.
+- `go test ./...`, `go vet ./...`, and `go test -race ./...` passed in both
+  `src/` and `web/`. A high-reasoning independent re-review found no remaining
+  P0/P1/P2 issue after the no-op and bounded-response corrections.
+
 ## Current presentation-tranche evidence (2026-09-15)
 
 - The control-plane and Web API boundary is exercised end to end with a
@@ -230,3 +248,33 @@ boundary. A release without that evidence is incomplete, not merely delayed.
 - An independent high-reasoning review initially found a fleet/activity
   freshness mix-up and two observation-consistency edges. All were corrected,
   regression-tested, and re-reviewed with no remaining P0/P1/P2 findings.
+
+## Minimal paired-deployment tranche evidence (2026-09-17)
+
+- ADR 0006 defines one development control-plane/Web pair and a separately
+  configured personal Signal-only pair. The active deployment material is
+  reduced to those paired services; retired manifests, overlays, controller UI
+  assets, installers, and historic guides are preserved as inactive archive
+  material rather than discarded.
+- Both Compose files render with temporary non-secret placeholder files using
+  `docker compose config --quiet`; neither validation starts, stops, syncs, or
+  replaces a container. Both installers pass shell syntax validation.
+- Independent high-reasoning review found that two controllers sharing an
+  unrestricted Docker daemon are not a hard security boundary, that publishing
+  removed personal manifests to the existing `main` source could tear down
+  running applications, and that a new Signal volume could hide its ledger.
+  The ADR and active documentation now state the shared-daemon limit; the
+  personal state is fenced on a dedicated migration branch; and Signal retains
+  its existing external ledger volume. A fresh volume requires separate backup,
+  restore evidence, and owner approval.
+- The review also found archive and documentation hygiene issues. Original
+  historical installer/README material is retained in archive locations,
+  archive notices are separate files, and the personal `.env.example` is
+  explicitly tracked while real environment files remain ignored.
+- A re-review found and corrected one final branch-wiring error: Signal's
+  application manifest now follows the same `v1/personal-paired-signal`
+  migration branch as its new controller. The final high-reasoning re-review
+  reported no remaining P0/P1/P2 findings.
+- `go test ./...`, `go vet ./...`, and `go test -race ./...` passed in both
+  `src/` and `web/`. Existing `dockercd`, `dockercd-my-apps`, and `signal`
+  containers were observed healthy and were not modified.

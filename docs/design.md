@@ -1,5 +1,12 @@
 # dockercd Engineering Architecture
 
+> Historical implementation design. This document preserves early design
+> context; it is not a current deployment or security reference. The locked
+> v1.0 scope in [`GOAL.md`](../GOAL.md), current ADRs, deployment examples,
+> and operator runbook supersede conflicting statements here. In particular,
+> the controller no longer embeds a browser UI or accepts browser-cookie API
+> authentication.
+
 ## Document Metadata
 
 | Field | Value |
@@ -186,9 +193,9 @@ dockercd is a single-container GitOps continuous deployment tool that brings Arg
 - **Key decisions**: Uses a worker pool model (not per-app goroutines) to bound concurrency. Default pool size is 4 workers. Applications are queued for reconciliation either by timer expiry or by external trigger (API call, Docker event). A per-app mutex prevents concurrent reconciliation of the same application.
 
 #### `internal/api` -- REST API Server
-- **Responsibility**: HTTP server exposing REST endpoints for application management. Provides health and readiness probes, real-time events via Server-Sent Events (SSE), and GitHub/Gitea push webhooks. The currently embedded web assets are a compatibility surface; the target architecture moves browser presentation into an unprivileged client container.
+- **Responsibility**: HTTP server exposing REST endpoints for application management. Provides health and readiness probes, real-time events via Server-Sent Events (SSE), and GitHub/Gitea push webhooks. Browser presentation lives in the separate unprivileged `dockercd-web` service.
 - **Dependencies**: `app`, `store`, `reconciler`, `differ`, `eventbus`
-- **Key decisions**: Uses chi router with middleware stack (recovery, request logging, content-type enforcement). All API endpoints are under `/api/v1/` for versioning. Error responses use a consistent JSON schema. Static SPA assets are embedded via `//go:embed static/*`. SSE endpoint pushes status changes to the browser without polling. Webhook endpoint validates HMAC-SHA256 signatures using `DOCKERCD_WEBHOOK_SECRET`.
+- **Key decisions**: Uses chi router with middleware stack (recovery, request logging, content-type enforcement). All API endpoints are under `/api/v1/` for versioning. Error responses use a consistent JSON schema. The controller serves no SPA/static browser assets; bearer authentication protects control-plane API access when configured. SSE remains an authenticated API/native-client capability. Webhook endpoint validates HMAC-SHA256 signatures using `DOCKERCD_WEBHOOK_SECRET`.
 
 #### `internal/eventbus` -- In-Process Event Bus
 - **Responsibility**: Lightweight publish/subscribe bus for broadcasting application status changes to SSE subscribers. Decouples the reconciler from the API server.
@@ -1705,8 +1712,6 @@ r.Route("/api/v1", func(r chi.Router) {
     r.Put("/settings/poll-interval", setPollInterval)
 })
 
-// SPA: serve embedded static assets, fallback to index.html
-r.Handle("/ui/*", spaHandler())
 ```
 
 ---
@@ -2532,7 +2537,7 @@ All modules are fully implemented. This section summarizes what is built and whe
 | REST API | ✅ Complete | 21 endpoints, full CRUD + sync + rollback + adopt |
 | SSE stream | ✅ Complete | Real-time push via `/api/v1/events/stream` |
 | Webhook | ✅ Complete | HMAC-SHA256 GitHub/Gitea push webhook |
-| Web UI | ✅ Complete | Embedded SPA — 3-column resource tree, metrics, diffs, history, logs |
+| Web presentation | ✅ Foundation | Separate scoped, server-rendered `dockercd-web`; legacy embedded SPA retired for v1.0 |
 | CLI | ✅ Complete | `app list/get/sync/diff/rollback/adopt`, `serve`, `version` |
 
 ### 15.4 Install Modes (Complete)

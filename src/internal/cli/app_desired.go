@@ -33,9 +33,13 @@ func runAppDesired(serverAddr, name string) error {
 	}
 	defer resp.Body.Close()
 
+	if err := responseError(resp); err != nil {
+		return err
+	}
+
 	var rendered any
-	if err := json.NewDecoder(resp.Body).Decode(&rendered); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+	if err := decodeResponse(resp.Body, &rendered); err != nil {
+		return err
 	}
 
 	enc := json.NewEncoder(os.Stdout)

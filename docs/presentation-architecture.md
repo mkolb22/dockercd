@@ -124,9 +124,57 @@ Internal network:   Control-plane API
 Private volumes:    Docker socket, SQLite state, Git cache, credentials
 ```
 
-During the migration, the current embedded UI may remain available for
-compatibility. Do not remove it until the web presentation and SwiftUI Console
-cover the owner workflows and the authorization model is in place.
+The controller-embedded UI is retired under
+[ADR 0005](adr/0005-retire-legacy-embedded-controller-ui.md). The Web
+presentation provides browser monitoring; authenticated CLI/API provide v1.0
+mutation and recovery. SwiftUI remains an independent presentation client, not
+a prerequisite for controller UI retirement.
+
+## Future federated Web workspace: many control planes, one presentation
+
+**Recommendation:** support this as a post-v1.0 capability. A future
+`dockercd-web` deployment may present many named controllers to one operator,
+but it must remain a server-side federation layer—not a browser-to-controller
+mesh and not a generic administrator-token proxy.
+
+```text
+browser -- opaque Web session --> dockercd-web workspace
+                                      |
+                 ┌────────────────────┼────────────────────┐
+                 v                    v                    v
+          controller: home      controller: staging   controller: production
+          scoped read token     scoped read token      scoped read token
+```
+
+Each controller connection is a distinct profile with a stable opaque
+controller ID, display name, endpoint, per-controller scoped credential, and
+explicit resource grants. Controller IDs must be included in every cache key,
+URL, activity item, freshness timestamp, audit event, and rendered view model;
+application names are never globally unique. A failed, slow, or unavailable
+controller produces a local degraded state, not a failure of the entire
+workspace.
+
+The browser authenticates only to `dockercd-web`. The Web service resolves its
+server-side session to the selected controller and uses only that controller's
+least-privileged credential. No browser gets controller credentials; no
+credential is shared across controllers; and a controller-scoped token cannot
+be replayed against another controller. Cross-controller summaries use bounded
+fan-out, per-controller deadlines, concurrency limits, and freshness labels.
+They never issue control-plane mutations as a group.
+
+The navigation model should make the selected controller obvious: a persistent
+controller switcher, controller-coloured but text-labelled health state, and
+an all-controllers overview that preserves controller provenance for every
+application and event. Deep links must include the controller ID. This avoids
+the most dangerous fleet UX failure: an operator believing an action or status
+belongs to the wrong environment.
+
+This is deferred from v1.0. The current v1 Web deployment connects to exactly
+one controller and the v1 controller manages one Docker host. Admission of
+federation requires an ADR covering controller-registry provisioning and
+rotation, identity and audit propagation, aggregate failure semantics,
+cross-controller bounds, tenant/resource isolation, and multi-controller
+owner validation.
 
 ## Existing and future clustered control plane
 

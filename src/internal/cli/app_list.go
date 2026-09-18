@@ -39,9 +39,13 @@ func runAppList(serverAddr string, outputJSON bool) error {
 	}
 	defer resp.Body.Close()
 
+	if err := responseError(resp); err != nil {
+		return err
+	}
+
 	var result api.ListResponse[api.ApplicationResponse]
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+	if err := decodeResponse(resp.Body, &result); err != nil {
+		return err
 	}
 
 	if outputJSON {

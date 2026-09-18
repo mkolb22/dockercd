@@ -52,17 +52,18 @@ mount.
 
 | Concern | Current compatibility state | Target state |
 |---|---|---|
-| Browser UI | Embedded assets in dockercd | Separate `dockercd-web` container |
+| Browser UI | Separate `dockercd-web` container | Separate `dockercd-web` container |
 | macOS UI | SwiftUI Console client | Remains an independent first-class client |
 | Controller | API and reconciliation in one service | Same control-plane responsibility |
-| Browser data | Embedded UI reads controller-owned state | Web service calls the versioned API only |
+| Browser data | Web service calls the versioned API only | Web service calls the versioned API only |
 | Authorization | Existing controller configuration | Capability-scoped, delegated user identity at the controller |
 | Docker/Git/state access | Control plane only | Control plane only |
 | Cluster topology | Optional active/passive implementation exists | Existing behavior remains untouched; HA hardening and guarantees are deferred |
 
-The embedded browser UI is not removed during this work. It remains until the
-separate Web UI has owner-validated workflow parity and the identity model is
-in place.
+The controller-embedded browser UI was retired under
+[ADR 0005](adr/0005-retire-legacy-embedded-controller-ui.md). The separate
+Web service is the only supported browser presentation surface; CLI/API remain
+the supported v1.0 mutation and recovery surfaces.
 
 ## Web service internals
 

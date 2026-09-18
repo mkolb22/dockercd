@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -35,16 +34,13 @@ func runAppAdopt(serverAddr, name string) error {
 	}
 	defer resp.Body.Close()
 
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+	if err := responseError(resp); err != nil {
+		return err
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		if errMsg, ok := result["error"].(string); ok {
-			return fmt.Errorf("adopt failed: %s", errMsg)
-		}
-		return fmt.Errorf("adopt failed with status %d", resp.StatusCode)
+	var result map[string]interface{}
+	if err := decodeResponse(resp.Body, &result); err != nil {
+		return err
 	}
 
 	fmt.Printf("Application %q adopted (%v services)\n", name, result["services"])

@@ -13,7 +13,15 @@ import (
 // apiClient is a shared HTTP client for CLI commands. Manual sync and rollback
 // requests can run up to the application's syncTimeout, which defaults to five
 // minutes, so the client timeout must be longer than short status calls.
-var apiClient = &http.Client{Timeout: 10 * time.Minute}
+var apiClient = &http.Client{
+	Timeout: 10 * time.Minute,
+	// A redirect is not a controller operation outcome. Returning the original
+	// response lets commands fail deterministically rather than replaying an
+	// authenticated request against an unexpected location.
+	CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
 
 var (
 	version  = "dev"

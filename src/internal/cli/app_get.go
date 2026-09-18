@@ -35,13 +35,13 @@ func runAppGet(serverAddr, name string) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("application %q not found", name)
+	if err := responseError(resp); err != nil {
+		return err
 	}
 
 	var result api.ApplicationResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+	if err := decodeResponse(resp.Body, &result); err != nil {
+		return err
 	}
 
 	fmt.Printf("Name:         %s\n", result.Metadata.Name)

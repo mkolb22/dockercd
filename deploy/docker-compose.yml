@@ -1,13 +1,17 @@
+name: dockercd-development
+
+# Development control plane and its paired, unprivileged Web presentation.
+# Both host ports stay loopback-only; put a TLS reverse proxy in front of the
+# Web service only when network access is intentionally configured.
 services:
   dockercd:
-    image: dockercd:latest
+    image: ${DOCKERCD_IMAGE:-dockercd:latest}
     pull_policy: never
-    container_name: dockercd
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${DOCKERCD_DEV_API_PORT:-18080}:8080"
     volumes:
-      - dockercd-state:/data
+      - dockercd-development-state:/data
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       DOCKERCD_DATA_DIR: /data
@@ -15,12 +19,15 @@ services:
       DOCKERCD_LOG_LEVEL: info
       DOCKERCD_API_HOST: "0.0.0.0"
       DOCKERCD_API_PORT: "8080"
-      # Set this to a random value of at least 32 characters before deployment.
-      DOCKERCD_API_TOKEN: ${DOCKERCD_API_TOKEN:-}
-      # Development-only escape hatch. Keep false for normal deployments.
-      DOCKERCD_ALLOW_INSECURE_NO_AUTH: ${DOCKERCD_ALLOW_INSECURE_NO_AUTH:-false}
+      DOCKERCD_API_TOKEN: ${DOCKERCD_API_TOKEN:?set a 32+ character local controller token}
       DOCKERCD_GIT_TOKEN: ${DOCKERCD_GIT_TOKEN:-}
       DOCKERCD_GIT_ALLOWED_HOSTS: ${DOCKERCD_GIT_ALLOWED_HOSTS:-github.com}
+      DOCKERCD_PRESENTATION_CREDENTIALS_FILE: /run/secrets/dockercd_presentation_registry
+      DOCKERCD_PRESENTATION_AUDIENCE: dockercd-development-web
+    secrets:
+      - source: dockercd_presentation_registry
+        target: dockercd_presentation_registry
+        mode: 0444
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/healthz"]
       interval: 30s
@@ -28,11 +35,46 @@ services:
       retries: 3
       start_period: 15s
     networks:
-      - dockercd-net
+      - dockercd-development-net
+
+  dockercd-web:
+    image: ${DOCKERCD_WEB_IMAGE:-dockercd-web:latest}
+    pull_policy: never
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:uid=65532,gid=65532,mode=1777,noexec,nosuid,size=16m
+    ports:
+      - "127.0.0.1:${DOCKERCD_DEV_WEB_PORT:-18092}:8092"
+    environment:
+      DOCKERCD_WEB_LISTEN_ADDR: "0.0.0.0:8092"
+      DOCKERCD_WEB_PUBLIC_ORIGIN: ${DOCKERCD_WEB_PUBLIC_ORIGIN:?set the HTTPS browser origin}
+      DOCKERCD_WEB_AUTH_USERS_FILE: /run/secrets/dockercd_web_users
+      DOCKERCD_WEB_CONTROLLER_URL: http://dockercd:8080
+      DOCKERCD_WEB_CONTROLLER_LABEL: Development
+      DOCKERCD_WEB_ENVIRONMENT: Development
+    secrets:
+      - source: dockercd_web_users
+        target: dockercd_web_users
+        mode: 0444
+    depends_on:
+      dockercd:
+        condition: service_healthy
+    networks:
+      - dockercd-development-net
 
 volumes:
-  dockercd-state:
+  dockercd-development-state:
+
+secrets:
+  dockercd_presentation_registry:
+    file: ${DOCKERCD_PRESENTATION_REGISTRY_SECRET_FILE:?set an absolute host path to the controller presentation registry}
+  dockercd_web_users:
+    file: ${DOCKERCD_WEB_USERS_SECRET_FILE:?set an absolute host path to the Web user registry}
 
 networks:
-  dockercd-net:
-    external: true
+  dockercd-development-net:

@@ -78,7 +78,8 @@ reload is a later, separately reviewed operation.
 
 ## Consequences
 
-- Existing CLI and embedded UI behavior remain compatible and unchanged.
+- Existing CLI and bearer-token API behavior remain compatible. The legacy
+  embedded UI was retired under [ADR 0005](0005-retire-legacy-embedded-controller-ui.md).
 - The future Web container can receive only a bounded reader identity and has
   no route to Docker, Git, SQLite, or a legacy administrator credential.
 - SSE is excluded from the first live integration. A later stream must filter

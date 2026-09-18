@@ -1,9 +1,7 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -42,25 +40,13 @@ func runAppRollback(serverAddr, name, sha string) error {
 	}
 	defer resp.Body.Close()
 
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MiB max
-
-	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("application %q not found", name)
-	}
-	if resp.StatusCode == http.StatusBadRequest {
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		_ = json.Unmarshal(data, &errResp)
-		return fmt.Errorf("bad request: %s", errResp.Error)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("rollback failed (HTTP %d): %s", resp.StatusCode, string(data))
+	if err := responseError(resp); err != nil {
+		return err
 	}
 
 	var result app.SyncResult
-	if err := json.Unmarshal(data, &result); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+	if err := decodeResponse(resp.Body, &result); err != nil {
+		return err
 	}
 
 	fmt.Printf("Rollback result: %s\n", result.Result)
@@ -77,5 +63,5 @@ func runAppRollback(serverAddr, name, sha string) error {
 		fmt.Printf("Error:           %s\n", result.Error)
 	}
 
-	return nil
+	return syncResultError("rollback", result)
 }

@@ -53,6 +53,10 @@ separate work.
    clients use a stable controller endpoint and do not select or retry writes
    across replicas. Existing cluster support remains untouched and outside this
    ADR's HA assurances.
+8. **A many-controller Web workspace is deferred.** It may become a
+   server-side federation layer with a distinct scoped credential and explicit
+   controller identity for each connection. It is not part of v1.0 and cannot
+   use a shared administrator token or browser-to-controller credential path.
 
 ## Consequences
 
@@ -75,8 +79,9 @@ separate work.
 - A no-authored-JavaScript browser UI uses navigation and forms for interaction
   rather than SPA-style client updates. Live updates require an explicit future
   design decision; the initial experience uses deliberate refresh behavior.
-- The embedded UI remains temporarily for compatibility and must be retired
-  only after feature, workflow, and authorization parity are proven.
+- The embedded UI was retired under [ADR 0005](0005-retire-legacy-embedded-controller-ui.md).
+  The separate Web service is the supported browser surface; CLI/API preserve
+  v1.0 recovery operations.
 - Controller-enforced capability scopes, identity propagation, and audit
   attribution must be implemented before the Web UI gets live credentials.
   This ADR does not weaken current controls.

@@ -31,7 +31,7 @@ No Kubernetes. No agents. No complex setup.
 ### Reconciliation
 - **Desired vs live diff** — parse compose files from Git, compare against live Docker state, compute field-level diffs (image, env, ports, volumes, labels)
 - **Automated sync** — deploy immediately on drift when `automated: true`
-- **Manual sync** — trigger via UI, API, or CLI
+- **Manual sync** — trigger through the authenticated API or CLI
 - **Dry-run mode** — compute and display diffs without deploying
 - **Sync timeout** — configurable per-application (default 5 min)
 
@@ -65,16 +65,15 @@ No Kubernetes. No agents. No complex setup.
 - **Per-service** — aggregated from all containers of the service
 - **Per-app** — sum across all services
 
-### Web UI
-- **Application dashboard** — all apps with sync status and health at a glance
-- **3-column resource tree** — Application → Services → Containers with SVG bezier connectors
-- **Health-colored nodes** — green (healthy), yellow (progressing), red (degraded/unknown)
-- **Drill-down tabs** — Overview · Services · Metrics · Diff · History · Events per application
-- **Live container logs** — real-time log streaming per service
-- **Sync history timeline** — every sync attempt with result, diff, and duration
-- **Real-time updates** — Server-Sent Events (SSE) push status changes to the UI instantly
-- **Manual controls** — sync, rollback, adopt unmanaged containers
-- **Auto-refresh** — configurable 5/10/15/30/60 minute intervals (persisted to localStorage)
+### Web presentation
+- **Separate, unprivileged service** — `dockercd-web` is a server-rendered,
+  read-only monitoring surface using a scoped presentation API
+- **Local-password bootstrap** — opaque Web sessions and dedicated scoped
+  controller credentials; browsers never receive a controller bearer
+- **Honest operational evidence** — controller-authored freshness, bounded
+  status, and activity; no invented telemetry or browser mutations in v1.0
+- **No authored JavaScript** — semantic HTML, CSS, and server rendering with
+  explicit refresh behavior
 
 ### REST API
 ```
@@ -129,32 +128,22 @@ dockercd version                        # print version
 - **WAL mode** — write-ahead logging for safe concurrent access
 - **Embedded migrations** — schema versioned and applied automatically at startup
 
-### Install Models
+### V1 deployment model
 
-#### Standalone
-```bash
-./install.sh --mode standalone
-```
-Single `dockercd` container. GitOps source is GitHub. Minimal footprint.
+DockerCD v1 uses a deliberately small, paired deployment: one privileged
+`dockercd` control plane and one unprivileged, read-only `dockercd-web`
+presentation service. The checked-in Compose deployment is for the separately
+configured development pair. A separately provisioned personal pair manages
+the Signal application only; it must have distinct state, credentials, secret
+files, network, and manifest source. Those are configuration boundaries only
+when both controllers share one Docker daemon: Docker socket access is
+host-admin equivalent. Use separate Docker hosts or daemons for a true
+security boundary.
 
-#### Bundle
-```bash
-./install.sh --mode bundle
-```
-Full self-hosted GitOps stack: **dockercd + Docker Registry**.
-Infrastructure is managed as a single `infra` application (registry). GitOps source is GitHub — push to main → auto-deploy in ~3 minutes.
-
-Registered applications:
-
-| App | Services | Source |
-|-----|----------|--------|
-| `dockercd` | dockercd | GitHub (`automated: false`) |
-| `infra` | registry | GitHub (`automated: true`) |
-
-#### Full
-```bash
-./install.sh --mode full
-```
+The bundle, registry, monitoring, bootstrap, cluster, and controller
+self-management examples are intentionally not part of v1. See
+[ADR 0006](docs/adr/0006-minimal-v1-deployment.md) and the
+[deployment guide](deploy/README.md).
 
 ---
 
@@ -186,7 +175,9 @@ Keeping these repositories separate means:
 - Teams propose infrastructure changes via pull requests against the config repo
 - Two environments (dev/prod) can each track different branches of the same config repo
 
-The [Getting Started guide](docs/getting-started.md) walks through both standalone and bundle deployment architectures with step-by-step instructions.
+The [Getting Started guide](docs/getting-started.md) covers controller
+operation and application registration. Follow the
+[deployment guide](deploy/README.md) for the paired development instance.
 
 ---
 
@@ -240,16 +231,20 @@ cd ..
 ### 2. Install
 
 ```bash
-export DOCKERCD_API_TOKEN="$(openssl rand -base64 48)"
+cp deploy/.env.example deploy/.env
+# Provision the two local secret files referenced by deploy/.env.
 ./install.sh
-# Select: standalone, bundle, or full
 ```
 
-### 3. Open the UI
+### 3. Verify the controller
 
+```bash
+dockercd app list --server http://127.0.0.1:18080
 ```
-http://localhost:8080/ui/
-```
+
+The paired Web service listens on `http://127.0.0.1:18092`; make it network
+reachable only through an explicitly configured TLS reverse proxy. The
+controller does not serve a browser UI.
 
 ---
 
@@ -273,10 +268,11 @@ All configuration uses the `DOCKERCD_` prefix:
 | `DOCKERCD_NOTIFICATION_WEBHOOK_URL` | *(empty)* | Generic webhook notifications |
 | `DOCKERCD_AGE_KEY_FILE` | *(empty)* | Path to age private key for secret decryption |
 
-Deployment Compose files publish the UI only on `127.0.0.1` and require
-`DOCKERCD_API_TOKEN`. Keep the service loopback-bound or place a TLS-terminating,
-authenticated reverse proxy in front of it; do not expose the built-in HTTP API
-directly to an untrusted network.
+Deployment Compose files publish the **controller API** only on `127.0.0.1`.
+Keep it loopback-bound or place a TLS-terminating, authenticated reverse proxy
+in front of it; do not expose the controller API directly to an untrusted
+network. Deploy `dockercd-web` separately for browser monitoring; it is the
+only supported browser presentation surface.
 
 ---
 

@@ -39,9 +39,13 @@ func runAppDiff(serverAddr, name string, outputJSON bool) error {
 	}
 	defer resp.Body.Close()
 
+	if err := responseError(resp); err != nil {
+		return err
+	}
+
 	var diff app.DiffResult
-	if err := json.NewDecoder(resp.Body).Decode(&diff); err != nil {
-		return fmt.Errorf("decoding response: %w", err)
+	if err := decodeResponse(resp.Body, &diff); err != nil {
+		return err
 	}
 
 	if outputJSON {
