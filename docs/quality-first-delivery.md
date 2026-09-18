@@ -278,3 +278,24 @@ boundary. A release without that evidence is incomplete, not merely delayed.
 - `go test ./...`, `go vet ./...`, and `go test -race ./...` passed in both
   `src/` and `web/`. Existing `dockercd`, `dockercd-my-apps`, and `signal`
   containers were observed healthy and were not modified.
+
+## Local paired-deployment execution evidence (2026-09-17)
+
+- Committed controller/Web source revision `0a1489c` was built locally as
+  `dockercd:v1-personal-paired` and `dockercd-web:v1-personal-paired`.
+  The personal migration source revision is `ccdff54` on
+  `v1/personal-paired-signal`; it is not merged into legacy `main`.
+- Separate local controller tokens, digest-only presentation registries, and
+  Web-user registries were provisioned with restricted filesystem permissions
+  outside either repository. The browser receives no controller bearer.
+- The new development pair (`18080` / `18092`) and personal pair (`19080` /
+  `19092`) started on distinct Compose networks and state volumes. Health and
+  readiness endpoints, authenticated scoped-fleet reads, and unauthenticated
+  Web sign-in redirects returned successful expected responses for both.
+- The personal controller registered Signal from the migration branch and
+  observed its network/revision drift in manual mode. It did not sync, prune,
+  self-heal, restart, or alter Signal. Signal remained running with restart
+  count zero and its existing `lrp-investments_lrp-config` volume mounted at
+  `/app/config`.
+- The legacy `dockercd`, `dockercd-my-apps`, Signal, and other legacy
+  application containers remain running for deliberate later retirement.

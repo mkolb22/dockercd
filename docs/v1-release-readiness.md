@@ -19,7 +19,7 @@ record are complete.
 | Code quality, refactoring, and performance review | In progress | Complete focused cleanup of every v1 release tranche; preserve behavior with regression tests; record independent review and hot-path bounded-work/performance evidence. No unresolved P0/P1 and no undocumented P2 finding. |
 | Backup, migrations, and recovery | Partially evidenced | Fresh backup/restore drill against a disposable copy, migration upgrade test, and recovery runbook. |
 | Separate read-only Web monitoring | Implemented foundation | Owner workflow/accessibility validation, local-auth deployment proof, and scoped-controller failure/restart evidence. |
-| Minimal paired deployment | Source/configuration complete; no live cutover | Compose-render proof and high-reasoning review are recorded. Before any personal cutover: verify Signal backup/restore, pin or pause the existing `main`-tracking controller, and use a separate Docker daemon/host if development/personal security isolation is required. |
+| Minimal paired deployment | Parallel pairs deployed; personal Signal observation-only | Both new pairs pass controller health/ready, scoped-fleet, and Web sign-in-route checks. Before personal cutover: verify Signal backup/restore, pin or pause the existing `main`-tracking controller, validate interactive login, and use a separate Docker daemon/host if development/personal security isolation is required. |
 | Legacy embedded UI removal | Source retirement implemented | Record replacement-workflow proof, tested image digest/binary and route evidence, release notes, and final release-owner approval. See [ADR 0005](adr/0005-retire-legacy-embedded-controller-ui.md). |
 
 ## Decisions to close before deletion work

@@ -130,6 +130,11 @@ presentation provides browser monitoring; authenticated CLI/API provide v1.0
 mutation and recovery. SwiftUI remains an independent presentation client, not
 a prerequisite for controller UI retirement.
 
+V1.1 will evaluate native TLS termination in `dockercd-web` for a fully local
+two-container MacBook/server deployment. It must use separately mounted
+certificate/key files and preserve the private controller API boundary; it is
+not permission to expose the controller or add an HTTP compatibility mode.
+
 ## Future federated Web workspace: many control planes, one presentation
 
 **Recommendation:** support this as a post-v1.0 capability. A future

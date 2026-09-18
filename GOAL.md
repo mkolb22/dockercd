@@ -113,6 +113,8 @@ The detailed admission criteria and deferred-item record live in
   operation cancellation, and replay-safe retries.
 - OIDC/SSO, controller credential reload/rotation, and multi-instance Web
   session storage.
+- Native TLS termination in `dockercd-web` (planned for V1.1), including
+  certificate lifecycle and direct network browser exposure.
 - SSE/live browser updates, retained metrics/charts, broad log streaming,
   advanced desired topology, deep diffs, and service inspection views.
 - Swift macOS client implementation.

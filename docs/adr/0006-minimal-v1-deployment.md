@@ -75,6 +75,7 @@ repository owns only its development platform deployment.
   network, volume, or controller cutover. This repository cleanup changes
   files only; it does not itself stop or remove existing containers, networks,
   volumes, Git repositories, or sync history.
-- A TLS reverse proxy remains the deployment owner's responsibility when the
-  Web UI is accessed over a network. The Compose file intentionally publishes
-  only loopback ports.
+- V1 uses an operator-managed TLS reverse proxy when the Web UI is accessed
+  over a network. The Compose file intentionally publishes only loopback
+  ports. Native Web TLS is explicitly deferred to the V1.1 backlog item and
+  must not alter controller API exposure.
