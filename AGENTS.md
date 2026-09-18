@@ -4,8 +4,8 @@
 
 DockerCD is a Go service for GitOps-style Docker Compose deployment. The
 service source and its Go module are in `src/`; deployment examples are in
-`deploy/`; documentation is in `docs/`; root-level Node dependencies support
-repository tooling rather than the Go daemon.
+`deploy/`; documentation is in `docs/`. The v0.1 repository has no active
+root-level Node dependency surface; retired tooling is archive-only.
 
 Read `GOAL.md` before beginning the security-and-performance remediation work.
 Use `security_best_practices_report.md` as the source of the findings and their
@@ -39,9 +39,9 @@ go test -race ./...
 ```
 
 Run targeted tests while iterating; run the full commands before handoff. For
-dependency remediation, also run `govulncheck ./...` from `src/` and `npm audit
---omit=dev` from the repository root, then report residual findings instead of
-suppressing them.
+dependency remediation, also run `govulncheck ./...` from `src/`. Run
+`npm audit --omit=dev` only when the repository has an active tracked Node
+dependency surface, then report residual findings instead of suppressing them.
 
 ## Code review rules
 

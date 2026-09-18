@@ -107,7 +107,7 @@ shared by all clients. Authorization must express a capability, not a screen.
 | `application:sync` | Sync and rollback |
 | `application:write` | Create and edit application definitions |
 | `application:delete` | Remove an application record |
-| `controller:admin` | Controller-wide configuration and cluster settings |
+| `controller:admin` | Controller-wide configuration (cluster settings are not a v0.1 surface) |
 
 The browser container must not translate an authenticated human into one broad
 shared administrator credential. In the future security phase it should either
@@ -183,11 +183,10 @@ owner validation.
 
 ## Existing and future clustered control plane
 
-The repository already contains optional active/passive cluster code and a
-two-node deployment example with mTLS. It remains supported as documented but
-is not changed or relied upon by this presentation architecture. In particular,
-its existence does not prove fencing, split-brain prevention, or a single
-Docker-write authority under every failure mode.
+Cluster mode is removed from the v0.1 product surface under ADR 0008. Future
+active/passive design and deployment requires a separate reviewed ADR; it is
+not part of this presentation architecture and must not be represented as a
+proven fencing, split-brain prevention, or Docker-write-authority design.
 
 Any future HA hardening or redesign must create a dedicated design that covers
 at least:

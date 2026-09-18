@@ -1,8 +1,13 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
 func validConfig() Config {
@@ -28,6 +33,51 @@ func TestValidate_GitAllowedHostsRequiredAndWellFormed(t *testing.T) {
 	cfg.GitAllowedHosts = []string{"github.com/path"}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected malformed Git allowlist host to be rejected")
+	}
+}
+
+func TestRejectRetiredClusterInputsFromConfig(t *testing.T) {
+	for _, body := range []string{
+		"cluster: {}\n", "cluster: null\n", "cluster: false\n",
+		"cluster:\n  enabled: false\n", "ClUsTeR.enabled: false\n",
+	} {
+		v := viper.New()
+		v.SetConfigType("yaml")
+		if err := v.ReadConfig(strings.NewReader(body)); err != nil {
+			t.Fatal(err)
+		}
+		if err := rejectRetiredClusterInputs(v, nil); err == nil {
+			t.Fatalf("expected retired cluster config %q to fail", body)
+		}
+	}
+	v := viper.New()
+	v.SetConfigType("yaml")
+	if err := v.ReadConfig(strings.NewReader("clustered: false\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := rejectRetiredClusterInputs(v, nil); err != nil {
+		t.Fatalf("unrelated key rejected: %v", err)
+	}
+}
+
+func TestRejectRetiredClusterInputsFromEnvironment(t *testing.T) {
+	for _, env := range []string{"DOCKERCD_CLUSTER=", "DOCKERCD_CLUSTER_ENABLED=false", "dockercd_cluster_peer_addr="} {
+		if err := rejectRetiredClusterInputs(viper.New(), []string{env}); err == nil {
+			t.Fatalf("expected retired environment %q to fail", env)
+		}
+	}
+	if err := rejectRetiredClusterInputs(viper.New(), []string{"DOCKERCD_CLUSTERED=false"}); err != nil {
+		t.Fatalf("unrelated environment rejected: %v", err)
+	}
+}
+
+func TestRejectRetiredClusterConfigFileDottedEmptyMap(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("cluster.enabled: {}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := rejectRetiredClusterConfigFile(path); err == nil {
+		t.Fatal("expected dotted empty cluster key to fail")
 	}
 }
 

@@ -2564,8 +2564,8 @@ presentation is a separate Go container that uses server-rendered
 authored JavaScript or TypeScript application. The currently embedded web UI
 is a compatibility surface until feature and authorization parity are proven.
 
-The repository's existing optional active/passive cluster support is outside
-this presentation decision and remains unchanged. Any future HA hardening must
+The repository's historical active/passive cluster support is archived under
+ADR 0008 and outside this presentation decision. Any future HA hardening must
 establish one active Docker-write authority and robust split-brain prevention
 before it can be considered safe.
 

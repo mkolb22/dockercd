@@ -58,7 +58,7 @@ mount.
 | Browser data | Web service calls the versioned API only | Web service calls the versioned API only |
 | Authorization | Existing controller configuration | Capability-scoped, delegated user identity at the controller |
 | Docker/Git/state access | Control plane only | Control plane only |
-| Cluster topology | Optional active/passive implementation exists | Existing behavior remains untouched; HA hardening and guarantees are deferred |
+| Cluster topology | Removed from v0.1 product surface | HA design, hardening, and guarantees remain deferred in the backlog; see ADR 0008 |
 
 The controller-embedded browser UI was retired under
 [ADR 0005](adr/0005-retire-legacy-embedded-controller-ui.md). The separate
@@ -427,8 +427,9 @@ each mutation workflow tranche.
 
 The following require separate approval and are intentionally excluded:
 
-- changes to the existing active/passive cluster behavior, or HA hardening for
-  membership, leader election, fencing, replication, promotion, and failover;
+- active/passive cluster behavior or HA hardening for membership, leader
+  election, fencing, replication, promotion, and failover. Cluster mode is
+  removed from the v0.1 product surface; a future design requires a new ADR;
 - browser-side runtime or live-update technology;
 - external identity provider and credential-exchange implementation;
 - public exposure of the control-plane API; and

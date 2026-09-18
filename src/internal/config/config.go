@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mkolb22/dockercd/internal/cluster"
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 // InsecureTLSDevelopmentAcknowledgement is the exact value required before a
@@ -92,9 +92,6 @@ type Config struct {
 	// ManifestRevision is the git branch/tag/SHA to track in ManifestRepoURL.
 	// Defaults to "main".
 	ManifestRevision string `mapstructure:"manifest_revision"`
-
-	// Cluster holds the active-passive cluster configuration.
-	Cluster cluster.ClusterConfig `mapstructure:"cluster"`
 }
 
 // Validate checks the configuration for correctness.
@@ -140,9 +137,6 @@ func (c *Config) Validate() error {
 		if err := tlsHost.Validate(); err != nil {
 			return fmt.Errorf("invalid tls[%d]: %w", i, err)
 		}
-	}
-	if err := c.Cluster.Validate(); err != nil {
-		return fmt.Errorf("invalid cluster configuration: %w", err)
 	}
 	return nil
 }
@@ -262,6 +256,12 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("reading config: %w", err)
 		}
 	}
+	if err := rejectRetiredClusterInputs(v, os.Environ()); err != nil {
+		return nil, err
+	}
+	if err := rejectRetiredClusterConfigFile(v.ConfigFileUsed()); err != nil {
+		return nil, err
+	}
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
@@ -273,4 +273,49 @@ func Load() (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// rejectRetiredClusterInputs fails closed before configuration is decoded or
+// startup opens state, Docker, or listeners. Viper does not enumerate removed
+// AutomaticEnv keys, and its individual presence helpers differ for null and
+// empty mapping values, so both config mechanisms are checked.
+func rejectRetiredClusterInputs(v *viper.Viper, environ []string) error {
+	for _, entry := range environ {
+		key, _, _ := strings.Cut(entry, "=")
+		upper := strings.ToUpper(key)
+		if upper == "DOCKERCD_CLUSTER" || strings.HasPrefix(upper, "DOCKERCD_CLUSTER_") {
+			return fmt.Errorf("cluster configuration is not supported in v0.1; remove %s", key)
+		}
+	}
+	if v.InConfig("cluster") {
+		return fmt.Errorf("cluster configuration is not supported in v0.1; remove the cluster key")
+	}
+	for _, key := range v.AllKeys() {
+		lower := strings.ToLower(key)
+		if lower == "cluster" || strings.HasPrefix(lower, "cluster.") {
+			return fmt.Errorf("cluster configuration is not supported in v0.1; remove the cluster key")
+		}
+	}
+	return nil
+}
+
+func rejectRetiredClusterConfigFile(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading configuration: %w", err)
+	}
+	var document map[string]any
+	if err := yaml.Unmarshal(raw, &document); err != nil {
+		return fmt.Errorf("reading configuration: %w", err)
+	}
+	for key := range document {
+		key = strings.ToLower(strings.TrimSpace(key))
+		if key == "cluster" || strings.HasPrefix(key, "cluster.") {
+			return fmt.Errorf("cluster configuration is not supported in v0.1; remove the cluster key")
+		}
+	}
+	return nil
 }
