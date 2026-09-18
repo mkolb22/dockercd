@@ -1,47 +1,52 @@
-# Session handoff
+# Session handoff — 2026-09-18
 
-## Current state
+## Safe stopping point
 
-The controller and the separate `dockercd-web` presentation service now share
-a capability-scoped, read-only contract. The Web service has local-password
-bootstrap support, but no existing deployment was changed while preparing it.
-No container was started, stopped, replaced, or deployed in this session.
+Last committed and pushed revision: `70a2140` (`Design scoped capacity observability for v0.1`).
 
-The latest completed tranche is controller-authored presentation freshness:
+The working tree has an **incomplete, uncommitted, undeployed** implementation of ADR 0007. Do not commit, push, build, or deploy it as-is. Development and personal paired deployments remain on the prior reviewed image. Controllers remain healthy. Signal and its external data volume were not recreated, restarted, or modified.
 
-- controller responses identify when they were generated;
-- observed health is explicitly `complete` or `unavailable`, never inferred;
-- the Web UI displays controller response time rather than local browser time;
-- frozen controller/Web contract fixtures protect the wire format; and
-- the tranche has passed an independent high-reasoning review.
+## Completed and committed
 
-See [ADR 0004](adr/0004-presentation-read-freshness-metadata.md), the
-[presentation contract](presentation-integration-contract.md), and
-[quality evidence](quality-first-delivery.md).
+- Scoped control-plane/Web architecture and local-password Web session boundary.
+- Legacy embedded controller UI retirement and prior live-UX correction.
+- v0.1 scope and roadmap: [GOAL](../GOAL.md), [ADR 0007](adr/0007-scoped-capacity-and-controller-health.md), [visual design](environment-control-path-design.md), and [iterations](release-iterations.md).
 
-## Safe takeover checklist
+## Uncommitted implementation
 
-1. Start from the pushed `main` revision and review `git status --short`.
-2. Do not place passwords, controller bearers, Git tokens, or secret files in
-   Git, shell arguments, environment variables, logs, or screenshots.
-3. Keep the controller private and the Web container unprivileged. Do not add
-   Docker, Git, SQLite, source-cache, or broad administrator-token mounts to
-   `dockercd-web`.
-4. Before another presentation feature, update the contract/ADR first, add
-   controller and Web fixture coverage, run both module validation matrices,
-   and obtain the required independent review.
+The current tree adds `controller:status` and host-global `capacity:read` presentation routes/capabilities, database-only readiness, an aggregate capacity sampler, typed Web client/Fleet rendering, and removal of the obsolete fixture-only `/system` route/templates. It includes a first-pass five-second capacity cache and bounded per-container workers, but is not release-ready.
 
-## Next designed capability
+## Blocking review findings
 
-The next useful read-only capability is a resource-scoped desired-topology and
-diff *summary* for the live “Compare desired state” page. It must use separate
-capabilities, authorization before Git or Docker work, strict deadlines and
-concurrency limits, purpose-built redacted DTOs, and no raw Compose fields,
-logs, errors, secret values, or automatic mutation path.
+Independent high-reasoning review found no P0, but these remain open:
 
-Run validation from each module after a Go change:
+1. **P1:** Docker `Info` and `ContainerList` have no ADR-required 1 MiB response bound. List count does not bound labels/JSON bytes. Add a narrow bounded metadata adapter and oversized-response tests.
+2. **P1:** Add CPU baseline tests: first sample partial/CPU unavailable, second sample normalized current CPU, counter rollback rejection, and bounded stale-baseline pruning. Docker one-shot stats do not populate `PreCPUStats`.
+3. **P2:** Web currently ignores controller-authored sample age/order, observed-versus-eligible counts, partial/truncated/unavailable state, and invalid numbers. Enforce the ADR 15-second rule from `responseGeneratedAt - sampleCompletedAt`; reject future/inconsistent data.
+4. **P2:** Render database-unready, unavailable capability, and failed capacity as distinct named evidence. Do not hide capacity failures or show zeroes.
+5. **P2:** Add API authorization/redaction/cache tests, strict controller/Web JSON fixtures, inspector bounds/CPU tests, and Web state tests.
 
-```sh
-cd src && go test ./... && go vet ./... && go test -race ./...
-cd web && go test ./... && go vet ./... && go test -race ./...
-```
+Authorization direction and aggregate DTO allowlisting were reviewed as sound. Do not reuse broad administrator endpoints/tokens to shortcut this work.
+
+## Required completion sequence
+
+1. Finish bounded metadata/capacity collection and test cache/failure behavior.
+2. Complete Web freshness/completeness/failure-state rendering.
+3. Add controller, contract, inspector, and Web regression coverage.
+4. Run from both modules:
+
+   ```sh
+   cd src && go test ./... && go vet ./... && go test -race ./...
+   cd web && go test ./... && go vet ./... && go test -race ./...
+   ```
+
+5. Obtain a fresh high-reasoning review; resolve P0/P1 and document P2.
+6. Commit/push only when clean. Then explicitly update local credential registries to grant `controller:status` and `capacity:read` without printing or committing secrets, build matching images, and deploy both paired controller/Web services. Do not touch Signal.
+
+## Safety constraints
+
+- Never log or commit tokens, passwords, registries, or secret values.
+- Keep the controller private; never give `dockercd-web` Docker, Git, SQLite, source-cache, or admin-token access.
+- `capacity:read` is host-global aggregate authority; it never returns workload identities, configuration, logs, or per-container values.
+- Current capacity is not a deployment-admission decision.
+- Do not restart/migrate Signal or retire legacy containers without the separate backup/cutover process.
