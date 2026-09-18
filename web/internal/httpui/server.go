@@ -50,24 +50,25 @@ type navigationItem struct {
 }
 
 type pageData struct {
-	Title          string
-	Page           string
-	Section        string
-	Navigation     []navigationItem
-	View           presentation.ViewContext
-	Fleet          presentation.Fleet
-	Applications   []presentation.Application
-	Application    *presentation.Application
-	Activity       []presentation.Event
-	RecentActivity []presentation.Event
-	Query          string
-	StateFilter    string
-	Notice         string
-	Action         string
-	RefreshPath    string
-	Subject        string
-	CSRF           string
-	LoginError     string
+	Title             string
+	Page              string
+	Section           string
+	Navigation        []navigationItem
+	View              presentation.ViewContext
+	Fleet             presentation.Fleet
+	Applications      []presentation.Application
+	Application       *presentation.Application
+	Activity          []presentation.Event
+	RecentActivity    []presentation.Event
+	ActivityAvailable bool
+	Query             string
+	StateFilter       string
+	Notice            string
+	Action            string
+	RefreshPath       string
+	Subject           string
+	CSRF              string
+	LoginError        string
 }
 
 func New(source presentation.Source) *Server {
@@ -177,6 +178,7 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) {
 	// the timestamp shown for the primary page evidence.
 	view := source.ViewContext()
 	activity, activityErr := source.Activity(r.Context())
+	activityAvailable := activityErr == nil
 	if activityErr != nil && !presentation.IsFeatureUnavailable(activityErr) {
 		s.unavailable(w)
 		return
@@ -187,7 +189,7 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, r, "fleet", pageData{
 		Title: "Fleet · dockercd", Page: "fleet", View: view, Fleet: fleet,
-		Applications: fleet.Applications, Activity: activity, RecentActivity: recentActivity,
+		Applications: fleet.Applications, Activity: activity, RecentActivity: recentActivity, ActivityAvailable: activityAvailable,
 		Notice: r.URL.Query().Get("notice"), RefreshPath: refreshPath(r),
 	})
 }
@@ -233,8 +235,12 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		s.sourceError(w, r, err)
 		return
 	}
-	if !source.ViewContext().Fixture {
-		s.notFound(w, r)
+	view := source.ViewContext()
+	if !view.Fixture {
+		// Host information is deliberately outside the v1 scoped presentation
+		// contract. Keep a direct or bookmarked visit honest and useful instead
+		// of rendering a fixture-specific 404 from primary product navigation.
+		s.render(w, r, "system-limited", pageData{Title: "System · dockercd", Page: "system", View: view, RefreshPath: refreshPath(r)})
 		return
 	}
 	fleet, err := source.Fleet(r.Context())
@@ -242,7 +248,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		s.unavailable(w)
 		return
 	}
-	s.render(w, r, "system", pageData{Title: "System · dockercd", Page: "system", View: source.ViewContext(), Fleet: fleet, RefreshPath: refreshPath(r)})
+	s.render(w, r, "system", pageData{Title: "System · dockercd", Page: "system", View: view, Fleet: fleet, RefreshPath: refreshPath(r)})
 }
 
 func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
@@ -437,7 +443,7 @@ func singleFormValue(form url.Values, name string) (string, bool) {
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, data pageData) {
-	data.Navigation = navigation(data.Page)
+	data.Navigation = navigation(data.Page, data.View.Fixture)
 	s.addSessionContext(r, &data)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	setSecurityHeaders(w)
@@ -453,7 +459,7 @@ func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := pageData{Title: "Not found · dockercd", View: source.ViewContext(), RefreshPath: "/fleet"}
-	data.Navigation = navigation(data.Page)
+	data.Navigation = navigation(data.Page, data.View.Fixture)
 	s.addSessionContext(r, &data)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	setSecurityHeaders(w)
@@ -525,13 +531,15 @@ func isFixtureAction(section string) bool {
 	return section == "sync" || section == "rollback" || section == "edit" || section == "delete"
 }
 
-func navigation(active string) []navigationItem {
+func navigation(active string, fixture bool) []navigationItem {
 	items := []navigationItem{
 		{Label: "Fleet", Path: "/fleet"},
 		{Label: "Applications", Path: "/applications"},
 		{Label: "Activity", Path: "/activity"},
-		{Label: "System", Path: "/system"},
 		{Label: "Settings", Path: "/settings"},
+	}
+	if fixture {
+		items = append(items[:3], append([]navigationItem{{Label: "System", Path: "/system"}}, items[3:]...)...)
 	}
 	for index := range items {
 		items[index].Active = strings.EqualFold(items[index].Label, active)

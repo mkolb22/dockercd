@@ -88,7 +88,7 @@ func TestUnavailableSourceProviderFailsClosedWithoutFixtureFallback(t *testing.T
 	}
 }
 
-func TestLiveModeKeepsIndependentCapabilitiesAndHidesFixtureActions(t *testing.T) {
+func TestLiveModeKeepsIndependentCapabilitiesAndHidesFixtureOnlyJourneys(t *testing.T) {
 	view := presentation.ViewContext{Controller: "My Apps", Environment: "Scoped session", Freshness: "Explicit refresh", Connection: presentation.State{Label: "Scoped session", Tone: "mint", Glyph: "✓"}}
 	fleetOnly := &scopedTestSource{
 		view: view, fleet: presentation.Fleet{Applications: []presentation.Application{{Name: "signal", Health: presentation.State{Label: "Healthy", Tone: "mint", Glyph: "✓"}}, {Name: "controller-alert", Health: presentation.State{Label: "Degraded", Tone: "coral", Glyph: "!"}}}, Attention: []presentation.Application{{Name: "controller-alert", Health: presentation.State{Label: "Degraded", Tone: "coral", Glyph: "!"}}}},
@@ -100,6 +100,9 @@ func TestLiveModeKeepsIndependentCapabilitiesAndHidesFixtureActions(t *testing.T
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "Scoped session") || !strings.Contains(recorder.Body.String(), "controller-alert") || strings.Contains(recorder.Body.String(), "Fixture mode") || strings.Contains(recorder.Body.String(), "9b84c0d1") || strings.Contains(recorder.Body.String(), "edge-api needs review") {
 		t.Fatalf("fleet-only scoped page was not truthful and available: %d %s", recorder.Code, recorder.Body.String())
 	}
+	if !strings.Contains(recorder.Body.String(), "Activity unavailable") || strings.Contains(recorder.Body.String(), "The controller returned no authorized events") {
+		t.Fatalf("fleet-only scoped page misrepresented unavailable activity: %s", recorder.Body.String())
+	}
 
 	appOnly := &scopedTestSource{
 		view: view, fleetErr: errors.New("fleet scope must not be called"),
@@ -110,9 +113,14 @@ func TestLiveModeKeepsIndependentCapabilitiesAndHidesFixtureActions(t *testing.T
 	for _, target := range []string{"/activity", "/applications/signal"} {
 		recorder = httptest.NewRecorder()
 		server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
-		if recorder.Code != http.StatusOK || appOnly.fleetCalls != 0 || strings.Contains(recorder.Body.String(), "Manage fixture") || strings.Contains(recorder.Body.String(), "Review sync") {
+		if recorder.Code != http.StatusOK || appOnly.fleetCalls != 0 || strings.Contains(recorder.Body.String(), "Manage fixture") || strings.Contains(recorder.Body.String(), "Review sync") || strings.Contains(recorder.Body.String(), "Compare desired state") || strings.Contains(recorder.Body.String(), `href="/system"`) {
 			t.Fatalf("app-only request %s improperly required fleet or exposed fixture action: %d calls=%d body=%s", target, recorder.Code, appOnly.fleetCalls, recorder.Body.String())
 		}
+	}
+	recorder = httptest.NewRecorder()
+	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/system", nil))
+	if recorder.Code != http.StatusOK || appOnly.fleetCalls != 0 || !strings.Contains(recorder.Body.String(), "Host details are not in this session.") || strings.Contains(recorder.Body.String(), "That fixture page does not exist.") {
+		t.Fatalf("live system route was not an honest scoped boundary: %d %s", recorder.Code, recorder.Body.String())
 	}
 	recorder = httptest.NewRecorder()
 	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/applications/signal/deploy", nil))
@@ -269,6 +277,38 @@ func TestActivityExplainsTheBoundedLiveIntegrationPath(t *testing.T) {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("activity view omitted %q: %s", expected, body)
 		}
+	}
+}
+
+func TestLiveActivityExplainsAnEmptyScopedWindow(t *testing.T) {
+	view := presentation.ViewContext{Controller: "Personal", Environment: "Personal", Freshness: "Controller response", Connection: presentation.State{Label: "Scoped session", Tone: "mint", Glyph: "✓"}}
+	source := &scopedTestSource{view: view}
+	server := NewWithSourceProvider(sourceProviderFunc(func(context.Context, *http.Request) (presentation.Source, error) { return source, nil }))
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/activity", nil))
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "No authorized changes in this window") || strings.Contains(recorder.Body.String(), "Fixture mode") {
+		t.Fatalf("live empty activity did not render an honest state: %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestNotFoundUsesSessionSpecificCopy(t *testing.T) {
+	view := presentation.ViewContext{Controller: "Personal", Environment: "Personal", Connection: presentation.State{Label: "Scoped session", Tone: "mint", Glyph: "✓"}}
+	server := NewWithSourceProvider(sourceProviderFunc(func(context.Context, *http.Request) (presentation.Source, error) {
+		return &scopedTestSource{view: view}, nil
+	}))
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/not-a-live-route", nil))
+	if recorder.Code != http.StatusNotFound || !strings.Contains(recorder.Body.String(), "That page is not available in this session.") || strings.Contains(recorder.Body.String(), "That fixture page does not exist.") {
+		t.Fatalf("live not-found copy was misleading: %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestFixtureNavigationRetainsSystem(t *testing.T) {
+	server := New(presentation.NewFixtureSource())
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/fleet", nil))
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `href="/system"`) {
+		t.Fatalf("fixture navigation lost its supported system route: %d %s", recorder.Code, recorder.Body.String())
 	}
 }
 
