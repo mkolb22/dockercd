@@ -19,6 +19,31 @@ or documented v0.1 acceptance gap. All other requests enter the
 > authenticated API and a least-privileged Web presentation, and gives
 > operators deterministic CLI/API recovery controls.
 
+## Active v0.1 Tranche: environment control path and capacity evidence
+
+ADR 0007 admits a paired, read-only controller/Web feature that lets an
+operator understand the control-plane state and current aggregate Docker
+pressure without restoring an administrator-token browser path.
+
+- The controller exposes only `controller:status` (process response plus
+  state-database readiness) and host-global aggregate `capacity:read`.
+- The Web Fleet view consumes both typed contracts to render the two-node
+  control path, controller-authored freshness, and CPU/memory/container sample
+  evidence. It must distinguish ready, unready, unavailable, partial,
+  truncated, stale, and malformed evidence; it must never silently substitute
+  zero values or browser-clock freshness.
+- The capacity collector must have bounded metadata/stat response bodies,
+  Docker-side list limits, fixed worker concurrency, deadlines, coalescing,
+  failure backoff, counter-baseline validation, and no disk/image/per-container
+  output. It is a current-pressure sample, never deployment admission proof.
+- The obsolete fixture-only System route/templates are removed as part of this
+  tranche. No new controller capability may be left without its typed Web
+  consumer, contract fixture, failure-path tests, and release evidence.
+
+This tranche remains **in progress**. It cannot be committed or deployed until
+the open P1/P2 findings in [SESSION_HANDOFF.md](docs/SESSION_HANDOFF.md) are
+resolved and an independent high-reasoning re-review is clean.
+
 ## Required v0.1 Features
 
 ### 1. Single-host GitOps control plane
