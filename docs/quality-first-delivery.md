@@ -319,3 +319,47 @@ boundary. A release without that evidence is incomplete, not merely delayed.
   personal `dockercd-web` containers were recreated; both login routes returned
   `200`, an unauthenticated personal System request redirected to sign-in, and
   neither controller nor Signal was recreated.
+
+## Scoped capacity and controller evidence deployment (2026-09-18)
+
+- Source revision `6d47dbc` includes the independently reviewed `c687dd9`
+  capacity/controller implementation. Controller image
+  `dockercd:6d47dbc` is `sha256:f2188abf5b4d919d7b7de18b2955f39f48bf78aa6691ea7f2a3164dd5e59a3d0`;
+  Web image `dockercd-web:6d47dbc` is
+  `sha256:3c5020b98e67e22ed71ecc6909c9a29b2eac92d44112d2a4b7ecf11a81a743ee`.
+- Each controller's ignored digest-only presentation registry was updated only
+  for its one matching Web audience credential, adding the read-only
+  `controller:status` and `capacity:read` capabilities. No registry, bearer,
+  password, or other secret value was printed or committed.
+- Both the development pair (`18080` / `18092`) and the personal pair
+  (`19080` / `19092`) were recreated from those exact images using their
+  existing state volumes. Rendered Compose evidence preserves loopback-only
+  host ports, separate networks, controller-only Docker socket access, and a
+  read-only Web service with all Linux capabilities dropped and
+  `no-new-privileges` enabled.
+- For each pair, the controller health endpoint returned `200`, an
+  unauthenticated request to the new presentation controller endpoint returned
+  `401`, the Web root returned a sign-in redirect (`303`), and the local
+  sign-in route returned `200`. Signal was separately observed `running`
+  and `healthy`; it was not recreated or modified.
+- A non-printing server-side integration check used each pair's one local Web
+  credential to call presentation capabilities, controller, and capacity. All
+  three calls returned `200`; the handshake advertised both new features and
+  the controller/capacity responses satisfied their frozen typed contracts.
+  The check did not log a token, password, registry, or response body.
+- Both deployed Web containers were inspected at runtime: each runs as
+  `65532:65532`, has a read-only root filesystem, drops `ALL` Linux
+  capabilities, enables `no-new-privileges`, and mounts only its own
+  `dockercd_web_users` secret. It has no Docker socket, controller registry,
+  Git, or state-volume mount.
+- The paired controllers return `404` for `/`, `/ui/`, and `/login`. The
+  deployed controller source has no legacy-static embed/asset references, and
+  the candidate image contains the controller executable while expected legacy
+  UI asset locations are absent. This is packaging and route evidence for the
+  embedded-UI retirement gate; replacement owner workflow and release-owner
+  approval remain required.
+- This is automated deployment and boundary evidence, not owner-authenticated
+  UX acceptance. The remaining tranche evidence is the signed-in Fleet to
+  controller/capacity drill-down, plus controlled controller-unready and
+  collector-failure rendering; it must be recorded without exposing local
+  password or controller credential material.

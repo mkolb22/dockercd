@@ -26,11 +26,14 @@ operator understand the control-plane state and current aggregate Docker
 pressure without restoring an administrator-token browser path.
 
 **Current status (2026-09-18):** implementation and the independent
-high-reasoning review are complete in `c687dd9`; the candidate is committed
-and pushed but has not yet been built or deployed to either paired environment.
-The remaining work is limited to least-privilege registry scope updates,
-paired deployment, and recorded owner-facing evidence. Signal remains outside
-this deployment step.
+high-reasoning review are complete in `c687dd9`; the deployed source revision
+is `6d47dbc`. Both paired environments run the matching local controller and
+Web images after their intended Web credentials received only
+`controller:status` and `capacity:read`. Automated health, authentication-
+boundary, loopback-login, image-identity, and Signal non-impact evidence is
+recorded in [quality-first-delivery.md](docs/quality-first-delivery.md).
+Owner-authenticated visual evidence and the remaining v0.1 release gates are
+still open. Signal remains outside this deployment step.
 
 - The controller exposes only `controller:status` (process response plus
   state-database readiness) and host-global aggregate `capacity:read`.
@@ -47,11 +50,11 @@ this deployment step.
   tranche. No new controller capability may be left without its typed Web
   consumer, contract fixture, failure-path tests, and release evidence.
 
-The implementation, validation, and independent-review gate for this tranche
-is complete in the working tree. It remains **undeployed** until it is
-committed, its deliberately scoped credentials are updated locally, and the
-paired controller/Web release evidence is recorded. The independent
-high-reasoning re-review found no P0, P1, or P2 findings.
+The implementation, validation, independent-review, image-build, and paired
+automated-deployment gates for this tranche are complete. The independent
+high-reasoning re-review found no P0, P1, or P2 findings. Interactive
+owner-facing evidence remains a release gate and is not implied by the
+automated checks.
 
 ### Active-tranche completion checklist
 

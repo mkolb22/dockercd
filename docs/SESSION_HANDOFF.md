@@ -2,13 +2,15 @@
 
 ## Safe stopping point
 
-Last committed and pushed revision: `c687dd9` (`Add scoped capacity and
-controller evidence`).
+Last deployed source revision: `6d47dbc` (`Update v0.1 deployment handoff`);
+the capacity/controller implementation itself is `c687dd9`.
 
-The repository has a **complete, reviewed, committed, undeployed**
-implementation of ADR 0007. Development and personal paired deployments
-remain on the prior reviewed image. Controllers remain healthy. Signal and its
-external data volume were not recreated, restarted, or modified.
+The repository has a **complete, reviewed, committed, and paired-deployed**
+implementation of ADR 0007. Development and personal paired deployments run
+the matching local `6d47dbc` image tags. Controllers remain healthy; the
+scoped endpoints reject unauthenticated calls; Web roots redirect to local
+sign-in and sign-in routes respond. Signal remains running and healthy; its
+container and external data volume were not recreated, restarted, or modified.
 
 ## Completed and committed
 
@@ -16,7 +18,7 @@ external data volume were not recreated, restarted, or modified.
 - Legacy embedded controller UI retirement and prior live-UX correction.
 - v0.1 scope and roadmap: [GOAL](../GOAL.md), [ADR 0007](adr/0007-scoped-capacity-and-controller-health.md), [visual design](environment-control-path-design.md), and [iterations](release-iterations.md).
 
-## Committed implementation ready for release-candidate deployment
+## Deployed implementation awaiting owner-facing evidence
 
 The current tree adds `controller:status` and host-global `capacity:read`
 presentation routes/capabilities, database-only readiness, an aggregate
@@ -37,17 +39,10 @@ mapping, and rendered drill-down/failure states. Full `test`, `vet`, and
 
 ## Required completion sequence
 
-1. Update local, ignored credential registries to grant only
-   `controller:status` and `capacity:read` to the intended Web subjects. Never
-   print or commit registries or credentials.
-2. Build matching controller/Web images and deploy the paired development and
-   personal services only after recording the tested revision. Do not touch
-   Signal data or restart its existing workload without the separate cutover
-   process.
-3. Run the paired owner workflow and record the rendered controller-evidence,
+1. Run the paired owner workflow and record the rendered controller-evidence,
    capacity-evidence, sign-in, controller-unready, and collector-failure
    states. Then continue the remaining v0.1 release gates.
-4. Re-run from both modules if the candidate changes:
+2. Re-run from both modules if the candidate changes:
 
    ```sh
    cd src && go test ./... && go vet ./... && go test -race ./...
