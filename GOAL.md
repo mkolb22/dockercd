@@ -27,13 +27,24 @@ pressure without restoring an administrator-token browser path.
 
 **Current status (2026-09-18):** implementation and the independent
 high-reasoning review are complete in `c687dd9`; the deployed source revision
-is `4488eec`. Both paired environments run the matching local controller and
-Web images after their intended Web credentials received only
+is `4488eec`, with deployment/security evidence recorded in `96f73bb`. Both
+paired environments run the matching local controller and Web images after
+their intended Web credentials received only
 `controller:status` and `capacity:read`. Automated health, authentication-
 boundary, loopback-login, image-identity, and Signal non-impact evidence is
 recorded in [quality-first-delivery.md](docs/quality-first-delivery.md).
 Owner-authenticated visual evidence and the remaining v0.1 release gates are
 still open. Signal remains outside this deployment step.
+
+The deferred active/passive implementation and inactive root Node tooling have
+been moved to clearly marked archive paths and legacy `cluster` configuration
+now fails closed during configuration loading. They are not active v0.1 code,
+runtime configuration, or image behavior. The next release gate is the
+[disposable, authenticated recovery drill](docs/recovery-drill-design.md): its
+design has passed an independent high-reasoning re-review with no remaining
+P0/P1 findings. Its CLI/API result contract and restoration-history allowance
+are documented; the drill must still be implemented and executed before it can
+count as evidence.
 
 - The controller exposes only `controller:status` (process response plus
   state-database readiness) and host-global aggregate `capacity:read`.
