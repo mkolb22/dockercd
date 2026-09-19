@@ -31,6 +31,18 @@ controller with a clean environment (`DOCKER_HOST`, `DOCKER_CONTEXT`, proxy
 variables, and Docker-config inheritance removed). It passes only the
 generated endpoint and credentials needed for that dedicated daemon.
 
+[`scripts/recovery-drill-preflight.sh`](../scripts/recovery-drill-preflight.sh)
+implements the no-side-effect first check. It requires an explicitly selected,
+reachable context and an explicit list of every context hosting a deployed
+pair. It compares the candidate's bounded daemon identity with each protected
+context (and the active context), rather than trusting endpoint strings; it
+also suppresses endpoint diagnostics and bounds noninteractive probes. It
+emits non-secret context/daemon identity evidence which the runner must
+revalidate immediately before creating its first object. Probe timeouts are
+restricted to one through sixty seconds and terminate direct helper processes
+before the client is hard-killed. Its mocked regression check is
+`scripts/recovery-drill-preflight-test.sh`.
+
 Every generated Docker object has both a unique, random `dockercd-drill-`
 prefix and a `com.dockercd.drill-run=<run-id>` label. Generated controller,
 Git fixture, workload, network, volume, and state objects use no fixed names,

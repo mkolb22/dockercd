@@ -43,8 +43,10 @@ runtime configuration, or image behavior. The next release gate is the
 [disposable, authenticated recovery drill](docs/recovery-drill-design.md): its
 design has passed an independent high-reasoning re-review with no remaining
 P0/P1 findings. Its CLI/API result contract and restoration-history allowance
-are documented; the drill must still be implemented and executed before it can
-count as evidence.
+are documented. A fail-closed dedicated-daemon preflight is implemented with
+mocked identity, timeout, and diagnostic-redaction checks; the full isolated
+workflow runner and its actual execution still must be completed before the
+drill can count as evidence.
 
 - The controller exposes only `controller:status` (process response plus
   state-database readiness) and host-global aggregate `capacity:read`.

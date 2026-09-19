@@ -13,6 +13,13 @@ scoped endpoints reject unauthenticated calls; Web roots redirect to local
 sign-in and sign-in routes respond. Signal remains running and healthy; its
 container and external data volume were not recreated, restarted, or modified.
 
+The disposable recovery drill is deliberately not runnable on the current
+Docker Desktop context: a read-only context inventory on 2026-09-18 found only
+`default` and the active `desktop-linux` context, not a dedicated drill daemon.
+The drill design requires that isolated context so its Docker-socket authority
+cannot affect the deployed pairs or Signal. This is an execution prerequisite,
+not a reason to relax isolation or reuse the active daemon.
+
 ## Completed and committed
 
 - Scoped control-plane/Web architecture and local-password Web session boundary.
@@ -43,9 +50,10 @@ mapping, and rendered drill-down/failure states. Full `test`, `vet`, and
 ## Required completion sequence
 
 1. Implement and execute the independently re-reviewed disposable recovery
-   drill: deterministic revision sequencing, CLI/API assertions, consistent
-   SQLite backup/restore, Docker-daemon isolation, and recorded non-impact on
-   both deployed pairs and Signal.
+   drill workflow after the now-implemented, fail-closed dedicated-daemon
+   preflight: deterministic revision sequencing, CLI/API assertions,
+   consistent SQLite backup/restore, Docker-daemon isolation, and recorded
+   non-impact on both deployed pairs and Signal.
 2. Run the paired owner workflow and record the rendered controller-evidence,
    capacity-evidence, sign-in, controller-unready, and collector-failure
    states. Then continue the remaining v0.1 release gates.
