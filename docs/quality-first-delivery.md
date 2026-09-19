@@ -363,3 +363,28 @@ boundary. A release without that evidence is incomplete, not merely delayed.
   controller/capacity drill-down, plus controlled controller-unready and
   collector-failure rendering; it must be recorded without exposing local
   password or controller credential material.
+
+## Deferred-surface cleanup deployment (2026-09-18)
+
+- Reviewed source revision `4488eec` was built and deployed as
+  `dockercd:4488eec` (image
+  `sha256:4218789b20e42836581153f2336f1e76e1ca963c36fcb642f74de2a13da8c26f`)
+  and `dockercd-web:4488eec` (image
+  `sha256:27b5eb8cdbb76b21b191c66d3d117a86f6433cb34ea42d67b3c26842a41629a3`).
+  Both development and personal controller/Web pairs use their existing state
+  volumes, remain loopback-only, and passed controller health (`200`), legacy
+  UI absence (`/ui/` is `404`), unauthenticated presentation denial (`401`),
+  Web-root redirect (`303`), and Web-login (`200`) checks. Signal remained
+  `running` and `healthy` and was not recreated.
+- ADR 0008 removal has no active cluster input in either controller
+  environment. The removed cluster implementation and retired Node/Dragonfly
+  launcher remain archive-only; the active source and images have no cluster
+  startup/configuration surface or active root Node dependency.
+- `govulncheck ./...` reports two upstream-unfixed Moby AuthZ-plugin
+  advisories in `github.com/docker/docker@v28.5.2+incompatible`. They affect
+  Docker-client code paths but have no available module fix. The release
+  mitigation remains strict controller-only Docker-socket access and bounded
+  presentation collection; the finding is not suppressed. The pre-retirement
+  `npm audit --omit=dev` reported three high tooling-only `sharp` advisories
+  through the retired Dragonfly launcher. Root npm audit is now inapplicable
+  because no active tracked Node dependency surface remains.

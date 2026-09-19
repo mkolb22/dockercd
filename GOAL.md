@@ -27,7 +27,7 @@ pressure without restoring an administrator-token browser path.
 
 **Current status (2026-09-18):** implementation and the independent
 high-reasoning review are complete in `c687dd9`; the deployed source revision
-is `6d47dbc`. Both paired environments run the matching local controller and
+is `4488eec`. Both paired environments run the matching local controller and
 Web images after their intended Web credentials received only
 `controller:status` and `capacity:read`. Automated health, authentication-
 boundary, loopback-login, image-identity, and Signal non-impact evidence is
