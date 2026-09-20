@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -25,21 +26,24 @@ const currentSchemaVersion = 8
 
 const (
 	maxSnapshotBytes    = 128 << 20
+	maxBaselineRecords  = 128
+	maxBaselineBytes    = 1 << 20
 	verificationTimeout = 5 * time.Second
 )
 
 var fullCommitSHA = regexp.MustCompile(`^[a-f0-9]{40}([a-f0-9]{24})?$`)
 
 type verificationReport struct {
-	IntegrityOK           bool `json:"integrityOk"`
-	SchemaVersion         int  `json:"schemaVersion"`
-	ApplicationPresent    bool `json:"applicationPresent"`
-	LastSuccessfulIsA     bool `json:"lastSuccessfulIsA"`
-	ManualASuccess        bool `json:"manualASuccess"`
-	ManualBSuccess        bool `json:"manualBSuccess"`
-	RollbackASuccess      bool `json:"rollbackASuccess"`
-	UnknownRollbackFailed bool `json:"unknownRollbackFailed"`
-	SnapshotUnchanged     bool `json:"snapshotUnchanged"`
+	IntegrityOK            bool  `json:"integrityOk"`
+	SchemaVersion          int   `json:"schemaVersion"`
+	ApplicationPresent     bool  `json:"applicationPresent"`
+	LastSuccessfulIsA      bool  `json:"lastSuccessfulIsA"`
+	ManualASuccess         bool  `json:"manualASuccess"`
+	ManualBSuccess         bool  `json:"manualBSuccess"`
+	RollbackASuccess       bool  `json:"rollbackASuccess"`
+	UnknownRollbackFailed  bool  `json:"unknownRollbackFailed"`
+	SnapshotUnchanged      bool  `json:"snapshotUnchanged"`
+	RestoreBaselineMatches *bool `json:"restoreBaselineMatches,omitempty"`
 }
 
 type expectation struct {
@@ -48,6 +52,25 @@ type expectation struct {
 	shaA         string
 	shaB         string
 	unknownSHA   string
+	baselineOut  string
+	baselineIn   string
+}
+
+// restoreBaseline is deliberately digest-only: recovery evidence must prove
+// exact persistence without exporting manifests, error strings, diffs, or
+// full revisions from the disposable state database.
+type restoreBaseline struct {
+	Version                 int                  `json:"version"`
+	Application             string               `json:"application"`
+	ApplicationConfigDigest string               `json:"applicationConfigDigest"`
+	Records                 []historyFingerprint `json:"records"`
+}
+
+type historyFingerprint struct {
+	ID        string `json:"id"`
+	Digest    string `json:"digest"`
+	operation string
+	result    string
 }
 
 func main() {
@@ -57,6 +80,8 @@ func main() {
 	flag.StringVar(&e.shaA, "sha-a", "", "full commit A SHA")
 	flag.StringVar(&e.shaB, "sha-b", "", "full commit B SHA")
 	flag.StringVar(&e.unknownSHA, "unknown-sha", "", "generated unknown rollback SHA")
+	flag.StringVar(&e.baselineOut, "write-restore-baseline", "", "new private digest-only baseline file")
+	flag.StringVar(&e.baselineIn, "compare-restore-baseline", "", "private digest-only baseline file to compare")
 	flag.Parse()
 
 	report, err := verify(e)
@@ -64,10 +89,193 @@ func main() {
 		fmt.Fprintln(os.Stderr, "recovery drill verification failed:", err)
 		os.Exit(1)
 	}
+	if e.baselineOut != "" {
+		baseline, baselineErr := baselineForSnapshot(e)
+		if baselineErr != nil {
+			fmt.Fprintln(os.Stderr, "creating recovery restore baseline:", baselineErr)
+			os.Exit(1)
+		}
+		if baselineErr = writeBaseline(e.baselineOut, baseline); baselineErr != nil {
+			fmt.Fprintln(os.Stderr, "writing recovery restore baseline:", baselineErr)
+			os.Exit(1)
+		}
+	}
+	if e.baselineIn != "" {
+		baseline, baselineErr := readBaseline(e.baselineIn, e.application)
+		if baselineErr != nil {
+			fmt.Fprintln(os.Stderr, "reading recovery restore baseline:", baselineErr)
+			os.Exit(1)
+		}
+		if baselineErr = compareBaseline(e, baseline); baselineErr != nil {
+			fmt.Fprintln(os.Stderr, "comparing recovery restore baseline:", baselineErr)
+			os.Exit(1)
+		}
+		matched := true
+		report.RestoreBaselineMatches = &matched
+	}
 	if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
 		fmt.Fprintln(os.Stderr, "encoding recovery drill verification:", err)
 		os.Exit(1)
 	}
+}
+
+func baselineForSnapshot(e expectation) (restoreBaseline, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), verificationTimeout)
+	defer cancel()
+	db, err := openReadonlySnapshot(e.databasePath)
+	if err != nil {
+		return restoreBaseline{}, err
+	}
+	defer db.Close()
+	return readBaselineFromDB(ctx, db, e.application)
+}
+
+func readBaselineFromDB(ctx context.Context, db *sql.DB, application string) (restoreBaseline, error) {
+	var manifest, source string
+	if err := db.QueryRowContext(ctx, `SELECT manifest, source FROM applications WHERE name = ?`, application).Scan(&manifest, &source); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return restoreBaseline{}, errors.New("disposable application is absent")
+		}
+		return restoreBaseline{}, errors.New("reading application configuration")
+	}
+
+	rows, err := db.QueryContext(ctx, `SELECT id, operation, result, quote(app_name), quote(started_at), quote(finished_at), quote(commit_sha), quote(operation), quote(result), quote(diff_json), quote(compose_spec_json), quote(error), quote(duration_ms), quote(created_at)
+		FROM sync_history WHERE app_name = ? LIMIT ?`, application, maxBaselineRecords+1)
+	if err != nil {
+		return restoreBaseline{}, errors.New("reading recovery history")
+	}
+	defer rows.Close()
+	baseline := restoreBaseline{
+		Version:                 1,
+		Application:             application,
+		ApplicationConfigDigest: digestFields(manifest, source),
+	}
+	seen := make(map[string]struct{})
+	for rows.Next() {
+		var id, operation, result string
+		fields := make([]string, 11)
+		values := make([]any, 14)
+		values[0] = &id
+		values[1] = &operation
+		values[2] = &result
+		for i := range fields {
+			values[i+3] = &fields[i]
+		}
+		if err := rows.Scan(values...); err != nil {
+			return restoreBaseline{}, errors.New("scanning recovery history")
+		}
+		if id == "" {
+			return restoreBaseline{}, errors.New("recovery history has an empty identifier")
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return restoreBaseline{}, errors.New("recovery history has duplicate identifiers")
+		}
+		seen[id] = struct{}{}
+		baseline.Records = append(baseline.Records, historyFingerprint{ID: id, Digest: digestFields(fields...), operation: operation, result: result})
+		if len(baseline.Records) > maxBaselineRecords {
+			return restoreBaseline{}, errors.New("recovery history exceeds baseline limit")
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return restoreBaseline{}, errors.New("reading recovery history")
+	}
+	sort.Slice(baseline.Records, func(i, j int) bool { return baseline.Records[i].ID < baseline.Records[j].ID })
+	return baseline, nil
+}
+
+func compareBaseline(e expectation, baseline restoreBaseline) error {
+	current, err := baselineForSnapshot(e)
+	if err != nil {
+		return err
+	}
+	if current.ApplicationConfigDigest != baseline.ApplicationConfigDigest {
+		return errors.New("restored application configuration differs from snapshot")
+	}
+	expected := make(map[string]string, len(baseline.Records))
+	for _, record := range baseline.Records {
+		expected[record.ID] = record.Digest
+	}
+	for _, record := range current.Records {
+		if expectedDigest, present := expected[record.ID]; present {
+			if record.Digest != expectedDigest {
+				return errors.New("restored history record differs from snapshot")
+			}
+			delete(expected, record.ID)
+			continue
+		}
+		if record.operation != "poll" || record.result != "skipped" {
+			return errors.New("restored history contains an unexpected record")
+		}
+	}
+	if len(expected) != 0 {
+		return errors.New("restored history is missing a snapshot record")
+	}
+	return nil
+}
+
+func digestFields(fields ...string) string {
+	hash := sha256.New()
+	for _, field := range fields {
+		_, _ = fmt.Fprintf(hash, "%d:", len(field))
+		_, _ = io.WriteString(hash, field)
+		_, _ = io.WriteString(hash, "\n")
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil))
+}
+
+func writeBaseline(path string, baseline restoreBaseline) error {
+	if path == "" || filepath.Base(path) == "." || filepath.Base(path) == string(filepath.Separator) {
+		return errors.New("baseline path is invalid")
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return errors.New("creating private baseline file")
+	}
+	defer file.Close()
+	if err := json.NewEncoder(file).Encode(baseline); err != nil {
+		return errors.New("encoding private baseline file")
+	}
+	return nil
+}
+
+func readBaseline(path, application string) (restoreBaseline, error) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxBaselineBytes {
+		return restoreBaseline{}, errors.New("private baseline file is invalid")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return restoreBaseline{}, errors.New("opening private baseline file")
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(io.LimitReader(file, maxBaselineBytes+1))
+	decoder.DisallowUnknownFields()
+	var baseline restoreBaseline
+	if err := decoder.Decode(&baseline); err != nil {
+		return restoreBaseline{}, errors.New("decoding private baseline file")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return restoreBaseline{}, errors.New("private baseline file is invalid")
+	}
+	if baseline.Version != 1 || baseline.Application != application || !digestString(baseline.ApplicationConfigDigest) || len(baseline.Records) > maxBaselineRecords {
+		return restoreBaseline{}, errors.New("private baseline file is invalid")
+	}
+	seen := make(map[string]struct{}, len(baseline.Records))
+	for _, record := range baseline.Records {
+		if record.ID == "" || !digestString(record.Digest) {
+			return restoreBaseline{}, errors.New("private baseline file is invalid")
+		}
+		if _, duplicate := seen[record.ID]; duplicate {
+			return restoreBaseline{}, errors.New("private baseline file is invalid")
+		}
+		seen[record.ID] = struct{}{}
+	}
+	return baseline, nil
+}
+
+func digestString(value string) bool {
+	return regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(value)
 }
 
 func verify(e expectation) (verificationReport, error) {
@@ -108,12 +316,7 @@ func verifyWithContext(ctx context.Context, e expectation) (verificationReport, 
 		return verificationReport{}, err
 	}
 
-	// The readonly URI is intentional: a release-evidence verifier must not
-	// migrate, checkpoint, or create a WAL sidecar in the snapshot directory.
-	// url.URL escapes ? and # in valid filesystem names, preventing a path from
-	// being interpreted as attacker-controlled SQLite query options.
-	databaseURI := (&url.URL{Scheme: "file", Path: absolutePath, RawQuery: "mode=ro&immutable=1"}).String()
-	db, err := sql.Open("sqlite", databaseURI)
+	db, err := openReadonlySnapshot(absolutePath)
 	if err != nil {
 		return verificationReport{}, errors.New("opening readonly database")
 	}
@@ -185,6 +388,26 @@ func snapshotSidecarsAbsent(databasePath string) error {
 		}
 	}
 	return nil
+}
+
+func openReadonlySnapshot(databasePath string) (*sql.DB, error) {
+	absolutePath, err := filepath.Abs(databasePath)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(absolutePath)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxSnapshotBytes {
+		return nil, errors.New("database is not a readable regular file")
+	}
+	if err := snapshotSidecarsAbsent(absolutePath); err != nil {
+		return nil, err
+	}
+	// The readonly URI is intentional: a release-evidence verifier must not
+	// migrate, checkpoint, or create a WAL sidecar in the snapshot directory.
+	// url.URL escapes ? and # in valid filesystem names, preventing a path from
+	// being interpreted as attacker-controlled SQLite query options.
+	databaseURI := (&url.URL{Scheme: "file", Path: absolutePath, RawQuery: "mode=ro&immutable=1"}).String()
+	return sql.Open("sqlite", databaseURI)
 }
 
 func completeSchemaVersion(ctx context.Context, db *sql.DB) (int, error) {

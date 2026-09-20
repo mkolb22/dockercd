@@ -125,6 +125,138 @@ func TestVerifyRejectsNonRegularFileAndCanceledContext(t *testing.T) {
 	mustError(t, "SQLite integrity check did not return ok", func() error { _, err := verifyWithContext(ctx, e); return err })
 }
 
+func TestRestoreBaselineRequiresExactSnapshotConfigurationAndHistory(t *testing.T) {
+	databasePath, e := validSnapshot(t)
+	baseline, err := baselineForSnapshot(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baselinePath := filepath.Join(t.TempDir(), "restore-baseline.json")
+	if err := writeBaseline(baselinePath, baseline); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := readBaseline(baselinePath, e.application)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := compareBaseline(e, loaded); err != nil {
+		t.Fatalf("unchanged snapshot did not match baseline: %v", err)
+	}
+
+	contents, err := os.ReadFile(baselinePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(contents), "{}") || strings.Contains(string(contents), shaA) {
+		t.Fatalf("baseline leaked raw database state: %s", contents)
+	}
+
+	db, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE applications SET manifest = '{"changed":true}' WHERE name = 'drill'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	mustError(t, "restored application configuration differs from snapshot", func() error {
+		return compareBaseline(e, loaded)
+	})
+}
+
+func TestRestoreBaselinePermitsOnlyNewSkippedPolls(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		operation string
+		result    string
+		wantError string
+	}{
+		{name: "skipped poll", operation: "poll", result: "skipped"},
+		{name: "manual operation", operation: "manual", result: "success", wantError: "restored history contains an unexpected record"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			databasePath, e := validSnapshot(t)
+			baseline, err := baselineForSnapshot(e)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Dir(databasePath)
+			s, err := store.New(dir, slog.Default())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.RecordSync(context.Background(), &store.SyncRecord{
+				AppName: "drill", StartedAt: time.Now().UTC(), CommitSHA: shaA,
+				Operation: test.operation, Result: test.result,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			err = compareBaseline(e, baseline)
+			if test.wantError == "" {
+				if err != nil {
+					t.Fatalf("permitted poll was rejected: %v", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != test.wantError {
+				t.Fatalf("error = %v, want %q", err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestRestoreBaselineRejectsChangedSnapshotRecord(t *testing.T) {
+	databasePath, e := validSnapshot(t)
+	baseline, err := baselineForSnapshot(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE sync_history SET result = 'failure' WHERE operation = 'manual' AND commit_sha = ?`, shaA); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	mustError(t, "restored history record differs from snapshot", func() error {
+		return compareBaseline(e, baseline)
+	})
+}
+
+func TestReadBaselineRejectsNonRegularAndTrailingInput(t *testing.T) {
+	baseline := restoreBaseline{
+		Version:                 1,
+		Application:             "drill",
+		ApplicationConfigDigest: strings.Repeat("d", 64),
+	}
+	path := filepath.Join(t.TempDir(), "baseline.json")
+	if err := writeBaseline(path, baseline); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path+".trailing", append(mustRead(t, path), []byte("\n{}")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readBaseline(path+".trailing", "drill"); err == nil || err.Error() != "private baseline file is invalid" {
+		t.Fatalf("trailing baseline error = %v", err)
+	}
+
+	fifo := filepath.Join(t.TempDir(), "baseline.fifo")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readBaseline(fifo, "drill"); err == nil || err.Error() != "private baseline file is invalid" {
+		t.Fatalf("FIFO baseline error = %v", err)
+	}
+}
+
 func validSnapshot(t *testing.T) (string, expectation) {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "snapshot")
@@ -167,4 +299,13 @@ func mustError(t *testing.T, want string, run func() error) {
 	if err == nil || err.Error() != want {
 		t.Fatalf("error = %v, want %q", err, want)
 	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return contents
 }

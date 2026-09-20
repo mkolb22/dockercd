@@ -160,8 +160,10 @@ process may still write is not an acceptable backup.
    rejects WAL/SHM sidecars, nonregular or oversized files, invalid or
    collapsed full revisions, and an incomplete migration ledger; it emits
    boolean structural evidence rather than state contents, full SHAs, or error
-   text. It does not substitute for the runner's after-restore history and
-   live-sentinel comparisons.
+   text. It writes a private, mode-0600, digest-only restore baseline in the
+   temporary drill directory. That baseline contains only application and
+   per-record fingerprints, never manifest, diff, error, secret, or revision
+   plaintext, and is deleted during cleanup.
 4. Confirm the original temporary controller remains stopped. Start a new
    temporary controller with a **fresh** state directory restored from the
    verified snapshot and the same isolated fixture dependencies. Require
@@ -172,7 +174,11 @@ process may still write is not an acceptable backup.
    for one bounded poll interval plus a safety margin; automation/self-heal
    remain false and no explicit mutation occurs. A transition to B, a second
    workload, a lost original record, or any non-skipped post-restore operation
-   is failure.
+   is failure. Stop the restored controller before copying its database and
+   compare that stopped copy to the private baseline. Configuration and every
+   retained history record must match exactly; only newly-added `poll` /
+   `skipped` records are allowed. This comparison emits only a boolean result
+   into release evidence.
 5. Stop the restored controller before cleanup. Preserve only redacted
    assertion evidence; delete the temporary state and snapshot through the
    recorded run scope.

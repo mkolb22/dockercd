@@ -45,9 +45,14 @@ design has passed an independent high-reasoning re-review with no remaining
 P0/P1 findings. Its CLI/API result contract and restoration-history allowance
 are documented. A fail-closed dedicated-daemon preflight is implemented with
 mocked identity, timeout, and diagnostic-redaction checks, and the stopped
-snapshot verifier is independently reviewed. The full isolated workflow runner
-and its actual execution still must be completed before the drill can count as
-evidence.
+snapshot verifier is independently reviewed. The deterministic internal Git
+fixture is also complete and independently reviewed. The full isolated
+workflow runner and its cleanup, restore-comparison, authentication/HTTP,
+redaction, bounded-work, and regression-test gates are complete and have
+passed a fresh independent high-reasoning review with no P0/P1/P2 findings.
+It is **not release evidence** until it runs successfully against a dedicated
+disposable Docker daemon. The development and personal daemons are forbidden
+drill targets.
 
 - The controller exposes only `controller:status` (process response plus
   state-database readiness) and host-global aggregate `capacity:read`.
@@ -89,6 +94,37 @@ tranche, not new product scope:
 5. [x] Run full test, vet, and race suites for both Go modules; obtain a fresh
    independent high-reasoning review; resolve every P0/P1 and record any P2
    disposition before a commit, image build, or paired deployment.
+
+### Recovery-drill release checkpoint
+
+This is a release-validation tranche, not a new product feature. The runner
+must remain a local, non-secret harness until all of these conditions are met:
+
+1. [x] Document the isolated topology, API/CLI assertions, retained-history
+   allowance, evidence rules, and cleanup contract.
+2. [x] Implement and test fail-closed preflight identity checks and the
+   immutable, read-only stopped-snapshot verifier.
+3. [x] Provide reviewed deterministic Compose/Git fixture inputs with pinned
+   local image identities and no host ports, production mounts, or credentials.
+4. [x] Finish the runner with exact recorded-resource cleanup and post-cleanup
+   absence checks; a cleanup failure must fail the drill and it must never
+   print success before cleanup completes.
+5. [x] Require and record (without bearer/state leakage) unauthenticated and
+   wrong-bearer `401` responses, explicit expected HTTP statuses including
+   create `201`, redirect rejection, commit-A/B desired/diff/sync evidence,
+   rollback and failed-rollback evidence, and exact single-sentinel revision
+   assertions.
+6. [x] Compare the stopped snapshot's complete application configuration and
+   each preserved history record after restore. Only newly added `poll` /
+   `skipped` observations are permitted; raw state and full revisions must
+   remain temporary and absent from the release evidence.
+7. [x] Run targeted harness tests and the full relevant Go test, vet, and race
+   suites; obtain an independent high-reasoning re-review with no unresolved
+   P0/P1 findings and a recorded disposition for every P2.
+8. [ ] Execute exactly once on a purpose-built, dedicated disposable Docker
+   daemon/context after preflight succeeds. Record redacted evidence, verify
+   deployed development/personal pairs and Signal were untouched, and retain
+   no temporary bearer, state, or drill resources.
 
 ## Required v0.1 Features
 
