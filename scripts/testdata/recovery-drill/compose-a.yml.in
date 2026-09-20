@@ -1,0 +1,19 @@
+services:
+  sentinel:
+    image: alpine@sha256:c3f8e73fdb79deaebaa2037150150191b9dcbfba68b4a46d70103204c53f4709
+    pull_policy: never
+    command: ["/bin/sh", "-c", "trap 'exit 0' TERM INT; while :; do sleep 60; done"]
+    restart: "no"
+    labels:
+      com.dockercd.drill-run: "__RUN_ID__"
+      com.dockercd.drill.revision: "A"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.10"
+          memory: 64M
+
+networks:
+  default:
+    labels:
+      com.dockercd.drill-run: "__RUN_ID__"

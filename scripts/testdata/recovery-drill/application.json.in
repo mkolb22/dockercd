@@ -1,0 +1,22 @@
+{
+  "apiVersion": "dockercd/v1",
+  "kind": "Application",
+  "metadata": {"name": "__APP_NAME__"},
+  "spec": {
+    "source": {
+      "repoURL": "http://git-fixture:8080/cgi-bin/git/repo.git",
+      "targetRevision": "release",
+      "path": ".",
+      "composeFiles": ["docker-compose.yml"]
+    },
+    "destination": {"projectName": "__PROJECT_NAME__"},
+    "syncPolicy": {
+      "automated": false,
+      "prune": false,
+      "selfHeal": false,
+      "pollInterval": "30s",
+      "syncTimeout": "2m",
+      "healthTimeout": "30s"
+    }
+  }
+}

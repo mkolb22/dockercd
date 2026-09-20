@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+export GIT_HTTP_EXPORT_ALL=1
+export GIT_PROJECT_ROOT=/srv/git
+exec git http-backend

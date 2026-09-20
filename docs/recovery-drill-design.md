@@ -89,6 +89,16 @@ literal loopback, and private-IP Git-source exceptions remain forbidden.
    sync/health timeouts. The harness waits only for the controller readiness
    probe before explicit operations; it never uses scheduler timing as proof.
 
+The reviewed fixture sources live in
+[`scripts/testdata/recovery-drill`](../scripts/testdata/recovery-drill). The
+runner builds its internal Git-server image from the reviewed controller image
+and a copied bare repository, rather than a host bind mount. Its pinned image
+identities are tracked separately in
+[`scripts/recovery-drill-images.env`](../scripts/recovery-drill-images.env),
+which deliberately contains no operator-configurable tag or credential. The
+runner must prove each local tag resolves to its recorded immutable image ID
+before it builds or starts a temporary container.
+
 Keeping automation and self-heal off is essential: a rollback does not change
 the configured target revision, and a later poll must not race the retained
 revision assertions.

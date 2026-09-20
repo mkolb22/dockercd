@@ -4,6 +4,7 @@ data/
 
 # macOS Finder metadata
 .DS_Store
+.recovery-drills/
 
 # Secrets
 deploy/.env
