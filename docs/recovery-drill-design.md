@@ -69,6 +69,65 @@ Its server accepts neither redirects nor credentials. The client disables
 redirect following and fails if a redirect response is observed. `file://`,
 literal loopback, and private-IP Git-source exceptions remain forbidden.
 
+### Provisioning the execution host
+
+The runner intentionally refuses a drill context that is also the shell's
+current context. This protects an operator from accidentally making their
+active development or personal daemon the drill target. Therefore execute it
+on a dedicated disposable Linux VM or host—not on the Docker Desktop host
+running either paired deployment—and use this topology:
+
+```text
+runner host
+  current context: an independently reachable guard daemon (read-only preflight)
+  recovery-drill context: unix:///var/run/docker.sock on this host's disposable daemon
+```
+
+The local `recovery-drill` context is necessary because the temporary
+controller must mount the dedicated daemon's standard socket. The distinct
+current `guard` context is necessary because preflight protects the active
+context as well as every context explicitly named in
+`DOCKERCD_RECOVERY_PROTECTED_CONTEXTS`. The guard daemon must be a different,
+reachable daemon with no drill authority; it is only queried for identity.
+
+Do not use Docker-in-Docker, a privileged helper, a custom/rootless socket, or
+a context sharing the Docker Desktop daemon to satisfy this requirement. Those
+arrangements either weaken the isolation boundary or are rejected by the
+runner. Provision the VM/host and its daemons outside DockerCD; this release
+workflow never creates them.
+
+On the dedicated execution host, after the disposable daemon and separate
+guard context already exist, create the local drill context and execute only
+the reviewed commands below. Replace the illustrative context names with the
+actual non-secret names. Every protected context must be reachable from this
+host because preflight compares daemon identities.
+
+```sh
+docker context create recovery-drill \
+  --docker 'host=unix:///var/run/docker.sock'
+docker context use recovery-guard
+
+env -u DOCKER_HOST -u DOCKER_CONTEXT \
+  DOCKERCD_RECOVERY_DRILL_CONTEXT=recovery-drill \
+  DOCKERCD_RECOVERY_PROTECTED_CONTEXTS=development,personal \
+  ./scripts/recovery-drill-preflight.sh
+
+env -u DOCKER_HOST -u DOCKER_CONTEXT \
+  DOCKERCD_RECOVERY_DRILL_CONTEXT=recovery-drill \
+  DOCKERCD_RECOVERY_PROTECTED_CONTEXTS=development,personal \
+  ./scripts/recovery-drill.sh
+```
+
+The two commands must both succeed. Copy the redacted evidence directory
+reported by the runner to durable release storage, verify that the copied
+directory contains the expected result and verification records, and retain
+only that copy. A pathname in the disposable host's checkout is not release
+evidence after the host is destroyed. Once the copy and cleanup proof are
+complete, return to the guard context and remove the disposable host/VM and
+its local context through the host's approved lifecycle procedure. Do not
+remove, restart, or reconfigure development, personal, or Signal resources as
+part of this drill.
+
 ## Deterministic fixture
 
 1. Create a private bare repository with a `release` ref initially pointing to

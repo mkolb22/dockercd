@@ -121,3 +121,12 @@ deployment with authenticated and failure-path coverage. Record the tested
 revision, controller and Web image digests, selected rollback revision, Web
 freshness behavior, and any compatibility migration notice in the release
 record.
+
+The DockerCD recovery-drill runner is the supported way to create this release
+evidence. It must run on a separately provisioned disposable VM/host whose
+local standard Docker socket belongs only to the drill daemon; it must not run
+on the Docker Desktop daemon hosting development, personal, or Signal. Its
+current Docker context must point to a separate reachable guard daemon, while
+its named drill context points to the local disposable socket. The exact
+topology, commands, cleanup boundary, and protected-context requirement are
+in [the recovery-drill design](recovery-drill-design.md#provisioning-the-execution-host).
