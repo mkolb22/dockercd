@@ -51,9 +51,9 @@ mapping, and rendered drill-down/failure states. Full `test`, `vet`, and
 
 1. Implement and execute the independently re-reviewed disposable recovery
    drill workflow after the now-implemented, fail-closed dedicated-daemon
-   preflight: deterministic revision sequencing, CLI/API assertions,
-   consistent SQLite backup/restore, Docker-daemon isolation, and recorded
-   non-impact on both deployed pairs and Signal.
+   preflight and stopped-snapshot verifier: deterministic revision sequencing,
+   CLI/API assertions, consistent SQLite backup/restore, Docker-daemon
+   isolation, and recorded non-impact on both deployed pairs and Signal.
 2. Run the paired owner workflow and record the rendered controller-evidence,
    capacity-evidence, sign-in, controller-unready, and collector-failure
    states. Then continue the remaining v0.1 release gates.
