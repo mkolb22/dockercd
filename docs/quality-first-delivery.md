@@ -407,13 +407,16 @@ boundary. A release without that evidence is incomplete, not merely delayed.
   respectively. DockerCD neither implements the daemon nor installs or
   configures Docker plugins. The scanner result is retained rather than
   suppressed because the client import reaches the affected module.
-- Read-only local deployment evidence shows Docker Engine `29.8.0` and no
-  installed Docker plugins. That is above the upstream fixed Engine release,
-  and neither advisory's plugin-dependent condition is present locally. This
-  is not proof for another host: every release deployment must use Engine
-  `29.3.1` or later and must not rely on AuthZ-plugin body inspection or plugin
-  privilege approval as its sole security boundary. Restrict Docker API access
-  to the controller trust boundary regardless.
+- The read-only command
+  `env -u DOCKER_HOST -u DOCKER_CONTEXT ./scripts/release-docker-engine-security-check.sh --context desktop-linux`
+  passed locally with Docker Engine `29.8.0`, zero AuthZ plugins, and zero
+  installed plugins. That is above the upstream fixed Engine release, and
+  neither advisory's plugin-dependent condition is present locally. This is
+  not proof for another host: run the same bounded, redacted verifier for
+  every release deployment; each target must use Engine `29.3.1` or later and
+  must not rely on AuthZ-plugin body inspection or plugin privilege approval
+  as its sole security boundary. Restrict Docker API access to the controller
+  trust boundary regardless.
 - No active root Node dependency manifest or lockfile exists; the only such
   material is archive-only. Accordingly `npm audit --omit=dev` is inapplicable
   to the v0.1 runtime, and no new lockfile was generated merely to run an
