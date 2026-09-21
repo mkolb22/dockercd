@@ -393,6 +393,8 @@ boundary. A release without that evidence is incomplete, not merely delayed.
 
 ## Dependency-security revalidation (2026-09-21)
 
+- `go mod verify` completed successfully before the vulnerability scan; all
+  downloaded modules match the checksums in the committed Go module graph.
 - `govulncheck ./...` was rerun with the current Go vulnerability database.
   It reports `GO-2026-4887` / `CVE-2026-34040` and `GO-2026-4883` /
   `CVE-2026-33997` through the imported
