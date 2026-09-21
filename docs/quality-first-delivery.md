@@ -380,11 +380,39 @@ boundary. A release without that evidence is incomplete, not merely delayed.
   environment. The removed cluster implementation and retired Node/Dragonfly
   launcher remain archive-only; the active source and images have no cluster
   startup/configuration surface or active root Node dependency.
-- `govulncheck ./...` reports two upstream-unfixed Moby AuthZ-plugin
-  advisories in `github.com/docker/docker@v28.5.2+incompatible`. They affect
-  Docker-client code paths but have no available module fix. The release
-  mitigation remains strict controller-only Docker-socket access and bounded
-  presentation collection; the finding is not suppressed. The pre-retirement
-  `npm audit --omit=dev` reported three high tooling-only `sharp` advisories
-  through the retired Dragonfly launcher. Root npm audit is now inapplicable
-  because no active tracked Node dependency surface remains.
+- At this deployment checkpoint, `govulncheck ./...` reported two Moby
+  AuthZ-plugin advisories in `github.com/docker/docker@v28.5.2+incompatible`.
+  The scanner result was not suppressed. The later 2026-09-21 revalidation
+  below supersedes the original “no module fix” characterization: the upstream
+  Docker **Engine** fixes are available in Engine `29.3.1`, while the Go
+  vulnerability report still has no declared fixed version for the imported
+  legacy module. The pre-retirement `npm audit --omit=dev` reported three high
+  tooling-only `sharp` advisories through the retired Dragonfly launcher. Root
+  npm audit is now inapplicable because no active tracked Node dependency
+  surface remains.
+
+## Dependency-security revalidation (2026-09-21)
+
+- `govulncheck ./...` was rerun with the current Go vulnerability database.
+  It reports `GO-2026-4887` / `CVE-2026-34040` and `GO-2026-4883` /
+  `CVE-2026-33997` through the imported
+  `github.com/docker/docker@v28.5.2+incompatible` API client. The Go reports
+  are marked unreviewed and currently declare no fixed version for that Go
+  module. The upstream Moby advisories identify the affected component as
+  **Docker Engine**, with fixes in Engine `29.3.1`; they concern
+  [AuthZ-plugin request-body inspection](https://github.com/moby/moby/security/advisories/GHSA-x744-4wpc-v9h2)
+  and [Docker-plugin installation privilege validation](https://github.com/moby/moby/security/advisories/GHSA-pxq6-2prw-chj9),
+  respectively. DockerCD neither implements the daemon nor installs or
+  configures Docker plugins. The scanner result is retained rather than
+  suppressed because the client import reaches the affected module.
+- Read-only local deployment evidence shows Docker Engine `29.8.0` and no
+  installed Docker plugins. That is above the upstream fixed Engine release,
+  and neither advisory's plugin-dependent condition is present locally. This
+  is not proof for another host: every release deployment must use Engine
+  `29.3.1` or later and must not rely on AuthZ-plugin body inspection or plugin
+  privilege approval as its sole security boundary. Restrict Docker API access
+  to the controller trust boundary regardless.
+- No active root Node dependency manifest or lockfile exists; the only such
+  material is archive-only. Accordingly `npm audit --omit=dev` is inapplicable
+  to the v0.1 runtime, and no new lockfile was generated merely to run an
+  audit.
