@@ -381,7 +381,7 @@ controller_get() {
     token="$(cat /run/drill-token)"
     umask 077
     printf "%s\n" "header = \"Authorization: Bearer $token\"" >/run/drill-curl.conf
-    exec curl --silent --show-error --max-time 30 --max-redirs 0 \
+    exec curl --silent --show-error --max-time 30 --max-filesize 1048576 --max-redirs 0 \
       --config /run/drill-curl.conf --write-out "\\n%{http_code}" \
       "http://127.0.0.1:8080$1"
   ' sh "$path")" || return 1
@@ -399,7 +399,7 @@ controller_post_json() {
     token="$(cat /run/drill-token)"
     umask 077
     printf "%s\n" "header = \"Authorization: Bearer $token\"" >/run/drill-curl.conf
-    exec curl --silent --show-error --max-time 120 --max-redirs 0 \
+    exec curl --silent --show-error --max-time 120 --max-filesize 1048576 --max-redirs 0 \
       --config /run/drill-curl.conf -H "Content-Type: application/json" \
       --data-binary @- --write-out "\\n%{http_code}" "http://127.0.0.1:8080$1"
   ' sh "$path")" || return 1

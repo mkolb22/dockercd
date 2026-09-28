@@ -15,6 +15,15 @@ case "$context_inspection_source" in
   *) echo "recovery context inspection is not bounded" >&2; exit 1 ;;
 esac
 
+# The runner captures authenticated controller responses before validating
+# their JSON. Keep both GET and mutation response paths within the existing
+# 1 MiB successful-controller-response budget.
+controller_response_source="$(sed -n '/^controller_get()/,/^controller_cli()/p' "$root/scripts/recovery-drill.sh")"
+case "$controller_response_source" in
+  *'controller_get()'*'--max-filesize 1048576'*'controller_post_json()'*'--max-filesize 1048576'*) ;;
+  *) echo "recovery controller responses are not size-bounded" >&2; exit 1 ;;
+esac
+
 # Keep this assertion tied to the production cleanup function: an empty array
 # is unbound on Bash 3.2 with nounset, so cleanup must deliberately disable it.
 cleanup_source="$(sed -n '/^cleanup() {/,/^}/p' "$root/scripts/recovery-drill.sh")"
