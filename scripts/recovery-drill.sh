@@ -34,7 +34,10 @@ preflight_daemon_id="$(printf '%s\n' "$preflight_output" | awk -F= '$1 == "drill
 # A controller can only mount the daemon socket when the dedicated daemon is
 # local and exposes Docker's standard host socket. Reject remote, rootless, or
 # custom sockets rather than guessing a mount source that could be production.
-context_endpoint="$(docker context inspect "$drill_context" --format '{{(index .Endpoints "docker").Host}}' 2>/dev/null)" \
+# Context metadata is local client configuration, but a corrupted client or
+# credential helper must not hold the release harness open before its main
+# bounded Docker wrapper is used.
+context_endpoint="$(bounded_command 30 docker context inspect "$drill_context" --format '{{(index .Endpoints "docker").Host}}' 2>/dev/null)" \
   || fail "cannot inspect dedicated Docker context"
 [[ "$context_endpoint" == "unix:///var/run/docker.sock" ]] || fail "dedicated context must use unix:///var/run/docker.sock"
 

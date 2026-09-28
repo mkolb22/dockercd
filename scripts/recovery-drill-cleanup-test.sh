@@ -6,6 +6,15 @@ set -euo pipefail
 root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 bash -n "$root/scripts/recovery-drill.sh"
 
+# Context inspection happens before any drill resource can be created. Keep it
+# under the shared bounded-command guard even though it reads local Docker
+# client configuration rather than the selected daemon.
+context_inspection_source="$(sed -n '/^context_endpoint=/,/^\[\[ \"\$context_endpoint\"/p' "$root/scripts/recovery-drill.sh")"
+case "$context_inspection_source" in
+  *'bounded_command 30 docker context inspect'*) ;;
+  *) echo "recovery context inspection is not bounded" >&2; exit 1 ;;
+esac
+
 # Keep this assertion tied to the production cleanup function: an empty array
 # is unbound on Bash 3.2 with nounset, so cleanup must deliberately disable it.
 cleanup_source="$(sed -n '/^cleanup() {/,/^}/p' "$root/scripts/recovery-drill.sh")"
