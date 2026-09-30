@@ -40,10 +40,12 @@ and retry at 5, 10, 30, then 60 seconds.
 ## Current transport posture
 
 The connection form accepts an optional bearer token and supports HTTP or
-HTTPS. HTTP is visibly identified as trusted-network/development-only. Token
-storage in Keychain, TLS trust controls, certificate pinning, and mTLS are
-intentionally deferred to the security phase; do not use unauthenticated HTTP
-for an untrusted network.
+HTTPS. HTTP is visibly identified as trusted-network/development-only. The
+client rejects HTTP redirects, so a controller response cannot silently send a
+bearer to another origin or obscure the controller's result. Token storage in
+Keychain, TLS trust controls, certificate pinning, and mTLS are intentionally
+deferred to the security phase; do not use unauthenticated HTTP for an
+untrusted network.
 
 The embedded controller web UI remains in place during this migration. It is
 not removed until native owner workflows have been validated in production.

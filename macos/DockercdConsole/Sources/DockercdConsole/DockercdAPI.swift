@@ -28,7 +28,9 @@ struct URLSessionDockercdAPI: DockercdAPI {
     private let token: String?
     private let session: URLSession
 
-    init(profile: ControllerProfile, session: URLSession = .shared) throws {
+    private static let redirectRejectingSession = makeRedirectRejectingSession()
+
+    init(profile: ControllerProfile, session: URLSession = URLSessionDockercdAPI.redirectRejectingSession) throws {
         guard let baseURL = profile.normalizedBaseURL,
               let scheme = baseURL.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else {
@@ -37,6 +39,14 @@ struct URLSessionDockercdAPI: DockercdAPI {
         self.baseURL = baseURL
         self.token = profile.token?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         self.session = session
+    }
+
+    static func makeRedirectRejectingSession(configuration: URLSessionConfiguration = .default) -> URLSession {
+        URLSession(
+            configuration: configuration,
+            delegate: RejectRedirectsDelegate(),
+            delegateQueue: nil
+        )
     }
 
     func health() async throws -> HealthResponse {
@@ -212,6 +222,21 @@ struct URLSessionDockercdAPI: DockercdAPI {
                 code: body?.code
             )
         }
+    }
+}
+
+private final class RejectRedirectsDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        // Controller requests are direct API calls. Following an arbitrary
+        // redirect could forward a bearer token to a different origin, while
+        // accepting any redirect would obscure the controller's actual result.
+        completionHandler(nil)
     }
 }
 

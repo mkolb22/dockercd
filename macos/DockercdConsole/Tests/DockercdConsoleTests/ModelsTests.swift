@@ -25,6 +25,117 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(session.applications.map(\.id), ["fixture-app"])
         XCTAssertNotNil(session.lastRefresh)
     }
+
+    func testControllerRedirectIsReportedInsteadOfFollowed() async throws {
+        RedirectingURLProtocol.recorder.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RedirectingURLProtocol.self]
+        let session = URLSessionDockercdAPI.makeRedirectRejectingSession(configuration: configuration)
+        let profile = ControllerProfile(
+            name: "Fixture",
+            baseURL: "https://controller.example",
+            token: "synthetic-bearer"
+        )
+        let api = try URLSessionDockercdAPI(profile: profile, session: session)
+
+        do {
+            _ = try await api.health()
+            XCTFail("A redirected controller request must not be accepted.")
+        } catch let error as APIError {
+            XCTAssertEqual(error.statusCode, 302)
+        }
+
+        let snapshot = RedirectingURLProtocol.recorder.snapshot()
+        XCTAssertEqual(snapshot.redirectTargets, ["https://redirected.example/healthz"])
+        XCTAssertEqual(snapshot.requests.map(\.url), ["https://controller.example/healthz"])
+        XCTAssertEqual(snapshot.requests.first?.authorization, "Bearer synthetic-bearer")
+        XCTAssertFalse(snapshot.requests.contains {
+            $0.url == "https://redirected.example/healthz" &&
+            $0.authorization == "Bearer synthetic-bearer"
+        })
+    }
+}
+
+private final class RedirectingURLProtocol: URLProtocol {
+    static let recorder = RedirectRequestRecorder()
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.recorder.record(request)
+        if request.url?.host == "controller.example" {
+            let redirectURL = URL(string: "https://redirected.example/healthz")!
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 302,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Location": redirectURL.absoluteString]
+            )!
+            var redirectRequest = request
+            redirectRequest.url = redirectURL
+            Self.recorder.recordRedirect(to: redirectURL)
+            client?.urlProtocol(self, wasRedirectedTo: redirectRequest, redirectResponse: response)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
+
+        let data = Data(#"{\"status\":\"ok\"}"#.utf8)
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+private final class RedirectRequestRecorder: @unchecked Sendable {
+    struct Request: Equatable {
+        let url: String
+        let authorization: String?
+    }
+
+    struct Snapshot {
+        let requests: [Request]
+        let redirectTargets: [String]
+    }
+
+    private let lock = NSLock()
+    private var requests: [Request] = []
+    private var redirectTargets: [String] = []
+
+    func reset() {
+        lock.withLock {
+            requests = []
+            redirectTargets = []
+        }
+    }
+
+    func record(_ request: URLRequest) {
+        lock.withLock {
+            requests.append(Request(
+                url: request.url?.absoluteString ?? "",
+                authorization: request.value(forHTTPHeaderField: "Authorization")
+            ))
+        }
+    }
+
+    func recordRedirect(to url: URL) {
+        lock.withLock {
+            redirectTargets.append(url.absoluteString)
+        }
+    }
+
+    func snapshot() -> Snapshot {
+        lock.withLock { Snapshot(requests: requests, redirectTargets: redirectTargets) }
+    }
 }
 
 private struct MockDockercdAPI: DockercdAPI {
