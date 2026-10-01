@@ -67,7 +67,25 @@ struct ControllerProfile: Identifiable, Codable, Hashable {
     var normalizedBaseURL: URL? {
         let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return URL(string: trimmed)
+        guard let components = URLComponents(string: trimmed),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = components.host,
+              !host.isEmpty,
+              components.user == nil,
+              components.password == nil,
+              components.query == nil,
+              components.fragment == nil,
+              components.percentEncodedPath.isEmpty || components.percentEncodedPath == "/",
+              let url = components.url else {
+            return nil
+        }
+
+        if let port = components.port, !(1...65_535).contains(port) {
+            return nil
+        }
+
+        return url
     }
 
     var isInsecureHTTP: Bool {

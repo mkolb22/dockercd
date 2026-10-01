@@ -7,6 +7,65 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(profile.normalizedBaseURL?.absoluteString, "http://controller.example:8080")
     }
 
+    func testControllerProfileRequiresBareHTTPOrigin() {
+        let valid = ControllerProfile(name: "Test", baseURL: "https://controller.example:8443/")
+        XCTAssertEqual(valid.normalizedBaseURL?.absoluteString, "https://controller.example:8443")
+
+        [
+            "ftp://controller.example",
+            "https://",
+            "https://user:password@controller.example",
+            "https://controller.example/api/v1",
+            "https://controller.example?token=secret",
+            "https://controller.example#fragment"
+        ].forEach { baseURL in
+            let profile = ControllerProfile(name: "Test", baseURL: baseURL)
+            XCTAssertNil(profile.normalizedBaseURL, "Expected an invalid controller origin: \(baseURL)")
+        }
+    }
+
+    func testControllerProfileAcceptsLocalhostIPv4AndIPv6Origins() {
+        [
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "https://[::1]:8443"
+        ].forEach { baseURL in
+            let profile = ControllerProfile(name: "Test", baseURL: baseURL)
+            XCTAssertEqual(profile.normalizedBaseURL?.absoluteString, baseURL)
+        }
+    }
+
+    func testControllerProfileRejectsEmptyHostsEncodedPathsAndInvalidPorts() {
+        [
+            "https://:8443",
+            "https://controller.example/%2Fapi",
+            "https://controller.example/%2e%2e",
+            "https://controller.example:0",
+            "https://controller.example:65536"
+        ].forEach { baseURL in
+            let profile = ControllerProfile(name: "Test", baseURL: baseURL)
+            XCTAssertNil(profile.normalizedBaseURL, "Expected an invalid controller origin: \(baseURL)")
+        }
+    }
+
+    func testControllerRejectsUnsafeProfileBeforeStartingNetworkWork() throws {
+        let profile = ControllerProfile(
+            name: "Test",
+            baseURL: "https://token:secret@controller.example"
+        )
+
+        XCTAssertThrowsError(try URLSessionDockercdAPI(profile: profile)) { error in
+            XCTAssertEqual(
+                error as? APIError,
+                APIError(
+                    statusCode: 0,
+                    message: "Enter a controller http:// or https:// origin without credentials, paths, queries, or fragments.",
+                    code: nil
+                )
+            )
+        }
+    }
+
     func testRefreshIntervalsMatchSessionPolicy() {
         XCTAssertEqual(RefreshMode.live.pollingInterval, 30)
         XCTAssertEqual(RefreshMode.everyFiveSeconds.pollingInterval, 5)

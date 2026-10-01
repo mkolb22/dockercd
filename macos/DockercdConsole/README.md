@@ -47,5 +47,12 @@ Keychain, TLS trust controls, certificate pinning, and mTLS are intentionally
 deferred to the security phase; do not use unauthenticated HTTP for an
 untrusted network.
 
-The embedded controller web UI remains in place during this migration. It is
-not removed until native owner workflows have been validated in production.
+Enter a bare controller origin such as `https://controller.example:8443`.
+Profiles reject embedded URL credentials, paths, queries, and fragments, so
+the optional token stays in its dedicated field and every request has one
+unambiguous controller origin.
+
+The legacy embedded controller UI has been retired under the v0.1 release
+gate. `dockercd-web` is the browser monitoring surface; authenticated CLI/API
+remain the recovery controls. This Console is an independent local client, not
+a prerequisite for the retired controller UI.

@@ -31,10 +31,12 @@ struct URLSessionDockercdAPI: DockercdAPI {
     private static let redirectRejectingSession = makeRedirectRejectingSession()
 
     init(profile: ControllerProfile, session: URLSession = URLSessionDockercdAPI.redirectRejectingSession) throws {
-        guard let baseURL = profile.normalizedBaseURL,
-              let scheme = baseURL.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
-            throw APIError(statusCode: 0, message: "Enter a valid http:// or https:// controller URL.", code: nil)
+        guard let baseURL = profile.normalizedBaseURL else {
+            throw APIError(
+                statusCode: 0,
+                message: "Enter a controller http:// or https:// origin without credentials, paths, queries, or fragments.",
+                code: nil
+            )
         }
         self.baseURL = baseURL
         self.token = profile.token?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
