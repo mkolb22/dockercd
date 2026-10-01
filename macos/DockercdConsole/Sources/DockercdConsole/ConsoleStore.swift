@@ -13,13 +13,33 @@ final class ConsoleStore: ObservableObject {
 
     private let profilesKey = "dockercd.console.controller-profiles"
     private let selectionKey = "dockercd.console.selected-controller"
+    private let defaults: UserDefaults
+    private let credentialStore: any ControllerTokenStore
     private var applicationIsActive = true
     private var sessions: [UUID: ConnectionSession] = [:]
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        credentialStore: any ControllerTokenStore = KeychainControllerTokenStore()
+    ) {
+        self.defaults = defaults
+        self.credentialStore = credentialStore
         if let data = defaults.data(forKey: profilesKey),
            let decoded = try? JSONDecoder.dockercd.decode([ControllerProfile].self, from: data) {
-            profiles = decoded
+            profiles = decoded.map { profile in
+                guard let legacyToken = profile.token else {
+                    return profile
+                }
+                do {
+                    try credentialStore.store(legacyToken, for: profile.id)
+                    return profile.withoutToken.withCredentialRecoveryRequired(false)
+                } catch {
+                    // Never retain a bearer in preferences. The persisted
+                    // recovery marker blocks automatic activity until the
+                    // user explicitly re-enters a token or removes the profile.
+                    return profile.withoutToken.withCredentialRecoveryRequired(true)
+                }
+            }
         } else {
             profiles = [
                 ControllerProfile(name: "Development", baseURL: "http://127.0.0.1:8080"),
@@ -27,6 +47,7 @@ final class ConsoleStore: ObservableObject {
             ]
         }
         selectedProfileID = defaults.string(forKey: selectionKey).flatMap(UUID.init(uuidString:)) ?? profiles.first?.id
+        persistProfiles()
         selectProfile()
     }
 
@@ -34,21 +55,47 @@ final class ConsoleStore: ObservableObject {
         profiles.first { $0.id == selectedProfileID }
     }
 
-    func save(profile: ControllerProfile) {
-        if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
-            profiles[index] = profile
+    @discardableResult
+    func save(profile: ControllerProfile) -> Bool {
+        let persistedProfile: ControllerProfile
+        do {
+            let token = profile.token?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if profile.credentialRecoveryRequired && (token == nil || token?.isEmpty == true) {
+                errorMessage = "Re-enter the controller token to repair this connection, or remove the profile."
+                return false
+            }
+            if let token, !token.isEmpty {
+                try credentialStore.store(token, for: profile.id)
+            } else {
+                try credentialStore.deleteToken(for: profile.id)
+            }
+            persistedProfile = profile.withoutToken.withCredentialRecoveryRequired(false)
+        } catch {
+            errorMessage = "Connection was not saved. \(error.localizedDescription)"
+            return false
+        }
+
+        if let index = profiles.firstIndex(where: { $0.id == persistedProfile.id }) {
+            profiles[index] = persistedProfile
         } else {
-            profiles.append(profile)
+            profiles.append(persistedProfile)
         }
         persistProfiles()
-        selectedProfileID = profile.id
-        sessions[profile.id]?.update(profile: profile)
+        selectedProfileID = persistedProfile.id
+        return true
     }
 
-    func delete(profile: ControllerProfile) {
+    @discardableResult
+    func delete(profile: ControllerProfile) -> Bool {
         guard profiles.count > 1 else {
             errorMessage = "Keep at least one controller profile. Edit its address instead."
-            return
+            return false
+        }
+        do {
+            try credentialStore.deleteToken(for: profile.id)
+        } catch {
+            errorMessage = "Connection was not deleted. \(error.localizedDescription)"
+            return false
         }
         profiles.removeAll { $0.id == profile.id }
         sessions.removeValue(forKey: profile.id)?.stop()
@@ -56,6 +103,7 @@ final class ConsoleStore: ObservableObject {
         if selectedProfileID == profile.id {
             selectedProfileID = profiles.first?.id
         }
+        return true
     }
 
     func setApplicationActive(_ active: Bool) {
@@ -75,13 +123,18 @@ final class ConsoleStore: ObservableObject {
             session = nil
             return
         }
-        UserDefaults.standard.set(profile.id.uuidString, forKey: selectionKey)
+        defaults.set(profile.id.uuidString, forKey: selectionKey)
+        guard !profile.credentialRecoveryRequired,
+              let sessionProfile = profileForSession(profile) else {
+            session = nil
+            return
+        }
         let selectedSession: ConnectionSession
         if let existing = sessions[profile.id] {
-            existing.update(profile: profile)
+            existing.update(profile: sessionProfile)
             selectedSession = existing
         } else {
-            selectedSession = ConnectionSession(profile: profile)
+            selectedSession = ConnectionSession(profile: sessionProfile)
             sessions[profile.id] = selectedSession
         }
         selectedSession.setApplicationActive(applicationIsActive)
@@ -90,7 +143,22 @@ final class ConsoleStore: ObservableObject {
 
     private func persistProfiles() {
         guard let data = try? JSONEncoder.dockercd.encode(profiles) else { return }
-        UserDefaults.standard.set(data, forKey: profilesKey)
+        defaults.set(data, forKey: profilesKey)
+    }
+
+    private func profileForSession(_ profile: ControllerProfile) -> ControllerProfile? {
+        do {
+            return profile.withToken(try credentialStore.token(for: profile.id))
+        } catch {
+            markCredentialRecoveryRequired(profile)
+            return nil
+        }
+    }
+
+    private func markCredentialRecoveryRequired(_ profile: ControllerProfile) {
+        guard let index = profiles.firstIndex(where: { $0.id == profile.id }) else { return }
+        profiles[index] = profile.withCredentialRecoveryRequired(true)
+        persistProfiles()
     }
 }
 

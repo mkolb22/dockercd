@@ -31,6 +31,13 @@ struct URLSessionDockercdAPI: DockercdAPI {
     private static let redirectRejectingSession = makeRedirectRejectingSession()
 
     init(profile: ControllerProfile, session: URLSession = URLSessionDockercdAPI.redirectRejectingSession) throws {
+        guard !profile.credentialRecoveryRequired else {
+            throw APIError(
+                statusCode: 0,
+                message: "Re-enter and save the controller token before sending requests.",
+                code: nil
+            )
+        }
         guard let baseURL = profile.normalizedBaseURL else {
             throw APIError(
                 statusCode: 0,

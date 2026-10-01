@@ -49,19 +49,22 @@ struct ControllerProfile: Identifiable, Codable, Hashable {
     var baseURL: String
     var refreshMode: RefreshMode
     var token: String?
+    var credentialRecoveryRequired: Bool
 
     init(
         id: UUID = UUID(),
         name: String,
         baseURL: String,
         refreshMode: RefreshMode = .everyTenSeconds,
-        token: String? = nil
+        token: String? = nil,
+        credentialRecoveryRequired: Bool = false
     ) {
         self.id = id
         self.name = name
         self.baseURL = baseURL
         self.refreshMode = refreshMode
         self.token = token
+        self.credentialRecoveryRequired = credentialRecoveryRequired
     }
 
     var normalizedBaseURL: URL? {
@@ -90,6 +93,46 @@ struct ControllerProfile: Identifiable, Codable, Hashable {
 
     var isInsecureHTTP: Bool {
         normalizedBaseURL?.scheme?.lowercased() == "http"
+    }
+
+    var withoutToken: ControllerProfile {
+        withToken(nil)
+    }
+
+    func withToken(_ token: String?) -> ControllerProfile {
+        var profile = self
+        profile.token = token
+        return profile
+    }
+
+    func withCredentialRecoveryRequired(_ required: Bool) -> ControllerProfile {
+        var profile = self
+        profile.credentialRecoveryRequired = required
+        return profile
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, baseURL, refreshMode, token, credentialRecoveryRequired
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        baseURL = try container.decode(String.self, forKey: .baseURL)
+        refreshMode = try container.decodeIfPresent(RefreshMode.self, forKey: .refreshMode) ?? .everyTenSeconds
+        token = try container.decodeIfPresent(String.self, forKey: .token)
+        credentialRecoveryRequired = try container.decodeIfPresent(Bool.self, forKey: .credentialRecoveryRequired) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(baseURL, forKey: .baseURL)
+        try container.encode(refreshMode, forKey: .refreshMode)
+        try container.encodeIfPresent(token, forKey: .token)
+        try container.encode(credentialRecoveryRequired, forKey: .credentialRecoveryRequired)
     }
 }
 

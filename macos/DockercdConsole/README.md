@@ -42,10 +42,19 @@ and retry at 5, 10, 30, then 60 seconds.
 The connection form accepts an optional bearer token and supports HTTP or
 HTTPS. HTTP is visibly identified as trusted-network/development-only. The
 client rejects HTTP redirects, so a controller response cannot silently send a
-bearer to another origin or obscure the controller's result. Token storage in
-Keychain, TLS trust controls, certificate pinning, and mTLS are intentionally
-deferred to the security phase; do not use unauthenticated HTTP for an
-untrusted network.
+bearer to another origin or obscure the controller's result. Tokens are stored
+in the local macOS Keychain rather than the connection-profile preferences.
+TLS trust controls, certificate pinning, and mTLS remain future work; do not
+use unauthenticated HTTP for an untrusted network.
+
+On first launch after this change, the Console attempts to move a legacy token
+from local preferences into Keychain. It immediately removes the plaintext
+preference whether that secure write succeeds or fails. A Keychain migration
+or later read failure leaves only a non-secret, persisted “token repair
+required” marker. The affected controller makes no automatic connection or
+request until you explicitly re-enter and save its token, or remove its
+profile. A failed save leaves the connection editor open so its draft can be
+corrected.
 
 Enter a bare controller origin such as `https://controller.example:8443`.
 Profiles reject embedded URL credentials, paths, queries, and fragments, so

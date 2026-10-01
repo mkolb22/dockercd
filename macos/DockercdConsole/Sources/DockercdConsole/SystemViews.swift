@@ -179,15 +179,18 @@ struct ControllerSettingsView: View {
                 }
             }
             Section("Future security") {
-                Text("Tokens are presently stored only with the local connection profile to support development. The security phase moves them to Keychain and adds HTTPS trust and client-certificate controls.")
+                Text("Controller tokens are stored in the macOS Keychain, separately from connection-profile metadata. HTTPS trust and client-certificate controls remain future work.")
                     .font(.caption)
             }
         }
         .formStyle(.grouped)
         .sheet(isPresented: $showEditor) {
             ConnectionEditor(profile: session.profile) { profile in
-                store.save(profile: profile)
-                showEditor = false
+                let saved = store.save(profile: profile)
+                if saved {
+                    showEditor = false
+                }
+                return saved
             }
         }
         .task { await loadControllerPollInterval() }

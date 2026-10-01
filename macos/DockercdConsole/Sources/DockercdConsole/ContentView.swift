@@ -34,6 +34,8 @@ struct ContentView: View {
             if let session = store.session {
                 ControllerWorkspace(session: session)
                     .id(session.profile.id)
+            } else if let profile = store.selectedProfile, profile.credentialRecoveryRequired {
+                CredentialRecoveryView(profile: profile)
             } else {
                 ContentUnavailableView("No Controller Selected", systemImage: "server.rack")
             }
@@ -41,7 +43,6 @@ struct ContentView: View {
         .sheet(isPresented: $store.showAddConnection) {
             ConnectionEditor { profile in
                 store.save(profile: profile)
-                store.showAddConnection = false
             }
         }
         .alert("dockercd Console", isPresented: Binding(
@@ -61,11 +62,11 @@ private struct ControllerRow: View {
 
     var body: some View {
         HStack(spacing: 9) {
-            Image(systemName: profile.isInsecureHTTP ? "exclamationmark.triangle.fill" : "server.rack")
+            Image(systemName: profile.credentialRecoveryRequired ? "key.slash" : profile.isInsecureHTTP ? "exclamationmark.triangle.fill" : "server.rack")
                 .font(.caption.weight(.bold))
-                .foregroundStyle(profile.isInsecureHTTP ? CommandCenterPalette.amber : CommandCenterPalette.indigo)
+                .foregroundStyle(profile.credentialRecoveryRequired ? CommandCenterPalette.coral : profile.isInsecureHTTP ? CommandCenterPalette.amber : CommandCenterPalette.indigo)
                 .frame(width: 25, height: 25)
-                .background((profile.isInsecureHTTP ? CommandCenterPalette.amber : CommandCenterPalette.indigo).opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background((profile.credentialRecoveryRequired ? CommandCenterPalette.coral : profile.isInsecureHTTP ? CommandCenterPalette.amber : CommandCenterPalette.indigo).opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
                 Text(profile.name)
                     .fontWeight(isSelected ? .semibold : .regular)
@@ -73,6 +74,11 @@ private struct ControllerRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                if profile.credentialRecoveryRequired {
+                    Text("Token repair required")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(CommandCenterPalette.coral)
+                }
             }
         }
     }
@@ -173,9 +179,9 @@ struct ConnectionEditor: View {
     @State private var profile: ControllerProfile
     @State private var testState = ""
     @State private var isTesting = false
-    let onSave: (ControllerProfile) -> Void
+    let onSave: (ControllerProfile) -> Bool
 
-    init(profile: ControllerProfile? = nil, onSave: @escaping (ControllerProfile) -> Void) {
+    init(profile: ControllerProfile? = nil, onSave: @escaping (ControllerProfile) -> Bool) {
         _profile = State(initialValue: profile ?? ControllerProfile(name: "", baseURL: "http://"))
         self.onSave = onSave
     }
@@ -193,7 +199,7 @@ struct ConnectionEditor: View {
                         Text(mode.title).tag(mode)
                     }
                 }
-                SecureField("API token (optional for now)", text: Binding(
+                SecureField("API token (stored securely in Keychain)", text: Binding(
                     get: { profile.token ?? "" },
                     set: { profile.token = $0.nilIfEmpty }
                 ))
@@ -207,11 +213,13 @@ struct ConnectionEditor: View {
                 Button("Test Connection") {
                     Task { await testConnection() }
                 }
-                .disabled(isTesting)
+                .disabled(isTesting || profile.credentialRecoveryRequired)
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") {
-                    onSave(profile)
+                    if onSave(profile) {
+                        dismiss()
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || profile.normalizedBaseURL == nil)
@@ -237,6 +245,28 @@ struct ConnectionEditor: View {
             }
         } catch {
             testState = error.localizedDescription
+        }
+    }
+}
+
+private struct CredentialRecoveryView: View {
+    @EnvironmentObject private var store: ConsoleStore
+    let profile: ControllerProfile
+    @State private var showEditor = false
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("Controller Token Needs Repair", systemImage: "key.slash")
+        } description: {
+            Text("The saved token for \(profile.name) could not be read securely. This controller is blocked and no requests will be sent until you re-enter its token and save the connection, or remove this profile.")
+        } actions: {
+            Button("Repair Connection…") { showEditor = true }
+                .buttonStyle(.borderedProminent)
+        }
+        .sheet(isPresented: $showEditor) {
+            ConnectionEditor(profile: profile.withoutToken) { repairedProfile in
+                store.save(profile: repairedProfile)
+            }
         }
     }
 }
