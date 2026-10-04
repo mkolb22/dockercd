@@ -1,0 +1,39 @@
+schema: dockercd.cs_knowledge_ontology.v1
+status: provisional
+updated: 2026-10-04
+upstream_provenance: bodhi-ai@ca7d286a712441250dff6cda75bcb97e03e37719:knowledge/computer-science/ontology.yaml
+purpose: >-
+  A small DockerCD navigation map for selective engineering retrieval. It is
+  not an approval policy, execution engine, or substitute for project evidence.
+areas:
+  - id: software-engineering
+    concepts: [testing, change-management, provenance, architecture-boundaries]
+  - id: security
+    concepts: [authentication, authorization, trust-boundaries, secret-handling]
+  - id: systems
+    concepts: [resource-management, fault-isolation, recovery, concurrency]
+  - id: networking
+    concepts: [timeouts, retries, protocol-compatibility, partial-failure]
+concepts:
+  - id: evidence-driven-development
+    areas: [software-engineering]
+    related: [provenance, testing, validation, change-management]
+  - id: trust-boundaries
+    areas: [security, software-engineering]
+    related: [authentication, authorization, least-privilege, owner-approval]
+  - id: recovery
+    areas: [systems, software-engineering]
+    related: [fault-isolation, backup, validation, operations]
+relationships:
+  - from: evidence-driven-development
+    type: constrains
+    to: recovery
+    scope: release evidence must preserve the documented disposal and restoration boundary
+  - from: trust-boundaries
+    type: constrains
+    to: recovery
+    scope: recovery validation must not use a protected Docker daemon
+non_goals:
+  - automatic approval
+  - autonomous ontology expansion
+  - runtime Docker control

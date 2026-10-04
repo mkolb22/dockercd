@@ -90,6 +90,14 @@ context as well as every context explicitly named in
 `DOCKERCD_RECOVERY_PROTECTED_CONTEXTS`. The guard daemon must be a different,
 reachable daemon with no drill authority; it is only queried for identity.
 
+Before running preflight, the execution host must list explicit,
+purpose-specific `recovery-drill` and `recovery-guard` contexts as well as
+every protected deployment context. The implicit Docker `default` context is
+not a drill target: its name and endpoint alone provide no disposable-daemon
+provenance, and it must be treated as protected if it can reach any existing
+deployment. A context inventory containing only `default` and a shared Docker
+Desktop context therefore fails this prerequisite without probing workloads.
+
 Do not use Docker-in-Docker, a privileged helper, a custom/rootless socket, or
 a context sharing the Docker Desktop daemon to satisfy this requirement. Those
 arrangements either weaken the isolation boundary or are rejected by the

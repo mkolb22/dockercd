@@ -1,0 +1,268 @@
+{
+  "schema": "bodhi.development_tranche.v1",
+  "practice_version": "0.1",
+  "task_id": "dockercd_recovery_drill_prerequisite_workflow_onboarding_v0_1",
+  "project": "dockercd",
+  "outcome": "Record a project-local, advisory Bodhi workflow contract and clarify that an implicit Docker default context is not a disposable recovery-drill target.",
+  "base_revision": "aa53ccaa14adcec4076b8860c33799e229b6ee56",
+  "candidate_revision": "onboarding-content-sha256:6c896d3b4402a5e45648b5701d5f4d66b7b96eb33339d9593ea07bb3aa0e1326",
+  "candidate_identity": "SHA-256 of UTF-8 lines sorted by bytewise path: <sha256 raw bytes><two spaces><relative allowed path><LF>. For this packet only, parse JSON, recursively replace every candidate_revision value with the exact string <self>, serialize with JSON.stringify(value, null, 2) plus one LF, then SHA-256 those bytes. Join all lines with LF, add one final LF, and SHA-256. This avoids self-reference while binding the reviewed documentation candidate.",
+  "implementer": "codex",
+  "allowed_paths": [
+    "CLAUDE.md",
+    "docs/bodhi-workflow-contract.md",
+    "docs/development-token-economics.md",
+    "docs/quality-first-development-practice.md",
+    "docs/quality-first-feature-tranche-template.md",
+    "docs/recovery-drill-design.md",
+    "docs/tranche-packets/recovery-drill-prerequisite-workflow-onboarding-v0.1.json",
+    "knowledge/computer-science/evidence-driven-tranche-workflow.md",
+    "knowledge/computer-science/ontology.yaml",
+    "knowledge/epistemics/quality-first-ai-development-workflow.md",
+    "knowledge/technology/development-token-economics.md",
+    "knowledge/technology/devops-gitops-quality-first-development.md"
+  ],
+  "acceptance_criteria": [
+    "DockerCD has a concise root workflow contract that requires project-local tranche packets and startup, resume, and acceptance checks without claiming the validator grants acceptance or publication authority.",
+    "DockerCD owns concise, provenance-marked local practice and knowledge files at each source path required by the validator; they contain no copied Bodhi project history, runtime feature, or measured-savings claim.",
+    "The onboarding packet uses DockerCD-local, hash-pinned research references and passes the Bodhi validator at startup and resume.",
+    "The recovery-drill design states that default is not proof of a disposable target and requires explicit recovery-drill, recovery-guard, and protected deployment contexts.",
+    "The tranche does not provision Docker infrastructure, inspect or alter protected workloads, or claim that the disposable recovery drill has executed."
+  ],
+  "knowledge_topic_ids": [
+    "dockercd/v0.1-release-scope-lock",
+    "dockercd/repository-safety-guidance",
+    "dockercd/disposable-recovery-drill-isolation",
+    "dockercd/bodhi-tranche-validator-adoption",
+    "dockercd/quality-first-development-practice",
+    "dockercd/quality-first-tranche-template",
+    "dockercd/development-token-economics",
+    "computer-science/evidence-driven-tranche-workflow",
+    "computer-science/ontology",
+    "epistemics/quality-first-ai-development-workflow",
+    "technology/devops-gitops-quality-first-development",
+    "technology/development-token-economics"
+  ],
+  "safety_boundary": "Documentation and workflow-record change only. No Docker daemon, context, container, credential, deployment, personal workload, Signal, or Bodhi shared-state operation is permitted.",
+  "budget": "One root contract, one local contract note, eight concise local practice sources, one packet, and one recovery-drill prerequisite clarification; no runtime feature or infrastructure work.",
+  "research": {
+    "references": [
+      "AGENTS.md",
+      "GOAL.md",
+      "docs/development-token-economics.md",
+      "docs/quality-first-development-practice.md",
+      "docs/quality-first-feature-tranche-template.md",
+      "docs/recovery-drill-design.md",
+      "docs/bodhi-workflow-contract.md",
+      "knowledge/computer-science/evidence-driven-tranche-workflow.md",
+      "knowledge/computer-science/ontology.yaml",
+      "knowledge/epistemics/quality-first-ai-development-workflow.md",
+      "knowledge/technology/development-token-economics.md",
+      "knowledge/technology/devops-gitops-quality-first-development.md"
+    ],
+    "reuse_decision": "Reuse DockerCD's locked recovery-drill isolation design and a concise, provenance-marked adaptation of Bodhi's advisory practice sources; do not introduce a DockerCD workflow engine or modify Bodhi's shared practice."
+  },
+  "design": {
+    "status": "applicable",
+    "reason": "The project needs a concise durable record that binds local safety evidence, the advisory validator limits, and the reviewed recovery-drill context prerequisite without changing runtime behavior.",
+    "references": [
+      "CLAUDE.md",
+      "docs/bodhi-workflow-contract.md",
+      "docs/recovery-drill-design.md#provisioning-the-execution-host"
+    ]
+  },
+  "workflow_evidence": {
+    "version": "1",
+    "stage": "complete",
+    "research": {
+      "topic_evidence": [
+        {
+          "topic_id": "dockercd/v0.1-release-scope-lock",
+          "source_ref": "GOAL.md",
+          "revision_sha256": "7fbabb8cf1ebc757a2104b0c81bc547302a537351d5952ea98bd4cae917ce863",
+          "relevance": "Locks recovery-drill execution to a dedicated disposable daemon and keeps the current development and personal daemons out of scope."
+        },
+        {
+          "topic_id": "dockercd/repository-safety-guidance",
+          "source_ref": "AGENTS.md",
+          "revision_sha256": "c30a507dd6798f7254f63577c8e32af1f78d2d68932ec2087ce030df1c71eb45",
+          "relevance": "Defines Docker, credential, workload, validation, and review boundaries that continue to govern this documentation-only change."
+        },
+        {
+          "topic_id": "dockercd/disposable-recovery-drill-isolation",
+          "source_ref": "docs/recovery-drill-design.md",
+          "revision_sha256": "65dde08c7fe7e75e74aad73b4dcb204694cd6a79cc85c43ca232b5ef1ed80c1d",
+          "relevance": "Defines the separate guard, drill, and protected-context topology and explains why an implicit default context cannot establish isolated drill authority."
+        },
+        {
+          "topic_id": "dockercd/bodhi-tranche-validator-adoption",
+          "source_ref": "docs/bodhi-workflow-contract.md",
+          "revision_sha256": "e839a4f6a0593f1d85287f40b00cc4af771cfe4b86ffa76f4d20bc59d3a78269",
+          "relevance": "Records the inspected validator's repository-local provenance, advisory limits, and startup/resume/acceptance sequence."
+        },
+        {
+          "topic_id": "dockercd/quality-first-development-practice",
+          "source_ref": "docs/quality-first-development-practice.md",
+          "revision_sha256": "3b687c06ce54fbfd50002e74e5a39a5be695a4126de4636c5011e4577065c724",
+          "relevance": "Defines DockerCD's project-local packet lifecycle, documentation coverage, review requirement, and fixture-only recovery boundary."
+        },
+        {
+          "topic_id": "dockercd/quality-first-tranche-template",
+          "source_ref": "docs/quality-first-feature-tranche-template.md",
+          "revision_sha256": "9b743afd5bc2936fad65d9594fb6dcf22131285d79308771e4b53714169d7845",
+          "relevance": "Provides the concise project-local framing, research, design, evidence, and review outline behind this machine-readable packet."
+        },
+        {
+          "topic_id": "dockercd/development-token-economics",
+          "source_ref": "docs/development-token-economics.md",
+          "revision_sha256": "52cb6609cfd86fb846acbe14d371b428194b87b87a60114a330d941b29b4ea66",
+          "relevance": "Records DockerCD's unmeasured cost and owner-attention boundary without claiming workflow savings from this single tranche."
+        },
+        {
+          "topic_id": "computer-science/evidence-driven-tranche-workflow",
+          "source_ref": "knowledge/computer-science/evidence-driven-tranche-workflow.md",
+          "revision_sha256": "ab4b940a47290157b15430b91206a47b1d6faa0f02195d09d2425f1822580f14",
+          "relevance": "Supplies the project-local evidence, gap-disposition, hash-freshness, validation, and independent-review lifecycle."
+        },
+        {
+          "topic_id": "computer-science/ontology",
+          "source_ref": "knowledge/computer-science/ontology.yaml",
+          "revision_sha256": "f6ad1323936085989073f03e9ad4db360e9883909ea2dc7fcb7a6434b638acb9",
+          "relevance": "Narrows retrieval to DockerCD's software-engineering, security, systems, networking, recovery, and trust-boundary concepts."
+        },
+        {
+          "topic_id": "epistemics/quality-first-ai-development-workflow",
+          "source_ref": "knowledge/epistemics/quality-first-ai-development-workflow.md",
+          "revision_sha256": "6afdf2ac36a0db4780a90718fc92715f4d16d0033310de4a633cee4de46f0478",
+          "relevance": "Explains why tested output does not replace documented independent review or establish a quality claim from one workflow run."
+        },
+        {
+          "topic_id": "technology/devops-gitops-quality-first-development",
+          "source_ref": "knowledge/technology/devops-gitops-quality-first-development.md",
+          "revision_sha256": "2e92c0183a519545d900a1dd1bbae6322e05dd200350c7a0c19b6f011db3ec64",
+          "relevance": "Keeps candidate evidence, publication, deployment, and recovery as separate decisions for DockerCD's GitOps context."
+        },
+        {
+          "topic_id": "technology/development-token-economics",
+          "source_ref": "knowledge/technology/development-token-economics.md",
+          "revision_sha256": "eb671faed200adc1d573e5a14fde30a8bb9e59d95cf7130947d8d4ff8e9a0664",
+          "relevance": "Prevents unmeasured claims about token savings while retaining quality, repair, and owner-attention measurement guidance."
+        }
+      ],
+      "gap_disposition": {
+        "status": "no_gap",
+        "reason": "The existing DockerCD release and isolation documents plus the inspected validator contract are sufficient for this documentation onboarding; no reusable shared knowledge change is needed.",
+        "gaps": []
+      }
+    },
+    "design_test_derivation": {
+      "design_topic_ids": [
+        "dockercd/repository-safety-guidance",
+        "dockercd/disposable-recovery-drill-isolation",
+        "dockercd/bodhi-tranche-validator-adoption",
+        "dockercd/quality-first-development-practice",
+        "computer-science/evidence-driven-tranche-workflow",
+        "epistemics/quality-first-ai-development-workflow",
+        "technology/devops-gitops-quality-first-development"
+      ],
+      "test_invariants": [
+        "Every packet research source is a DockerCD-contained regular file whose recorded SHA-256 matches at startup and resume.",
+        "The documentation cannot represent the implicit default context as proof of a disposable recovery-drill daemon.",
+        "The onboarding change makes no Docker call or protected-workload operation.",
+        "A declaration-complete validator result remains advisory and cannot replace independent review or user-authorized publication."
+      ]
+    },
+    "review_repair": {
+      "status": "repaired",
+      "reason": "The independent review found missing immutable upstream provenance on the local practice adaptations. Every adapted source now records its Bodhi commit and source path, and packet hashes were refreshed before re-review.",
+      "evidence_refs": [
+        "independent_documentation_review_2026-10-04_p2_provenance_repaired"
+      ]
+    },
+    "outcome": {
+      "status": "accepted",
+      "reason": "The documentation candidate establishes the local practice source set, its packet remains advisory, and the recovery drill remains blocked pending its dedicated topology.",
+      "evidence_refs": [
+        "startup_resume_validator_current_2026-10-04",
+        "independent_documentation_rereview_clear_2026-10-04"
+      ]
+    }
+  },
+  "validation": [
+    {
+      "command": "node ../bodhi-ai/scripts/development-practice.mjs --repo-root $PWD --packet docs/tranche-packets/recovery-drill-prerequisite-workflow-onboarding-v0.1.json --stage startup",
+      "evidence_ref": "local discovery available; packet declaration complete; 12 local source hashes current",
+      "status": "passed",
+      "candidate_revision": "onboarding-content-sha256:6c896d3b4402a5e45648b5701d5f4d66b7b96eb33339d9593ea07bb3aa0e1326"
+    },
+    {
+      "command": "node ../bodhi-ai/scripts/development-practice.mjs --repo-root $PWD --packet docs/tranche-packets/recovery-drill-prerequisite-workflow-onboarding-v0.1.json --stage resume",
+      "evidence_ref": "local discovery available; recorded sources remained current on resume",
+      "status": "passed",
+      "candidate_revision": "onboarding-content-sha256:6c896d3b4402a5e45648b5701d5f4d66b7b96eb33339d9593ea07bb3aa0e1326"
+    },
+    {
+      "command": "bash scripts/recovery-drill-preflight-test.sh; bash scripts/recovery-drill-fixtures-test.sh; bash scripts/recovery-drill-cleanup-test.sh; bash scripts/recovery-drill-bounded-command-test.sh",
+      "evidence_ref": "all four fixture-only regression scripts passed without contacting Docker",
+      "status": "passed",
+      "candidate_revision": "onboarding-content-sha256:6c896d3b4402a5e45648b5701d5f4d66b7b96eb33339d9593ea07bb3aa0e1326"
+    },
+    {
+      "command": "git diff --check && jq empty docs/tranche-packets/recovery-drill-prerequisite-workflow-onboarding-v0.1.json && ruby -e 'require \"yaml\"; YAML.load_file(\"knowledge/computer-science/ontology.yaml\")'",
+      "evidence_ref": "whitespace, packet JSON, and ontology YAML checks passed",
+      "status": "passed",
+      "candidate_revision": "onboarding-content-sha256:6c896d3b4402a5e45648b5701d5f4d66b7b96eb33339d9593ea07bb3aa0e1326"
+    }
+  ],
+  "documentation": {
+    "architecture": {
+      "status": "updated",
+      "reason": "The root contract and local practice define the advisory workflow boundary without adding a DockerCD runtime component.",
+      "references": ["CLAUDE.md", "docs/quality-first-development-practice.md"]
+    },
+    "decisions": {
+      "status": "updated",
+      "reason": "Records reuse of a project-local adaptation rather than a new workflow engine or shared Bodhi write.",
+      "references": ["docs/bodhi-workflow-contract.md"]
+    },
+    "risks": {
+      "status": "updated",
+      "reason": "Clarifies that default cannot establish disposable recovery-drill authority and retains protected-daemon limits.",
+      "references": ["docs/recovery-drill-design.md", "knowledge/computer-science/ontology.yaml"]
+    },
+    "evaluation": {
+      "status": "updated",
+      "reason": "The packet binds source freshness, fixture checks, and independent review to the documentation candidate.",
+      "references": ["docs/tranche-packets/recovery-drill-prerequisite-workflow-onboarding-v0.1.json"]
+    },
+    "cost": {
+      "status": "updated",
+      "reason": "Records that workflow cost and benefit remain unmeasured and separates owner attention from provider or local-compute usage.",
+      "references": ["docs/development-token-economics.md", "knowledge/technology/development-token-economics.md"]
+    },
+    "operations": {
+      "status": "updated",
+      "reason": "Documents the startup, resume, acceptance, recovery-drill, and publication boundaries for future operators.",
+      "references": ["CLAUDE.md", "docs/recovery-drill-design.md"]
+    }
+  },
+  "review": {
+    "reviewer": "independent_documentation_reviewer",
+    "status": "reviewed",
+    "candidate_revision": "onboarding-content-sha256:6c896d3b4402a5e45648b5701d5f4d66b7b96eb33339d9593ea07bb3aa0e1326",
+    "evidence_refs": [
+      "independent_documentation_rereview_clear_2026-10-04"
+    ],
+    "blocking_findings": 0
+  },
+  "recommendations": {
+    "status": "captured",
+    "reason": "Use a new bounded packet for the next meaningful DockerCD tranche and run the existing recovery drill only after its dedicated guard, drill, and protected-context topology is available.",
+    "references": ["CLAUDE.md", "docs/recovery-drill-design.md"]
+  },
+  "learning": {
+    "status": "captured",
+    "reason": "Cross-project workflow adoption needs immutable upstream source provenance and local adaptations tailored to the destination project; declaration checking must remain distinct from approval and deployment authority.",
+    "references": ["docs/bodhi-workflow-contract.md", "docs/tranche-packets/recovery-drill-prerequisite-workflow-onboarding-v0.1.json"]
+  }
+}
