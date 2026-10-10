@@ -352,20 +352,20 @@ func verifyWithContext(ctx context.Context, e expectation) (verificationReport, 
 	}
 
 	var errQuery error
-	if report.ManualASuccess, errQuery = hasRecord(ctx, db, e.application, "manual", "success", e.shaA); errQuery != nil {
+	if report.ManualASuccess, errQuery = hasExactlyOneRecord(ctx, db, e.application, "manual", "success", e.shaA); errQuery != nil {
 		return verificationReport{}, errQuery
 	}
-	if report.ManualBSuccess, errQuery = hasRecord(ctx, db, e.application, "manual", "success", e.shaB); errQuery != nil {
+	if report.ManualBSuccess, errQuery = hasExactlyOneRecord(ctx, db, e.application, "manual", "success", e.shaB); errQuery != nil {
 		return verificationReport{}, errQuery
 	}
-	if report.RollbackASuccess, errQuery = hasRecord(ctx, db, e.application, "rollback", "success", e.shaA); errQuery != nil {
+	if report.RollbackASuccess, errQuery = hasExactlyOneRecord(ctx, db, e.application, "rollback", "success", e.shaA); errQuery != nil {
 		return verificationReport{}, errQuery
 	}
-	if report.UnknownRollbackFailed, errQuery = hasRecord(ctx, db, e.application, "rollback", "failure", e.unknownSHA); errQuery != nil {
+	if report.UnknownRollbackFailed, errQuery = hasExactlyOneRecord(ctx, db, e.application, "rollback", "failure", e.unknownSHA); errQuery != nil {
 		return verificationReport{}, errQuery
 	}
 	if !report.ManualASuccess || !report.ManualBSuccess || !report.RollbackASuccess || !report.UnknownRollbackFailed {
-		return verificationReport{}, errors.New("required recovery history record is missing")
+		return verificationReport{}, errors.New("required recovery history record is missing or duplicated")
 	}
 
 	if err := db.Close(); err != nil {
@@ -430,7 +430,7 @@ func completeSchemaVersion(ctx context.Context, db *sql.DB) (int, error) {
 	return currentSchemaVersion, nil
 }
 
-func hasRecord(ctx context.Context, db *sql.DB, application, operation, result, sha string) (bool, error) {
+func hasExactlyOneRecord(ctx context.Context, db *sql.DB, application, operation, result, sha string) (bool, error) {
 	var count int
 	err := db.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM sync_history WHERE app_name = ? AND operation = ? AND result = ? AND commit_sha = ?",
@@ -439,7 +439,7 @@ func hasRecord(ctx context.Context, db *sql.DB, application, operation, result, 
 	if err != nil {
 		return false, errors.New("reading recovery history")
 	}
-	return count > 0, nil
+	return count == 1, nil
 }
 
 func fileDigest(path string) ([sha256.Size]byte, error) {

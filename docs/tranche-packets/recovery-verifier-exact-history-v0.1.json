@@ -1,0 +1,208 @@
+{
+  "schema": "bodhi.development_tranche.v1",
+  "practice_version": "0.1",
+  "task_id": "dockercd_recovery_verifier_exact_history_v0_1",
+  "project": "dockercd",
+  "outcome": "Strengthen the offline recovery-evidence verifier so each required manual or rollback record is proven exactly once, while documenting the implemented control-node and Web-node boundary.",
+  "base_revision": "8d8621a",
+  "candidate_revision": "content-set-sha256:2fad5ec4540ad7774be08111417a5205dede1959939390ad14be1db7949a84f7",
+  "candidate_identity": "SHA-256 of UTF-8 lines sorted by bytewise allowed-path order: <sha256 raw file bytes><two spaces><relative allowed path><LF>. For this self-referential packet, recursively replace every candidate_revision string with <self>, serialize the packet as JSON.stringify(value, null, 2) plus one LF, then hash it as the packet content.",
+  "implementer": "codex",
+  "allowed_paths": [
+    "src/cmd/recovery-drill-verify/main.go",
+    "src/cmd/recovery-drill-verify/main_test.go",
+    "docs/recovery-drill-design.md",
+    "docs/architecture/dockercd-control-web-architecture.md",
+    "docs/architecture/dockercd-control-web-architecture.mmd",
+    "docs/tranche-packets/recovery-verifier-exact-history-v0.1.json"
+  ],
+  "acceptance_criteria": [
+    "The stopped-snapshot verifier accepts the deterministic recovery fixture containing one each of manual A, manual B, rollback A, and failed unknown rollback evidence.",
+    "The verifier rejects a snapshot with any duplicate required manual or rollback recovery evidence record.",
+    "Verification remains offline and read-only: it neither contacts Docker nor creates SQLite WAL or SHM sidecars, and its JSON evidence contains no full commit SHA, manifest, error, diff, or secret value.",
+    "The architecture report and editable diagram distinguish the implemented privileged control node from the separate Go Web node, identify their scoped request and credential boundary, and show the verifier as offline release evidence rather than a runtime service."
+  ],
+  "knowledge_topic_ids": [
+    "dockercd/repository-safety-guidance",
+    "dockercd/v0.1-release-scope-lock",
+    "dockercd/recovery-drill-verification",
+    "dockercd/control-web-boundary",
+    "dockercd/paired-deployment"
+  ],
+  "safety_boundary": "Source and fixture-only change. It must not contact a Docker daemon, inspect or change live containers, deployments, credentials, contexts, or Bodhi state.",
+  "budget": "One verifier cardinality check, focused fixture tests, a recovery-design clarification, one architecture report with editable diagram source, and the required evidence/review record. No runtime deployment feature or infrastructure work.",
+  "research": {
+    "references": [
+      "AGENTS.md",
+      "GOAL.md",
+      "docs/recovery-drill-design.md",
+      "docs/presentation-architecture.md",
+      "docs/presentation-integration-contract.md",
+      "deploy/docker-compose.yml",
+      "docs/bodhi-workflow-contract.md",
+      "src/cmd/recovery-drill-verify/main.go",
+      "src/cmd/recovery-drill-verify/main_test.go"
+    ],
+    "reuse_decision": "Reuse the existing immutable, digest-only recovery verifier and the existing paired-deployment contracts. Add only exact-cardinality evidence; do not add a new Docker, Web, or Bodhi integration."
+  },
+  "design": {
+    "status": "applicable",
+    "reason": "The recovery design requires an exact, single execution of each scenario event, but the current verifier checks only that a matching record exists. The smallest coherent correction is a cardinality check within the existing stopped-snapshot verifier.",
+    "references": [
+      "docs/recovery-drill-design.md",
+      "src/cmd/recovery-drill-verify/main.go"
+    ]
+  },
+  "workflow_evidence": {
+    "version": "1",
+    "stage": "complete",
+    "research": {
+      "topic_evidence": [
+        {
+          "topic_id": "dockercd/repository-safety-guidance",
+          "source_ref": "AGENTS.md",
+          "revision_sha256": "c30a507dd6798f7254f63577c8e32af1f78d2d68932ec2087ce030df1c71eb45",
+          "relevance": "Defines the Docker, state, credential, test, and independent-review boundaries for the change."
+        },
+        {
+          "topic_id": "dockercd/v0.1-release-scope-lock",
+          "source_ref": "GOAL.md",
+          "revision_sha256": "7fbabb8cf1ebc757a2104b0c81bc547302a537351d5952ea98bd4cae917ce863",
+          "relevance": "Locks new product capability while retaining the disposable recovery-drill execution gate; this slice is release-evidence hardening only."
+        },
+        {
+          "topic_id": "dockercd/recovery-drill-verification",
+          "source_ref": "docs/recovery-drill-design.md",
+          "revision_sha256": "2f1e8318d8d21d216ad20d699748a1513e5298b9a839362e008acf163e07c4f2",
+          "relevance": "Specifies the one-time manual A/B/rollback/failed-rollback sequence and the stopped, read-only snapshot verifier."
+        },
+        {
+          "topic_id": "dockercd/control-web-boundary",
+          "source_ref": "docs/presentation-integration-contract.md",
+          "revision_sha256": "ae2deca5fd1b51782b843cc455a9064b7b338d9bc88fcff56c978b1f45c3ef6b",
+          "relevance": "Defines the scoped controller presentation API, server-side token boundary, and the absence of browser or Web-node control-plane authority."
+        },
+        {
+          "topic_id": "dockercd/paired-deployment",
+          "source_ref": "deploy/docker-compose.yml",
+          "revision_sha256": "68737e379fdc6544efd939d00bcd7225218090280638a635f2c4711866bc29cd",
+          "relevance": "Provides the implemented two-service Compose topology, loopback ports, Docker socket placement, state volume, read-only Web configuration, and private controller URL."
+        }
+      ],
+      "gap_disposition": {
+        "status": "no_gap",
+        "reason": "The repository's recovery design, verifier, tests, and paired deployment definitions provide sufficient source-grounded evidence for this bounded offline change.",
+        "gaps": []
+      }
+    },
+    "design_test_derivation": {
+      "design_topic_ids": [
+        "dockercd/repository-safety-guidance",
+        "dockercd/v0.1-release-scope-lock",
+        "dockercd/recovery-drill-verification",
+        "dockercd/control-web-boundary",
+        "dockercd/paired-deployment"
+      ],
+      "test_invariants": [
+        "The valid stopped snapshot has exactly one record for each required operation/result/revision tuple and is accepted.",
+        "A duplicate matching required record causes verifier failure rather than counting as sufficient evidence.",
+        "The verifier remains immutable: no WAL or SHM sidecar appears and the database digest remains unchanged.",
+        "The architecture artifact reports only source-grounded implemented flows and marks the recovery verifier as offline rather than a runtime node."
+      ]
+    },
+    "review_repair": {
+      "status": "repaired",
+      "reason": "An independent reviewer identified two architecture-accuracy issues (in-container TLS implication and an overstated private-network claim), then one evidence-bounded Bodhi inventory issue. The report now marks external TLS as unverified, the network as dedicated but non-internal, and usage/cost evidence as bounded and unknown where not durably recorded.",
+      "evidence_refs": ["independent_review_p2_documentation_repaired", "independent_rereview_clear"]
+    },
+    "outcome": {
+      "status": "accepted",
+      "reason": "The exact-cardinality verifier change, its regression tests, the corrected source-grounded architecture report, and bounded Bodhi inventory have passed recorded validation and independent re-review. This acceptance remains advisory and does not authorize commit, deployment, or recovery-drill execution.",
+      "evidence_refs": ["full_go_validation_passed", "independent_rereview_clear", "bodhi_validator_startup_resume"]
+    }
+  },
+  "implementation": {
+    "status": "complete_reviewed",
+    "summary": "The verifier now requires SQL cardinality exactly equal to one for each required manual/rollback recovery tuple. Focused fixtures cover valid evidence, every duplicate tuple, immutable snapshot behavior, and redacted JSON output. The architecture report and Mermaid source describe the control/Web boundary and show the verifier outside runtime paths."
+  },
+  "validation": [
+    {
+      "command": "cd src && go test ./... && go vet ./... && go test -race ./...",
+      "evidence_ref": "passed after the final verifier test change; all controller-module packages passed test and race checks, with vet silent-success",
+      "status": "passed",
+      "candidate_revision": "content-set-sha256:2fad5ec4540ad7774be08111417a5205dede1959939390ad14be1db7949a84f7"
+    },
+    {
+      "command": "cd web && go test ./... && go vet ./... && go test -race ./...",
+      "evidence_ref": "passed; all Web-module packages passed test and race checks, with vet silent-success",
+      "status": "passed",
+      "candidate_revision": "content-set-sha256:2fad5ec4540ad7774be08111417a5205dede1959939390ad14be1db7949a84f7"
+    },
+    {
+      "command": "cd src && go test -run 'TestVerifyAcceptsRequiredRecoveryEvidence|TestVerifyRejectsDuplicatedRequiredHistory|TestVerificationReportDoesNotExposeRecoveryState' -v ./cmd/recovery-drill-verify",
+      "evidence_ref": "passed: valid fixture accepted; each duplicate manual/rollback tuple rejected; report contained no SHA, manifest, diff, or error text",
+      "status": "passed",
+      "candidate_revision": "content-set-sha256:2fad5ec4540ad7774be08111417a5205dede1959939390ad14be1db7949a84f7"
+    },
+    {
+      "command": "git diff --check && jq empty docs/tranche-packets/recovery-verifier-exact-history-v0.1.json",
+      "evidence_ref": "passed: no diff whitespace errors and packet JSON parsed",
+      "status": "passed",
+      "candidate_revision": "content-set-sha256:2fad5ec4540ad7774be08111417a5205dede1959939390ad14be1db7949a84f7"
+    },
+    {
+      "command": "node /Users/kolb/Documents/github-ai.nosync/bodhi-ai/scripts/development-practice.mjs --repo-root $PWD --packet docs/tranche-packets/recovery-verifier-exact-history-v0.1.json --stage startup; node /Users/kolb/Documents/github-ai.nosync/bodhi-ai/scripts/development-practice.mjs --repo-root $PWD --packet docs/tranche-packets/recovery-verifier-exact-history-v0.1.json --stage resume",
+      "evidence_ref": "both advisory stages declared the packet complete for evidence review with five source hashes current; Bodhi was used only as a read-only local validator",
+      "status": "passed",
+      "candidate_revision": "content-set-sha256:2fad5ec4540ad7774be08111417a5205dede1959939390ad14be1db7949a84f7"
+    }
+  ],
+  "documentation": {
+    "architecture": {
+      "status": "updated",
+      "reason": "Adds a source-grounded control-node/Web-node report and editable Mermaid data-flow diagram, including verifier placement.",
+      "references": ["docs/architecture/dockercd-control-web-architecture.md", "docs/architecture/dockercd-control-web-architecture.mmd"]
+    },
+    "decisions": {
+      "status": "updated",
+      "reason": "Makes exact recovery-event cardinality an explicit release-evidence decision rather than accepting duplicate evidence.",
+      "references": ["docs/recovery-drill-design.md"]
+    },
+    "risks": {
+      "status": "updated",
+      "reason": "Records that duplicate history can mask a repeated recovery action; no Docker authority or runtime endpoint was broadened.",
+      "references": ["docs/recovery-drill-design.md", "src/cmd/recovery-drill-verify/main.go"]
+    },
+    "evaluation": {
+      "status": "updated",
+      "reason": "Adds focused duplicate and redaction fixtures alongside full module validation.",
+      "references": ["src/cmd/recovery-drill-verify/main_test.go"]
+    },
+    "cost": {
+      "status": "not_applicable",
+      "reason": "No model, network, deployment, or recurring operating cost was added."
+    },
+    "operations": {
+      "status": "updated",
+      "reason": "The recovery design now states the exact stopped-snapshot history cardinality required for drill evidence.",
+      "references": ["docs/recovery-drill-design.md"]
+    }
+  },
+  "review": {
+    "reviewer": "independent_review",
+    "status": "reviewed",
+    "candidate_revision": "content-set-sha256:2fad5ec4540ad7774be08111417a5205dede1959939390ad14be1db7949a84f7",
+    "evidence_refs": ["independent_review_initial_p2_documentation_findings", "independent_rereview_clear_after_repairs"],
+    "blocking_findings": 0
+  },
+  "recommendations": {
+    "status": "captured",
+    "reason": "After independent review, rerun the acceptance validation against the exact reviewed candidate. Keep the live disposable recovery drill blocked until its dedicated daemon and guard/protected contexts exist.",
+    "references": ["docs/recovery-drill-design.md", "docs/tranche-packets/recovery-verifier-exact-history-v0.1.json"]
+  },
+  "learning": {
+    "status": "captured",
+    "reason": "Read-only recovery evidence needs both content integrity and event cardinality: a matching record alone cannot prove a supposedly one-time operation happened once.",
+    "references": ["src/cmd/recovery-drill-verify/main.go", "src/cmd/recovery-drill-verify/main_test.go"]
+  }
+}
