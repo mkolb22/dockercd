@@ -1,0 +1,27 @@
+flowchart LR
+  operator[Operator browser]
+  git[Allowed Git remote]
+  docker[One Docker daemon]
+  compose[Compose workloads]
+  snapshot[Stopped recovery snapshot]
+
+  subgraph paired[Implemented paired Compose deployment]
+    web[dockercd-web\nGo server-rendered UI\nread-only filesystem; no Docker socket]
+    control[dockercd control node\nGo daemon: API, reconciler, health/event workers]
+    state[(SQLite state + Git cache\ncontroller volume)]
+  end
+
+  operator -->|loopback HTTP in checked-in Compose;\nHTTPS needs external reverse proxy| web
+  web -->|GET /api/v1/presentation/*\nscoped bearer stays server-side| control
+  control -->|SQLite WAL| state
+  control -->|allowlisted Git sync| git
+  control -->|inspect/events; docker compose deploy| docker
+  docker --> compose
+  snapshot -.->|offline immutable SQLite read;\nno Docker or Web connection| verifier[recovery-drill-verify\nexact recovery-event cardinality]
+
+  classDef privileged fill:#ffe6e6,stroke:#b42318,color:#3b0a06;
+  classDef unprivileged fill:#e6f4ff,stroke:#175cd3,color:#062a5e;
+  classDef evidence fill:#f4f3ff,stroke:#6941c6,color:#2d1b69;
+  class control,state privileged;
+  class web unprivileged;
+  class verifier,snapshot evidence;

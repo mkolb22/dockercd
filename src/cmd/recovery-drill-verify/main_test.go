@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -40,6 +41,23 @@ func TestVerifyAcceptsRequiredRecoveryEvidence(t *testing.T) {
 	}
 }
 
+func TestVerificationReportDoesNotExposeRecoveryState(t *testing.T) {
+	_, e := validSnapshot(t)
+	report, err := verify(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{shaA, shaB, unknownSHA, "manifest", "diff", "error"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("verification report exposed %q: %s", forbidden, encoded)
+		}
+	}
+}
+
 func TestVerifyRejectsMissingHistory(t *testing.T) {
 	dir := t.TempDir()
 	s, err := store.New(dir, slog.Default())
@@ -65,6 +83,41 @@ func TestVerifyRejectsMissingHistory(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("verify succeeded without required history")
+	}
+}
+
+func TestVerifyRejectsDuplicatedRequiredHistory(t *testing.T) {
+	for _, duplicate := range []struct {
+		name      string
+		operation string
+		result    string
+		sha       string
+	}{
+		{name: "manual A", operation: "manual", result: "success", sha: shaA},
+		{name: "manual B", operation: "manual", result: "success", sha: shaB},
+		{name: "rollback A", operation: "rollback", result: "success", sha: shaA},
+		{name: "failed unknown rollback", operation: "rollback", result: "failure", sha: unknownSHA},
+	} {
+		t.Run(duplicate.name, func(t *testing.T) {
+			databasePath, e := validSnapshot(t)
+			s, err := store.New(filepath.Dir(databasePath), slog.Default())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.RecordSync(context.Background(), &store.SyncRecord{
+				AppName: "drill", StartedAt: time.Now().UTC(), CommitSHA: duplicate.sha,
+				Operation: duplicate.operation, Result: duplicate.result,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			mustError(t, "required recovery history record is missing or duplicated", func() error {
+				_, err := verify(e)
+				return err
+			})
+		})
 	}
 }
 

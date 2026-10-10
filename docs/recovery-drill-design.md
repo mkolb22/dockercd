@@ -220,8 +220,9 @@ process may still write is not an acceptable backup.
    requires WAL/SHM companions, preserve and restore the complete verified
    set. Record the backup method and source/backup file digests, not contents.
 3. Run `PRAGMA integrity_check` on the snapshot. Require `ok`, expected schema
-   migration version, the application record, full A/B/rollback/failed-rollback
-   history counts, and last successful revision A. The runner uses
+   migration version, the application record, exactly one manual A, manual B,
+   successful rollback-A, and failed unknown-rollback history record, and last
+   successful revision A. The runner uses
    [`recovery-drill-verify`](../src/cmd/recovery-drill-verify), which opens
    only the stopped `dockercd.db` snapshot in immutable readonly mode. It
    rejects WAL/SHM sidecars, nonregular or oversized files, invalid or
