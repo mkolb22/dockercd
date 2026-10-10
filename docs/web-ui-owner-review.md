@@ -32,6 +32,9 @@ Open <http://127.0.0.1:8092/fleet>. Every page must retain the visible
 4. Review `/fleet?scenario=healthy`, `/fleet?scenario=stale`, and
    `/fleet?scenario=error`. The message must distinguish retained/stale data
    from a current controller response; it must not imply a deployment is safe.
+   The rail must name the active fixture scenario, and navigation, drill-down,
+   explicit refresh, and fixture-only confirmation must retain that scenario.
+   A live scoped session must never show or retain a fixture scenario.
 5. Open **Activity**. Confirm it frames future live data as a bounded recent
    window and does not imply a complete audit history.
 

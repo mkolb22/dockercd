@@ -12,7 +12,7 @@
   <a class="skip-link" href="#content">Skip to content</a>
   <div class="app-shell">
     <aside class="rail" aria-label="Primary navigation">
-      <a class="wordmark" href="/fleet" aria-label="dockercd Fleet">
+      <a class="wordmark" href="{{fixturePath "/fleet" .FixtureScenario}}" aria-label="dockercd Fleet">
         <span class="wordmark-mark" aria-hidden="true">d</span><span>dockercd</span>
       </a>
       <div class="rail-controller">
@@ -29,7 +29,7 @@
       </nav>
       <div class="rail-footer">
         {{if .View.Fixture}}
-        <span class="fixture-tag">Fixture mode</span>
+        <span class="fixture-tag">Fixture mode · {{.FixtureScenarioLabel}}</span>
         <p>No controller data<br>or credentials in use.</p>
         {{else}}
         <span class="fixture-tag">Scoped session</span>
@@ -99,11 +99,11 @@
 
 {{define "application-tabs"}}
 <nav class="subnav" aria-label="Application sections">
-  <a href="/applications/{{.Application.Name}}" class="{{if eq .Section "application-overview"}}is-current{{end}}"{{if eq .Section "application-overview"}} aria-current="page"{{end}}>Overview</a>
+  <a href="{{fixturePath (printf "/applications/%s" .Application.Name) .FixtureScenario}}" class="{{if eq .Section "application-overview"}}is-current{{end}}"{{if eq .Section "application-overview"}} aria-current="page"{{end}}>Overview</a>
   {{if .View.Fixture}}
-  <a href="/applications/{{.Application.Name}}/deploy" class="{{if eq .Section "application-deploy"}}is-current{{end}}"{{if eq .Section "application-deploy"}} aria-current="page"{{end}}>Deploy</a>
-  <a href="/applications/{{.Application.Name}}/timeline" class="{{if eq .Section "application-timeline"}}is-current{{end}}"{{if eq .Section "application-timeline"}} aria-current="page"{{end}}>Timeline</a>
-  <a href="/applications/{{.Application.Name}}/inspect" class="{{if eq .Section "application-inspect"}}is-current{{end}}"{{if eq .Section "application-inspect"}} aria-current="page"{{end}}>Inspect</a>
+  <a href="{{fixturePath (printf "/applications/%s/deploy" .Application.Name) .FixtureScenario}}" class="{{if eq .Section "application-deploy"}}is-current{{end}}"{{if eq .Section "application-deploy"}} aria-current="page"{{end}}>Deploy</a>
+  <a href="{{fixturePath (printf "/applications/%s/timeline" .Application.Name) .FixtureScenario}}" class="{{if eq .Section "application-timeline"}}is-current{{end}}"{{if eq .Section "application-timeline"}} aria-current="page"{{end}}>Timeline</a>
+  <a href="{{fixturePath (printf "/applications/%s/inspect" .Application.Name) .FixtureScenario}}" class="{{if eq .Section "application-inspect"}}is-current{{end}}"{{if eq .Section "application-inspect"}} aria-current="page"{{end}}>Inspect</a>
   {{end}}
 </nav>
 {{end}}

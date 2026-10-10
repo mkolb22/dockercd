@@ -50,26 +50,28 @@ type navigationItem struct {
 }
 
 type pageData struct {
-	Title             string
-	Page              string
-	Section           string
-	Navigation        []navigationItem
-	View              presentation.ViewContext
-	Fleet             presentation.Fleet
-	Applications      []presentation.Application
-	Application       *presentation.Application
-	Activity          []presentation.Event
-	RecentActivity    []presentation.Event
-	ActivityAvailable bool
-	ActivityState     presentation.State
-	Query             string
-	StateFilter       string
-	Notice            string
-	Action            string
-	RefreshPath       string
-	Subject           string
-	CSRF              string
-	LoginError        string
+	Title                string
+	Page                 string
+	Section              string
+	Navigation           []navigationItem
+	View                 presentation.ViewContext
+	Fleet                presentation.Fleet
+	Applications         []presentation.Application
+	Application          *presentation.Application
+	Activity             []presentation.Event
+	RecentActivity       []presentation.Event
+	ActivityAvailable    bool
+	ActivityState        presentation.State
+	Query                string
+	StateFilter          string
+	Notice               string
+	Action               string
+	RefreshPath          string
+	Subject              string
+	CSRF                 string
+	LoginError           string
+	FixtureScenario      string
+	FixtureScenarioLabel string
 }
 
 func New(source presentation.Source) *Server {
@@ -99,7 +101,9 @@ func newServer(provider SourceProvider, auth LoginAuthenticator) *Server {
 	if provider == nil {
 		panic("presentation source provider is required")
 	}
-	parsed := template.Must(template.ParseFS(assets, "templates/*.html"))
+	parsed := template.Must(template.New("httpui").Funcs(template.FuncMap{
+		"fixturePath": fixturePath,
+	}).ParseFS(assets, "templates/*.html"))
 	staticFS, err := fs.Sub(assets, "static")
 	if err != nil {
 		panic(fmt.Sprintf("static assets: %v", err))
@@ -117,7 +121,7 @@ type staticSourceProvider struct{ source presentation.Source }
 
 func (p staticSourceProvider) SourceForRequest(_ context.Context, request *http.Request) (presentation.Source, error) {
 	if source, ok := p.source.(fixtureScenarioSource); ok {
-		return source.Scenario(request.URL.Query().Get("scenario")), nil
+		return source.Scenario(fixtureScenario(request, true)), nil
 	}
 	return p.source, nil
 }
@@ -335,7 +339,8 @@ func (s *Server) confirmation(w http.ResponseWriter, r *http.Request, applicatio
 	if confirmed {
 		// Fixture behavior only: no controller call or state mutation occurs.
 		notice := url.QueryEscape(fmt.Sprintf("Fixture confirmation recorded for %s. No controller operation was sent.", action))
-		http.Redirect(w, r, "/applications/"+url.PathEscape(application.Name)+"/timeline?notice="+notice, http.StatusSeeOther)
+		target := "/applications/" + url.PathEscape(application.Name) + "/timeline?notice=" + notice
+		http.Redirect(w, r, fixturePath(target, fixtureScenario(r, view.Fixture)), http.StatusSeeOther)
 		return
 	}
 	s.render(w, r, "confirmation", pageData{
@@ -436,7 +441,10 @@ func singleFormValue(form url.Values, name string) (string, bool) {
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, data pageData) {
-	data.Navigation = navigation(data.Page, data.View.Fixture)
+	data.FixtureScenario = fixtureScenario(r, data.View.Fixture)
+	data.FixtureScenarioLabel = fixtureScenarioLabel(data.FixtureScenario, data.View.Fixture)
+	data.RefreshPath = refreshPathForView(r, data.View.Fixture)
+	data.Navigation = navigation(data.Page, data.FixtureScenario)
 	s.addSessionContext(r, &data)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	setSecurityHeaders(w)
@@ -451,8 +459,11 @@ func (s *Server) notFound(w http.ResponseWriter, r *http.Request) {
 		s.sourceError(w, r, err)
 		return
 	}
-	data := pageData{Title: "Not found · dockercd", View: source.ViewContext(), RefreshPath: "/fleet"}
-	data.Navigation = navigation(data.Page, data.View.Fixture)
+	data := pageData{Title: "Not found · dockercd", View: source.ViewContext()}
+	data.FixtureScenario = fixtureScenario(r, data.View.Fixture)
+	data.FixtureScenarioLabel = fixtureScenarioLabel(data.FixtureScenario, data.View.Fixture)
+	data.RefreshPath = fixturePath("/fleet", data.FixtureScenario)
+	data.Navigation = navigation(data.Page, data.FixtureScenario)
 	s.addSessionContext(r, &data)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	setSecurityHeaders(w)
@@ -520,11 +531,23 @@ func refreshPath(r *http.Request) string {
 	return path
 }
 
+func refreshPathForView(r *http.Request, fixture bool) string {
+	target := refreshPath(r)
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return "/fleet"
+	}
+	query := parsed.Query()
+	query.Del("scenario")
+	parsed.RawQuery = query.Encode()
+	return fixturePath(parsed.String(), fixtureScenario(r, fixture))
+}
+
 func isFixtureAction(section string) bool {
 	return section == "sync" || section == "rollback" || section == "edit" || section == "delete"
 }
 
-func navigation(active string, _ bool) []navigationItem {
+func navigation(active, scenario string) []navigationItem {
 	items := []navigationItem{
 		{Label: "Fleet", Path: "/fleet"},
 		{Label: "Applications", Path: "/applications"},
@@ -533,6 +556,51 @@ func navigation(active string, _ bool) []navigationItem {
 	}
 	for index := range items {
 		items[index].Active = strings.EqualFold(items[index].Label, active)
+		items[index].Path = fixturePath(items[index].Path, scenario)
 	}
 	return items
+}
+
+func fixtureScenario(r *http.Request, fixture bool) string {
+	if !fixture || r == nil {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("scenario"))) {
+	case "healthy", "stale", "error":
+		return strings.ToLower(strings.TrimSpace(r.URL.Query().Get("scenario")))
+	default:
+		return ""
+	}
+}
+
+func fixtureScenarioLabel(scenario string, fixture bool) string {
+	if !fixture {
+		return ""
+	}
+	switch scenario {
+	case "healthy":
+		return "Healthy fleet"
+	case "stale":
+		return "Retained stale data"
+	case "error":
+		return "Controller unavailable"
+	default:
+		return "Attention queue"
+	}
+}
+
+func fixturePath(target, scenario string) string {
+	if scenario == "" {
+		return target
+	}
+	path, fragment, hasFragment := strings.Cut(target, "#")
+	separator := "?"
+	if strings.Contains(path, "?") {
+		separator = "&"
+	}
+	path += separator + "scenario=" + url.QueryEscape(scenario)
+	if hasFragment {
+		return path + "#" + fragment
+	}
+	return path
 }

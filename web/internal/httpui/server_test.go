@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -289,6 +290,94 @@ func TestFixtureScenariosAndRefreshPreserveEvidenceContext(t *testing.T) {
 		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), assertion.contains) {
 			t.Fatalf("GET %s did not preserve fixture context: status=%d body=%s", assertion.path, recorder.Code, recorder.Body.String())
 		}
+	}
+}
+
+func TestFixtureScenarioPersistsAcrossReviewNavigation(t *testing.T) {
+	server := New(presentation.NewFixtureSource())
+
+	fleet := httptest.NewRecorder()
+	server.ServeHTTP(fleet, httptest.NewRequest(http.MethodGet, "/fleet?scenario=error", nil))
+	if fleet.Code != http.StatusOK {
+		t.Fatalf("fixture error fleet returned %d", fleet.Code)
+	}
+	fleetBody := fleet.Body.String()
+	for _, expected := range []string{
+		"Fixture mode · Controller unavailable",
+		`href="/controller?scenario=error"`,
+		`href="/applications/edge-api?scenario=error"`,
+		`href="/applications?state=attention&amp;scenario=error"`,
+		`href="/activity?scenario=error"`,
+	} {
+		if !strings.Contains(fleetBody, expected) {
+			t.Fatalf("fixture error fleet omitted scenario-preserving link %q: %s", expected, fleetBody)
+		}
+	}
+
+	detail := httptest.NewRecorder()
+	server.ServeHTTP(detail, httptest.NewRequest(http.MethodGet, "/applications/edge-api?scenario=stale", nil))
+	if detail.Code != http.StatusOK {
+		t.Fatalf("fixture stale detail returned %d", detail.Code)
+	}
+	detailBody := detail.Body.String()
+	for _, expected := range []string{
+		"Fixture mode · Retained stale data",
+		`href="/applications/edge-api/deploy?scenario=stale"`,
+		`action="/applications/edge-api/sync?scenario=stale"`,
+		`href="/fleet?scenario=stale"`,
+	} {
+		if !strings.Contains(detailBody, expected) {
+			t.Fatalf("fixture stale detail omitted scenario-preserving link %q: %s", expected, detailBody)
+		}
+	}
+
+	confirmation := httptest.NewRecorder()
+	server.ServeHTTP(confirmation, httptest.NewRequest(http.MethodPost, "/applications/edge-api/sync/confirm?scenario=error", nil))
+	if confirmation.Code != http.StatusSeeOther {
+		t.Fatalf("fixture confirmation returned %d", confirmation.Code)
+	}
+	location, err := url.Parse(confirmation.Header().Get("Location"))
+	if err != nil || location.Query().Get("scenario") != "error" || location.Query().Get("notice") == "" {
+		t.Fatalf("fixture confirmation dropped scenario or notice: location=%q err=%v", confirmation.Header().Get("Location"), err)
+	}
+
+	controller := httptest.NewRecorder()
+	server.ServeHTTP(controller, httptest.NewRequest(http.MethodGet, "/controller?scenario=error", nil))
+	if controller.Code != http.StatusOK || !strings.Contains(controller.Body.String(), `href="/fleet?scenario=error#capacity-evidence"`) {
+		t.Fatalf("fixture controller route did not preserve scenario before fragment: %d %s", controller.Code, controller.Body.String())
+	}
+
+	normalized := httptest.NewRecorder()
+	server.ServeHTTP(normalized, httptest.NewRequest(http.MethodGet, "/fleet?scenario=%20STALE%20", nil))
+	if normalized.Code != http.StatusOK || !strings.Contains(normalized.Body.String(), "Fixture mode · Retained stale data") || !strings.Contains(normalized.Body.String(), "Displayed data may be stale.") || !strings.Contains(normalized.Body.String(), `href="/controller?scenario=stale"`) {
+		t.Fatalf("fixture scenario was not normalized consistently: %d %s", normalized.Code, normalized.Body.String())
+	}
+}
+
+func TestFixtureScenarioNeverLeaksIntoScopedLiveNavigation(t *testing.T) {
+	view := presentation.ViewContext{Controller: "Personal", Environment: "Personal", Freshness: "Controller response", Connection: presentation.State{Label: "Scoped session", Tone: "mint", Glyph: "✓"}}
+	source := &scopedTestSource{view: view, activity: []presentation.Event{}}
+	server := NewWithSourceProvider(sourceProviderFunc(func(context.Context, *http.Request) (presentation.Source, error) {
+		return source, nil
+	}))
+
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/activity?scenario=error", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("scoped activity returned %d", recorder.Code)
+	}
+	body := recorder.Body.String()
+	if strings.Contains(body, "Fixture mode") || strings.Contains(body, "scenario=error") {
+		t.Fatalf("scoped live page rendered fixture scenario context: %s", body)
+	}
+}
+
+func TestFixturePathKeepsQueryAndFragmentOrder(t *testing.T) {
+	if got, want := fixturePath("/fleet#capacity-evidence", "error"), "/fleet?scenario=error#capacity-evidence"; got != want {
+		t.Fatalf("fixture path = %q, want %q", got, want)
+	}
+	if got, want := fixturePath("/applications?state=attention", "stale"), "/applications?state=attention&scenario=stale"; got != want {
+		t.Fatalf("fixture path = %q, want %q", got, want)
 	}
 }
 

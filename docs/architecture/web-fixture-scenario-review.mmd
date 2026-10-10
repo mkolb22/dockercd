@@ -1,0 +1,7 @@
+flowchart LR
+    B[Local browser\nfixture URL] --> H[Web HTTP renderer]
+    H -->|supported scenario only| F[FixtureSource scenario]
+    F --> T[Server-rendered templates]
+    T -->|same fixture query| B
+    H -. no fixture query in scoped mode .-> L[Scoped live source]
+    L --> P[Controller presentation API]
